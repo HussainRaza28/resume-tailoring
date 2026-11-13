@@ -76,6 +76,21 @@ def test_app_info_and_base_resume(h):
     assert copied.read_bytes() == SAMPLE.read_bytes(), "the base resume is copied byte for byte"
 
 
+def test_windows_line_endings_are_kept(h, tmp_path):
+    crlf = tmp_path / "windows.tex"
+    crlf.write_bytes(SAMPLE.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+    h.ok("import_base_resume", path=str(crlf))
+    copied = Path(h.ok("app_info")["data_dir"]) / "base_resume.tex"
+    assert copied.read_bytes() == crlf.read_bytes()
+    h.ok("set_setting", key="provider", value="demo")
+    run = h.ok("start_run", posting=POSTING)
+    run = h.ok("run_step", runId=run["id"], step="rewrite")
+    run = h.ok("decide", runId=run["id"], bulletId="b5", action="accept")
+    source = h.ok("tailored_source", runId=run["id"])
+    assert "\r\n" in source and "\n" not in source.replace("\r\n", ""), "every line still ends in CRLF"
+    assert "Worked alongside the team" in source
+
+
 def test_import_refuses_non_latex(h, tmp_path):
     other = tmp_path / "notes.txt"
     other.write_text("just text")

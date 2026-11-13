@@ -21,6 +21,7 @@ Positions are Python string indexes (characters), not bytes.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, Field
@@ -97,6 +98,16 @@ class ReorderSkills(BaseModel):
 
 
 Edit = Annotated[Union[SetText, SetRaw, Remove, ReorderSkills], Field(discriminator="op")]
+
+
+def read_tex(path: Path | str) -> str:
+    """Read a .tex file exactly as it is.
+
+    ``newline=""`` keeps Windows line endings (CRLF) instead of turning them
+    into ``\n``, so a file that goes in unchanged comes out byte for byte.
+    """
+    with open(path, encoding="utf-8", newline="") as f:
+        return f.read()
 
 
 # ---------------------------------------------------------------------------

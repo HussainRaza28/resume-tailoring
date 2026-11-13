@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -58,7 +59,7 @@ from app.core.pipeline import (
 from app.core.schemas import Proposal, RedFlagsReply
 from app.core.secrets import KEY_NAMES, SecretError, SecretStore, mask
 from app.core.skills import Coverage, PostingSkills
-from app.core.tex import TexDoc, TexError
+from app.core.tex import TexDoc, TexError, read_tex
 from app.providers import claude_code
 from app.providers.base import Provider, ProviderError, Usage
 from app.providers.claude_api import ClaudeApiProvider
@@ -90,7 +91,6 @@ SETTING_KEYS = (
     "model.demo",
     "effort",
     "theme",
-    "reduce_motion",
     "export_dir",
     "ollama_host",
 )
@@ -202,18 +202,39 @@ def guess_company(posting: str) -> str:
     return ""
 
 
-def default_data_dir() -> Path:
-    """Where private data lives: ``TAILOR_DATA_DIR`` if set, otherwise the OS app-data folder."""
-    override = os.environ.get("TAILOR_DATA_DIR")
-    if override:
-        return Path(override)
+def app_support_dir() -> Path:
+    """The OS's folder for app data: Application Support on a Mac, AppData on Windows."""
     if sys.platform == "darwin":
         base = Path.home() / "Library" / "Application Support"
     elif sys.platform == "win32":
         base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
     else:
         base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-    return base / APP_NAME / "private"
+    return base / APP_NAME
+
+
+def location_file() -> Path:
+    """Records a data folder the user chose. It sits outside the data folder, so it can be found first."""
+    return app_support_dir() / "location.json"
+
+
+def default_data_dir(location: Path | None = None) -> Path:
+    """Where private data lives.
+
+    In order: ``TAILOR_DATA_DIR`` if set (for development), the folder chosen in
+    Settings, then ``private`` in the OS app-data folder.
+    """
+    override = os.environ.get("TAILOR_DATA_DIR")
+    if override:
+        return Path(override)
+    location = location or location_file()
+    try:
+        chosen = json.loads(location.read_text(encoding="utf-8")).get("data_dir")
+        if chosen:
+            return Path(chosen)
+    except (OSError, ValueError):
+        pass
+    return app_support_dir() / "private"
 
 
 # ---------------------------------------------------------------------------
@@ -232,8 +253,11 @@ class Backend:
         secrets: SecretStore,
         emit: Emit = lambda _channel, _event: None,
         window: Any = None,
+        location: Path | None = None,
     ) -> None:
         self.data_dir = Path(data_dir)
+        # Where a data folder chosen in Settings is recorded; None turns that off (tests).
+        self.location = location
         self.db = db
         self.secrets = secrets
         self.emit = emit
@@ -256,12 +280,16 @@ class Backend:
 
     def _base_tex(self) -> str:
         try:
-            return self.base_resume_path.read_text(encoding="utf-8")
+            return read_tex(self.base_resume_path)
         except FileNotFoundError as e:
             raise AppError("no_base_resume", NO_BASE_RESUME) from e
 
-    def _context(self) -> Context:
-        return Context(self._base_tex())
+    def _run_tex(self, run_id: str) -> str:
+        """The base resume a run started from (the current one for older runs)."""
+        return self.db.run_base_tex(run_id) or self._base_tex()
+
+    def _run_context(self, run_id: str) -> Context:
+        return Context(self._run_tex(run_id))
 
     def _facts(self) -> FactsBank:
         return FactsBank.load(self.facts_path)
@@ -319,7 +347,7 @@ class Backend:
     def _save_run(self, run: RunState, tailored_tex: str | None = None) -> RunState:
         """Keep the run in memory and save it: the full state, plus the summary columns."""
         try:
-            run.export_name = export_file_name(person_name(self._base_tex()), run.company)
+            run.export_name = export_file_name(person_name(self._run_tex(run.id)), run.company)
         except AppError:
             run.export_name = export_file_name("", run.company)
         self.runs[run.id] = run.model_copy(deep=True)
@@ -399,7 +427,7 @@ class Backend:
         return lambda text: self.emit(channel, {"type": "delta", "step": step, "text": text})
 
     def _tailored_tex(self, run: RunState) -> str:
-        doc = TexDoc.parse(self._base_tex())
+        doc = TexDoc.parse(self._run_tex(run.id))
         return doc.apply(export_edits(doc, run.accepted(), run.removed, run.posting_skills))
 
     # -- app, keys and base resume -------------------------------------------
@@ -433,10 +461,48 @@ class Backend:
     def delete_key(self, provider: str) -> None:
         self.secrets.delete(self._key_name(provider))
 
+    def change_data_dir(self, path: str) -> dict:
+        """Move private data to another folder and use it from now on.
+
+        A folder that already holds Tailor data is used as it is. Otherwise the
+        current data is copied there; the old copy is left alone, so nothing is
+        lost if the move goes wrong.
+        """
+        if os.environ.get("TAILOR_DATA_DIR"):
+            raise AppError("invalid", "The data folder is set by TAILOR_DATA_DIR, so it can't be changed here.")
+        if self.location is None:
+            raise AppError("invalid", "The data folder can't be changed in this mode.")
+        target = Path(path)
+        if not target.is_dir():
+            raise AppError("invalid", "Choose an existing folder.")
+        if (target / "tailor.db").exists() or target.resolve() == self.data_dir.resolve():
+            new_dir = target
+        else:
+            # Copy into an empty folder as it is, or into a "Tailor" folder inside a busy one.
+            new_dir = target if not any(target.iterdir()) else target / APP_NAME
+            with self.db.lock:
+                self.db.close()
+                try:
+                    shutil.copytree(self.data_dir, new_dir, dirs_exist_ok=True)
+                except OSError as e:
+                    self.db = type(self.db)(self.data_dir / "tailor.db")  # keep using the old folder
+                    raise AppError("io", f"Could not copy your data there: {e}") from e
+        if new_dir.resolve() != self.data_dir.resolve():
+            self.db = type(self.db)(new_dir / "tailor.db")
+            self.data_dir = new_dir
+            self.runs.clear()
+        self.location.parent.mkdir(parents=True, exist_ok=True)
+        self.location.write_text(json.dumps({"data_dir": str(self.data_dir)}), encoding="utf-8")
+        return self.app_info()
+
+    def show_data_dir(self) -> None:
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.reveal(str(self.data_dir))
+
     def import_base_resume(self, path: str) -> None:
         """Copy a chosen .tex file into the private data folder as the base resume."""
         try:
-            tex = Path(path).read_text(encoding="utf-8")
+            tex = read_tex(path)
         except OSError as e:
             raise AppError("io", f"Could not read that file: {e}") from e
         if "\\begin{document}" not in tex:
@@ -475,7 +541,8 @@ class Backend:
     ) -> RunState:
         if len(posting.strip()) < 40:
             raise AppError("invalid", "Paste the full job posting first.")
-        ctx = self._context()
+        base_tex = self._base_tex()
+        ctx = Context(base_tex)
         facts = self._facts()
         provider, model = self._resolve_provider(provider, model)
         run = RunState(
@@ -501,6 +568,7 @@ class Backend:
             ),
             run.posting,
             posting_hash,
+            base_tex,
         )
         with self.run_lock:
             return self._save_run(run)
@@ -518,7 +586,7 @@ class Backend:
     def run_step(self, run_id: str, step: str, on_event: str | None = None) -> RunState:
         """Run one model step: "red_flags", "rewrite" or "review"."""
         run = self._get_run(run_id)
-        ctx = self._context()
+        ctx = self._run_context(run_id)
         facts = self._facts()
         provider = self._provider(run.provider, run.model)
         if on_event:
@@ -583,7 +651,7 @@ class Backend:
         Edited text is checked again. A blocked edit is kept with its reasons
         and stays pending.
         """
-        ctx = self._context()
+        ctx = self._run_context(run_id)
         facts = self._facts()
 
         def change(run: RunState) -> None:
@@ -625,7 +693,7 @@ class Backend:
 
     def toggle_remove(self, run_id: str, bullet_id: str) -> RunState:
         """Remove a bullet that isn't in the rewrite list, or bring it back (for one-page trimming)."""
-        ctx = self._context()
+        ctx = self._run_context(run_id)
         facts = self._facts()
 
         def change(run: RunState) -> None:
@@ -639,7 +707,7 @@ class Backend:
 
     def accept_suggestion(self, run_id: str, section: int, bullet_id: str) -> RunState:
         """Accept a rewrite the review suggested. It replaces the bullet's current proposal."""
-        ctx = self._context()
+        ctx = self._run_context(run_id)
         facts = self._facts()
 
         def change(run: RunState) -> None:
@@ -687,7 +755,7 @@ class Backend:
         bank.add(f"{question.strip()} {answer.strip()}", question, current.old_text)
         bank.save(self.facts_path)
 
-        ctx = self._context()
+        ctx = self._run_context(run_id)
         provider = self._provider(run.provider, run.model)
         flag_list = run.red_flags.red_flags if run.red_flags else []
         step = "rewrite_one"
@@ -722,7 +790,7 @@ class Backend:
         run = self._get_run(run_id)
         tex = self._tailored_tex(run)
         out = compiler.compile_tex(tex, self._tectonic())
-        doc = TexDoc.parse(self._base_tex())
+        doc = TexDoc.parse(self._run_tex(run_id))
 
         def change(r: RunState) -> None:
             r.pages = out.pages
@@ -736,7 +804,7 @@ class Backend:
         run = self._get_run(run_id)
         tex = self._tailored_tex(run)
         out = compiler.compile_tex(tex, self._tectonic())
-        doc = TexDoc.parse(self._base_tex())
+        doc = TexDoc.parse(self._run_tex(run_id))
         if out.pages != 1:
 
             def too_long(r: RunState) -> None:
@@ -746,7 +814,7 @@ class Backend:
             self._change_run(run_id, too_long, tailored_tex=tex)
             raise AppError("too_long", f"The PDF is {out.pages} pages. Trim a bullet to get back to one page.")
 
-        name = export_file_name(person_name(self._base_tex()), run.company)
+        name = export_file_name(person_name(self._run_tex(run_id)), run.company)
         path = Path(dir) / name
         try:
             path.write_bytes(out.pdf)
@@ -870,7 +938,7 @@ class Backend:
 
 # Every command the page may run. Anything else is refused.
 COMMANDS = (
-    "app_info", "key_status", "save_key", "delete_key", "import_base_resume", "base_resume_info",
+    "app_info", "change_data_dir", "show_data_dir", "key_status", "save_key", "delete_key", "import_base_resume", "base_resume_info",
     "compile_base", "ollama_models", "gemini_models", "claude_code_status",
     "start_run", "get_run_state", "update_run_meta", "run_step", "decide", "toggle_remove",
     "accept_suggestion", "answer_question", "compile_run", "export_run", "tailored_source",
