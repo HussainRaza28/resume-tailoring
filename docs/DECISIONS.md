@@ -65,6 +65,25 @@ Choices made while building Tailor, with the reason for each.
 - **Model text is tidied** before checking: a leading bullet mark, wrapping quotes and a final period are removed, because the template's bullets have none.
 - **Cost per run.** `pricing.py` has per-token prices for the Claude API models. Claude Code bills the user's plan, Gemini's free tier, Ollama and the Demo provider cost nothing, and an unknown model shows a dash rather than a guess. Cache writes cost 1.25 times the input price, and cache reads are priced per model.
 
+## Desktop window and bridge
+
+- **pywebview with one entry point.** The page reaches Python through a single method, `Bridge.call(command, args)`, which runs a command from the `COMMANDS` list and answers `{ok}` or `{error: {kind, message}}`. With one entry point, argument names, error handling and the allowed commands all live in one place, and no other method on the object can be reached from the page. A test checks that `call` is the only public attribute.
+- **No web server, no open port.** Vite builds the interface into one self-contained `index.html`, with scripts, styles, fonts and pdf.js inline (`vite-plugin-singlefile`). The window loads it from a `file://` URL, and pywebview's own HTTP server stays off. The webviews block module scripts fetched from `file://`, but scripts written inline in the page run fine.
+- **pdf.js on the main thread.** Loading pdf.js's worker module into the page lets it run without a separate worker file, which a single-file build can't ship. It only ever draws one page.
+- **Streaming through channels.** A streaming command gets a channel id from the page. Python sends each event with `window.run_js("window.__tailorEmit(id, event)")`. `run_js` doesn't wait for the page, so streaming never slows a step, and `json.dumps` escapes the text so a posting can't break out of the script.
+- **Calls run on their own threads.** pywebview runs each call on a new thread, so a long model step doesn't freeze the window. Changes to a run go through one lock and always apply to the latest saved state, so a decision made while a step runs isn't overwritten when the step finishes.
+- **The page waits for the bridge.** pywebview adds `window.pywebview.api` just after the page loads and then fires `pywebviewready`. The window URL carries `?desktop=1`, so the page waits for that event. Without the flag, in a plain browser, it uses an in-memory mock backend with the fake sample data, for screenshots and browser tests.
+- **The preview fits its box.** The PDF page is scaled by the smaller of the pane's width and height ratios (`fitScale`), so the whole page shows with no scrolling or panning, and a resize observer redraws it when the pane changes size. Fitting by width alone made a short, wide pane cut off the bottom of the page.
+- **The PDF is named after the person on the resume.** The name comes from the resume's `\Huge` header line, so nothing personal is built into the app: the sample exports as `Jordan_Sample_Resume_<Company>.pdf`.
+- **Two kinds of interface tests.** Playwright drives the page against the mock backend for the interactions. A second test opens the built `index.html` from `file://` against the real Python bridge (Demo provider and Tectonic) and runs the flow to an exported PDF, checking on the way that the preview fits the pane at three window shapes. A test-only HTTP front (`tests/bridge_server.py`) stands in for pywebview there. The app itself has no server.
+
+## Storage
+
+- **SQLite through `sqlite3`, with plain SQL.** Runs, applications, step logs, grounding blocks, the manual baseline and settings each have a table. A run's full state is stored as JSON next to the summary columns that the history list and the numbers need, so reopening a run restores it exactly. `PRAGMA user_version` records which migrations a file has had.
+- **One connection behind a lock.** Calls arrive on several threads. One connection opened with `check_same_thread=False`, and every statement run under a lock, is simpler than a connection per thread, and the app's writes are small.
+- **API keys in the system keychain** through `keyring`: the macOS Keychain and the Windows Credential Manager. The interface only gets a masked form, the first 6 and last 4 characters.
+- **The data folder** is the OS app-data folder (`~/Library/Application Support/Tailor/private` on a Mac, `%APPDATA%\Tailor\private` on Windows). `TAILOR_DATA_DIR` overrides it, for development against the gitignored `data/private/`.
+
 ## Compiling to PDF
 
 - **Tectonic 0.15.0, pinned.** It is the newest release with ready-made builds for Apple Silicon Macs, Windows and Linux. A pinned version means every build ships the same Tectonic, and the download script needs no GitHub API call to pick one.
