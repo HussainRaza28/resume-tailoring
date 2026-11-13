@@ -88,3 +88,25 @@ test("theme switch and reduced motion", async ({ page }) => {
   const dur = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--dur").trim());
   expect(["0ms", "0s"]).toContain(dur);
 });
+
+test("facts import suggests facts and saves only what is accepted", async ({ page }) => {
+  await page.goto("/?screen=facts&speed=10");
+  await page.locator('input[type="file"]').setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("TrailMap is used by 140 members.") });
+  await expect(page.getByRole("heading", { name: "Suggested from notes.txt" })).toBeVisible();
+
+  // A suggestion with a number the document lacks can't be accepted as is.
+  const blocked = page.locator(".suggestion", { hasText: "2,000 monthly users" });
+  await expect(blocked.getByText('Number "2,000" is not in the document.', { exact: false })).toBeVisible();
+  await expect(blocked.getByRole("button", { name: "Accept" })).toBeDisabled();
+  await blocked.getByRole("button", { name: "Reject" }).click();
+  await expect(blocked).toHaveCount(0);
+
+  const good = page.locator(".suggestion", { hasText: "140 members" });
+  await good.getByRole("button", { name: "Accept" }).click();
+  await expect(page.locator('input[aria-label^="Edit fact"][value="TrailMap is used by 140 members of the university hiking club"]')).toBeVisible();
+
+  // A page can lead on to its resume PDF.
+  await page.getByLabel("Page to read").fill("jordan.example");
+  await page.getByRole("button", { name: "Read page" }).click();
+  await expect(page.getByRole("button", { name: "Read Resume (PDF)" })).toBeVisible();
+});

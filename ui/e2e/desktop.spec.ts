@@ -72,3 +72,14 @@ test("the built page runs from file:// against the Python backend", async ({ pag
   await expect(page.getByText("PDF exported")).toBeVisible({ timeout: 90_000 });
   expect(errors).toEqual([]);
 });
+
+test("facts import reads a real file through the Python backend", async ({ page }) => {
+  await page.goto(page_url);
+  await page.getByRole("button", { name: /Facts bank/ }).first().click();
+  const notes = "TrailMap is used by 140 members of the university hiking club.\nBudget Bot reads CSV exports from 3 banks.";
+  await page.locator('input[type="file"]').setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from(notes) });
+  const row = page.locator(".suggestion", { hasText: "140 members" });
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  await row.getByRole("button", { name: "Accept" }).click();
+  await expect(page.getByLabel(/Edit fact f/).first()).toHaveValue(/140 members of the university hiking club/);
+});

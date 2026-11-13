@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useToast } from "../blocks/ToastStack";
+import FactImport from "../components/FactImport";
 import { IconPlus, IconTrash } from "../components/icons";
 import { type Fact, api } from "../lib/api";
 import { shortDate } from "../lib/format";
@@ -31,6 +32,7 @@ export default function FactsScreen() {
             <p className="sub">Things you know that your resume does not say yet. Rewrites may cite these, and nothing else.</p>
           </div>
         </div>
+        <FactImport onSaved={setFacts} />
         <form
           className="card row"
           onSubmit={(e) => {

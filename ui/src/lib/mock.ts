@@ -492,6 +492,19 @@ export async function installMock() {
         return null;
       case "base_resume_info":
         return { tex: "", bullets: 11, sections: ["Education", "Experience", "Projects", "Technical Skills"] };
+      case "suggest_facts_from_file":
+      case "suggest_facts_from_url":
+        await streamText(a.onEvent, "suggest_facts", "{}");
+        return {
+          source: cmd === "suggest_facts_from_url" ? "Jordan Sample" : String(a.name),
+          truncated: false,
+          suggestions: [
+            { text: "TrailMap is used by 140 members of the university hiking club", quote: "used by 140 members of the university hiking club", supported: true, reasons: [], duplicate: false },
+            { text: "Budget Bot parses CSV exports from 3 banks", quote: "CSV exports from 3 banks", supported: true, reasons: [], duplicate: false },
+            { text: "TrailMap has 2,000 monthly users", quote: "TrailMap", supported: false, reasons: ['Number "2,000" is not in the document.'], duplicate: false },
+          ],
+          pdf_links: cmd === "suggest_facts_from_url" ? [{ url: "https://jordan.example/resume.pdf", label: "Resume (PDF)" }] : [],
+        };
       case "change_data_dir":
         return { name: "Tailor", version: "0.1.0", data_dir: String(a.path), has_base_resume: db.hasBase, tectonic_path: "/Applications/Tailor.app/Contents/MacOS/tectonic" };
       case "show_data_dir":

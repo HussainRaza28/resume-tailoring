@@ -157,6 +157,23 @@ export interface Fact {
   created_at: string;
 }
 
+export interface Suggestion {
+  text: string;
+  quote: string;
+  /** Every number, name and skill in it is in the document. */
+  supported: boolean;
+  reasons: string[];
+  /** The facts bank already has it. */
+  duplicate: boolean;
+}
+
+export interface SuggestionResult {
+  source: string;
+  truncated: boolean;
+  suggestions: Suggestion[];
+  pdf_links: { url: string; label: string }[];
+}
+
 export interface BaselineEntry {
   id: number;
   started_at: string;
@@ -276,6 +293,10 @@ export const api = {
   listFacts: () => call<Fact[]>("list_facts"),
   saveFact: (id: string | null, text: string) => call<Fact[]>("save_fact", { id, text }),
   deleteFact: (id: string) => call<Fact[]>("delete_fact", { id }),
+  suggestFactsFromFile: (name: string, data: string, onEvent?: (e: StepEvent) => void) =>
+    streaming<SuggestionResult>("suggest_facts_from_file", { name, data }, onEvent),
+  suggestFactsFromUrl: (url: string, onEvent?: (e: StepEvent) => void) =>
+    streaming<SuggestionResult>("suggest_facts_from_url", { url }, onEvent),
 
   listBaseline: () => call<BaselineEntry[]>("list_baseline"),
   addBaseline: (durationMs: number, note: string) => call<BaselineEntry[]>("add_baseline", { durationMs, note }),
