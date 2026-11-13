@@ -1,22 +1,75 @@
 # Tailor
 
-A desktop app that tailors a LaTeX resume to a job posting. It flags problems, suggests rewrites that are checked against what the resume already says, scores the result, and exports a one-page PDF in the original template.
+A desktop app for Mac and Windows that tailors a LaTeX resume to a job posting. Paste a posting and Tailor finds the red flags a recruiter would spot, rewrites your bullets for the role, scores the result, and exports a one-page PDF in your own template.
 
-This is a work in progress. The full README, with install steps, comes with the first release.
+It doesn't invent anything. Every number, name and skill in a rewrite is checked in code against your resume and your facts bank, and a rewrite that adds something it can't back up is blocked, with the reason shown. Only the text of your bullets, headings and skills lines ever changes. Fonts, margins and sections stay exactly as you wrote them.
 
-## Installing from a build
+## Install
 
-CI builds an installer for Apple Silicon Macs (`.dmg`) and for Windows (`Tailor-Setup.exe`); download it from the run's artifacts.
+CI builds an installer for Apple Silicon Macs (`.dmg`) and one for Windows (`Tailor-Setup-<version>.exe`). Download them from the artifacts of a CI run on GitHub.
 
-On a Mac, open the `.dmg` and drag Tailor to Applications. The app is signed ad hoc, not with a paid developer certificate, so the first time, right-click it and choose Open. If macOS still says the app is damaged, clear the download flag and try again:
+**Mac.** Open the `.dmg` and drag Tailor to Applications. The app is signed ad hoc rather than with a paid Apple developer certificate, so macOS blocks the first open. Go to System Settings, then Privacy & Security, and choose Open Anyway next to Tailor. If macOS says instead that the app is damaged, remove the download flag and open it again:
 
 ```bash
 xattr -cr /Applications/Tailor.app
 ```
 
+**Windows.** Run the installer. It installs for your user account, so it doesn't need an administrator. Tailor uses the WebView2 runtime that comes with Windows 10 and 11.
+
+The first PDF you compile takes a little longer: the bundled TeX engine, Tectonic, downloads the LaTeX packages it needs once and keeps them.
+
+## First run
+
+1. **Choose your base resume.** Pick your `.tex` file when Tailor asks, or later in Settings. Tailor copies it into its private data folder and never edits the original. The template should follow Jake's Resume (`\resumeItem`, `\resumeSubheading`, `\resumeProjectHeading` and a Technical Skills section).
+2. **Pick a provider** in Settings, or from the menu at the top right.
+
+| Provider | What you need | Cost |
+| --- | --- | --- |
+| Claude Code (Pro plan) | Claude Code installed and signed in on this computer | Counts toward your Claude plan |
+| Claude API | An Anthropic API key | Per token; shown at the bottom of each run |
+| Gemini | A Gemini API key | Free tier |
+| Ollama | Ollama running with a model pulled | Free, and nothing leaves your computer |
+| Offline demo | Nothing | Free; placeholder output for trying the app |
+
+## API keys
+
+Add keys in Settings under API keys. They're stored in the macOS Keychain or the Windows Credential Manager, never in a file, and the app only ever shows the first and last few characters. You can get an Anthropic key from the Claude Console and a Gemini key from Google AI Studio.
+
+## The Claude Code provider
+
+"Claude Code (Pro plan)" runs each step through the `claude` command on your computer, so it uses your Claude subscription instead of API credits. To use it:
+
+1. Install Claude Code.
+2. Sign in once in a terminal:
+
+```bash
+claude auth login
+```
+
+3. In Tailor's Settings, choose Claude Code. Settings shows whether `claude` was found and whether it's signed in.
+
+Tailor removes `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` when it starts `claude`, so a key in your environment can't switch it to API billing. This provider is meant for personal use with your own subscription.
+
+## Using it
+
+1. **Paste a posting** and press Tailor (Cmd+Enter on a Mac, Ctrl+Enter on Windows). The company is filled in for you, and you can change it.
+2. **Red flags.** The top three reasons a hiring manager would pass, for this job.
+3. **Rewrite.** Each bullet shows the old and new text side by side, with changed words highlighted, and which bullet or fact it came from. Accept with →, keep the original with ←, edit with E, or copy it. A blocked rewrite says why and can't be accepted until it's fixed. If a rewrite asks a question such as "How many users did it have?", your answer goes into the facts bank and the bullet is rewritten with it.
+4. **Review.** A match score before and after your changes, and keyword coverage counted in code: how many of the required skills you have are on the page.
+5. **Export.** Save the PDF. It's named after you and the company, such as `Jordan_Sample_Resume_Larkspur_Freight.pdf`. A result longer than one page isn't exported; Tailor suggests which bullets to trim instead.
+
+The preview on the right updates as you decide. Cmd+K or Ctrl+K opens the command bar to search history and switch screens. The sidebar has your history, an application tracker and the facts bank. In the facts bank you can drop a PDF, Word, text or Markdown file, or paste a link to your site, and Tailor suggests facts from it; nothing is saved until you accept it.
+
+## Privacy
+
+- Your resume, postings, outputs, facts bank and history stay in a private folder on your computer. You can see where it is, or move it, in Settings under Data.
+- A run sends your resume and the posting to the provider you chose, and only that provider. Ollama and the offline demo send nothing anywhere.
+- API keys live in the system keychain.
+- The app has no account, no analytics and no server of its own.
+
 ## Development
 
-You need [uv](https://docs.astral.sh/uv/).
+You need [uv](https://docs.astral.sh/uv/) and Node 22.
 
 ```bash
 uv sync
@@ -30,9 +83,7 @@ uv run python scripts/fetch_tectonic.py
 uv run pytest
 ```
 
-The tests that compile a PDF are skipped if Tectonic hasn't been downloaded.
-
-The interface lives in `ui/` and needs Node 22. Build it once, then open the app:
+Tests that compile a PDF are skipped if Tectonic hasn't been downloaded. To run the app from source, build the interface, then start the window:
 
 ```bash
 cd ui && npm ci && npm run build
@@ -42,6 +93,7 @@ cd ui && npm ci && npm run build
 uv run python -m app.main
 ```
 
-Set `TAILOR_DATA_DIR=data/private` to keep your data in the repo's ignored `data/private/` folder while developing. In `ui/`, `npm test` runs the unit tests and `npm run e2e` the browser tests.
+Set `TAILOR_DATA_DIR=data/private` to keep your data in the repository's ignored `data/private/` folder while developing. In `ui/`, `npm test` runs the unit tests and `npm run e2e` runs the browser tests. To build the app itself, see `packaging/tailor.spec`.
 
-Why things are built the way they are is in [docs/DECISIONS.md](docs/DECISIONS.md).
+- [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md) is a tour of the backend, part by part.
+- [docs/DECISIONS.md](docs/DECISIONS.md) records why things are built the way they are.
