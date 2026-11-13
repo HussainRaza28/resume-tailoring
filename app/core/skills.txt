@@ -1,0 +1,298 @@
+# Skills lexicon for deterministic keyword coverage.
+# Format: Canonical | alias | alias ...
+# A leading "=" on any name or alias means match it case-sensitively (short or ambiguous names).
+# One-letter names (C, R) also need list context, e.g. "C, C++" or "in R".
+# Matching is whole-token: letters, digits and + # . are part of a token.
+Python | python3
+Java
+=Go | Golang
+JavaScript | JS | ECMAScript | ES6
+TypeScript | TS
+=C
+=C++ | cpp
+=C# | csharp | C-sharp
+=R
+Rust
+=Swift
+Kotlin
+Scala
+Ruby
+PHP
+Perl
+Haskell
+Elixir
+Erlang
+Clojure
+Dart
+Lua
+Julia
+MATLAB
+Objective-C
+Bash | shell scripting | shell scripts
+PowerShell
+SQL
+NoSQL
+GraphQL
+HTML | HTML5
+CSS | CSS3
+Sass | SCSS
+Assembly
+Verilog
+VHDL
+Solidity
+COBOL
+Fortran
+OCaml
+F#
+Zig
+WebAssembly | Wasm
+React | React.js | ReactJS
+React Native
+Next.js | NextJS
+Vue | Vue.js
+Nuxt
+Angular | AngularJS
+Svelte | SvelteKit
+Redux
+jQuery
+Tailwind | Tailwind CSS | TailwindCSS
+Bootstrap
+Node.js | =Node | NodeJS
+=Express | Express.js
+NestJS
+Deno
+=Bun
+Django
+Flask
+FastAPI
+Spring Boot | Spring Framework
+=Rails | Ruby on Rails
+Laravel
+ASP.NET | .NET | dotnet
+Electron
+Tauri
+Flutter
+SwiftUI
+UIKit
+SpriteKit
+SceneKit
+ARKit
+Core Data
+Jetpack Compose
+Android
+iOS
+macOS
+watchOS
+Xcode
+Android Studio
+=Unity
+Unreal Engine
+Godot
+Qt
+GTK
+Tkinter
+pandas
+NumPy
+SciPy
+Matplotlib
+seaborn
+Plotly
+scikit-learn | sklearn | scikit learn
+TensorFlow
+PyTorch
+Keras
+JAX
+Hugging Face | HuggingFace | Transformers
+XGBoost
+LightGBM
+OpenCV
+spaCy
+NLTK
+LangChain
+LlamaIndex
+MLflow
+Jupyter | Jupyter Notebook | Jupyter Notebooks
+=Spark | Apache Spark | PySpark
+Hadoop
+Kafka | Apache Kafka
+Airflow | Apache Airflow
+dbt
+Flink
+Apache Beam
+Snowflake
+Databricks
+BigQuery
+Redshift
+Tableau
+Power BI | PowerBI
+Looker
+=Excel
+R Shiny | Shiny
+ggplot2
+dplyr
+tidyverse
+Stata
+SAS
+SPSS
+PostgreSQL | Postgres
+MySQL
+SQLite
+MongoDB | Mongo
+Redis
+DynamoDB
+Cassandra
+Elasticsearch | Elastic Search | OpenSearch
+Neo4j
+=Oracle
+SQL Server | MSSQL
+MariaDB
+Firebase
+Firestore
+Supabase
+Prisma
+SQLAlchemy
+Hibernate
+CockroachDB
+ClickHouse
+Pinecone
+pgvector
+AWS | Amazon Web Services
+EC2
+S3
+=Lambda | AWS Lambda
+ECS
+EKS
+CloudWatch | Amazon CloudWatch
+CloudFormation
+Bedrock | Amazon Bedrock
+SageMaker
+IAM
+SQS
+SNS
+API Gateway
+Azure | Microsoft Azure
+GCP | Google Cloud | Google Cloud Platform
+Cloud Run
+Vercel
+Netlify
+Heroku
+Cloudflare
+DigitalOcean
+Docker
+Kubernetes | k8s
+Helm
+Terraform
+Ansible
+Pulumi
+Jenkins
+GitHub Actions
+GitLab CI | GitLab CI/CD
+CircleCI
+CI/CD | CI | continuous integration | continuous delivery | continuous deployment
+Git
+GitHub
+GitLab
+Bitbucket
+Linux | Unix
+Nginx
+=Apache
+Prometheus
+Grafana
+Datadog
+Splunk
+OpenTelemetry
+Sentry
+New Relic
+gRPC
+REST | RESTful | REST API | REST APIs | RESTful APIs
+WebSockets | WebSocket
+OAuth | OAuth2 | OAuth 2.0
+JWT
+Microservices | microservice
+Serverless
+Distributed Systems | distributed system
+System Design
+Data Structures
+Algorithms
+Object-Oriented Programming | OOP | object oriented
+Functional Programming
+Concurrency | multithreading | multi-threading
+Networking | TCP/IP | TCP
+Operating Systems
+Compilers
+Computer Architecture
+Machine Learning | ML
+Deep Learning
+Artificial Intelligence | AI
+Natural Language Processing | NLP
+Computer Vision
+Large Language Models | LLM | LLMs
+Generative AI | GenAI
+Reinforcement Learning
+Data Science
+Data Analysis | data analytics
+Data Engineering
+Data Visualization | data viz
+ETL
+Statistics | statistical analysis
+A/B Testing | A/B tests | experimentation
+Unit Testing | unit tests | unit test
+Integration Testing | integration tests
+End-to-End Testing | E2E | end-to-end tests
+Test Automation | automated testing
+QA | quality assurance
+pytest
+JUnit
+Jest
+Vitest
+Mocha
+Cypress
+Playwright
+Selenium
+Postman
+TDD | test-driven development
+Agile
+Scrum
+Kanban
+Jira
+Confluence
+Figma
+Code Review | code reviews
+Debugging
+Observability
+Monitoring
+Logging
+Security | cybersecurity | information security
+Cryptography
+Penetration Testing
+Accessibility | a11y | WCAG
+Performance Optimization | performance tuning
+Scalability
+Caching
+Load Balancing
+Message Queues | message queue
+Event-Driven | event driven
+Open Source | open-source
+ArcGIS
+GIS
+CAD
+SolidWorks
+LaTeX
+Markdown
+Vim
+VS Code | Visual Studio Code
+Visual Studio
+IntelliJ
+Claude Code
+Codex
+Kiro
+Apple Foundation Models | Foundation Models
+Prompt Engineering
+RAG | retrieval-augmented generation
+Embedded Systems | embedded software
+Arduino
+Raspberry Pi
+ROS
+Robotics
+Blockchain
+Web3
