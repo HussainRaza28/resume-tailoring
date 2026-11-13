@@ -91,6 +91,23 @@ Choices made while building Tailor, with the reason for each.
 - **Line endings are kept.** `.tex` files are read with `newline=""`. `Path.read_text` turns Windows CRLF into LF, which changed a resume saved on Windows on its way in.
 - **Reduce Motion follows the system setting** through `prefers-reduced-motion`, so there's no separate switch in the app to fall out of step with it.
 
+## Facts import
+
+- **Files and pages in, suggestions out, nothing saved without approval.** A dropped PDF, Word, text or Markdown file, or a web page, is turned into text, and the selected provider suggests short, specific facts from it. The interface saves only the ones the user accepts, as they are or edited.
+- **Suggestions are checked like rewrites.** Every number, name and skill in a suggested fact must appear in the document, using the same grounding check as rewrites. A suggestion that fails shows why and can't be accepted as it is. Editing it makes it the user's own statement, which the facts bank exists to hold. Suggestions already in the bank are marked, and repeats are dropped.
+- **Libraries.** `pypdf` reads PDFs (it's already used for page counts), `python-docx` reads Word files, including table cells, where resumes often keep their content, and `beautifulsoup4` with Python's built-in HTML parser pulls the readable text out of a page and drops scripts, styles, navigation and footers.
+- **Resume links on a page.** Links whose address ends in `.pdf` or whose text says resume or CV are listed, so a portfolio page can lead on to the resume itself. Reading one is the user's choice.
+- **Limits.** Files over 10 MB are refused before they're sent. Text over 60,000 characters is cut, and the interface says so instead of quietly dropping the rest. A scanned PDF with no text says that there's nothing to read.
+- **Dropped files cross as base64.** The page reads a dropped file with `FileReader` and sends its bytes to Python. Webviews don't give the page a dropped file's path, and sending the bytes works the same in every webview.
+- **Web requests name the app, not the user.** The user agent is a plain `Tailor/0.1` string. Only `http` and `https` addresses are fetched.
+
+## Interface blocks
+
+- **Bencho's code and comments are kept as written.** `ui/src/blocks/SOURCE.md` lists each block, where it came from and its license, and whether the file is Bencho's original or a version written for this app from the public listing.
+- **Tokens are mapped on each block's own root.** A Bencho block reads tokens such as `--fill-on`, `--fill-slab` and `--font-ui`. Each one is set on the block's root element to the app's own token (`--fill-on: var(--wake-ink)`, `--signal: var(--accent)` and so on), so Bencho's CSS stays as written and nothing new becomes global.
+- **The upload dropzone gets a real-file mode.** Bencho's block is a demo that uploads pretend files from a tray. With an `onFile` prop it takes real drops and clicks instead, hides the tray, and holds its bar at 90% until the file has been read. The additions are marked `app:` in the file. Without the prop it's Bencho's block unchanged.
+- **Two ASCII wakes.** Bencho's ASCII wake follows the pointer, which suits the empty state. A loader that drives the same effect by itself while a step runs is a separate, rebuilt file.
+
 ## Compiling to PDF
 
 - **Tectonic 0.15.0, pinned.** It is the newest release with ready-made builds for Apple Silicon Macs, Windows and Linux. A pinned version means every build ships the same Tectonic, and the download script needs no GitHub API call to pick one.
