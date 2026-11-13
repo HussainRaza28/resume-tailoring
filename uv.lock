@@ -814,6 +814,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "google-genai" },
+    { name = "httpx2" },
     { name = "pydantic" },
     { name = "pypdf" },
 ]
@@ -827,6 +828,7 @@ dev = [
 requires-dist = [
     { name = "anthropic", specifier = ">=2.8.0" },
     { name = "google-genai", specifier = ">=3.3.0" },
+    { name = "httpx2", specifier = ">=2.16.0" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pypdf", specifier = ">=5.0" },
 ]
