@@ -50,6 +50,21 @@ Choices made while building Tailor, with the reason for each.
 - **A refusal or a cut-off reply is an error,** reported as `BadOutput` with the reason, because half a JSON reply can't be checked against the schema.
 - **The Demo provider is offline and deterministic.** It builds replies from the request itself, so the whole flow runs with no key or network, and end-to-end tests get the same output every time. Its score is a simple count of specific and vague bullets, and the interface says so.
 
+## The tailoring steps
+
+- **Three model steps.** Red flags, then rewrite, then review, each a separate call with its own schema. Keeping them separate lets each one stream into its own part of the interface, and lets a step be retried or rerun without redoing the others.
+- **The base resume is the cached context.** Every step sends the same system instructions and the same plain-text resume (with bullet ids) first, then the step's own message, so providers that cache a repeated prefix only pay full price for it once per run.
+- **One automatic repair.** Blocked rewrites go back to the model once, with the checker's reasons. A second failure stays blocked and the user sees why. A retry that fails outright keeps the first attempt's results, since those are already checked. The "unsupported claims caught" count comes from the first attempt, before the retry, so it measures what the model tried to add.
+- **Every bullet gets a result.** A bullet the model skipped comes back unchanged, and a proposal for something that isn't a rewritable bullet (a skills line, an unknown id) is ignored, so the interface always shows one card per bullet.
+- **A rewrite always cites its own bullet.** If the model leaves its own id out of `sources`, it's added before the check.
+- **Summary advice is dropped in code.** A red flag that says to add a summary, objective or profile is removed, and the review drops any skipped section with that kind of title. This sits on top of the locked section order in the template engine.
+- **Questions aren't asked twice.** A question the facts bank already answered for the same bullet is cleared before the user sees it.
+- **The review scores the resume as it stands,** with accepted rewrites in place, and a suggested rewrite is compared with that current text.
+- **Skills reordering is done in code at export:** within each skills line, required matches first, then preferred, then other mentions, then everything else in its original order. Nothing is added or dropped, and an honors or awards line is left alone.
+- **One-page trimming hints.** When the PDF runs over a page, the app lists bullets whose last line is shortest, using about 113 characters per bullet line (measured on the compiled sample), so a small cut saves a whole line. It's an estimate; the next compile is the real check.
+- **Model text is tidied** before checking: a leading bullet mark, wrapping quotes and a final period are removed, because the template's bullets have none.
+- **Cost per run.** `pricing.py` has per-token prices for the Claude API models. Claude Code bills the user's plan, Gemini's free tier, Ollama and the Demo provider cost nothing, and an unknown model shows a dash rather than a guess. Cache writes cost 1.25 times the input price, and cache reads are priced per model.
+
 ## Compiling to PDF
 
 - **Tectonic 0.15.0, pinned.** It is the newest release with ready-made builds for Apple Silicon Macs, Windows and Linux. A pinned version means every build ships the same Tectonic, and the download script needs no GitHub API call to pick one.
