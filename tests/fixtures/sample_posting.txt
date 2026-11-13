@@ -1,0 +1,19 @@
+Software Engineer Intern, Platform (Summer 2027)
+Larkspur Freight is hiring a backend intern to work on the systems that plan 40,000 deliveries a day.
+
+What you'll do
+- Build and run Python services that talk to our routing and mapping providers
+- Make slow PostgreSQL queries fast and keep them fast
+- Ship REST APIs used by our driver and dispatcher apps
+
+Minimum qualifications
+- Experience with Python and SQL
+- PostgreSQL or another relational database
+- Docker and Git
+- REST API design
+
+Preferred qualifications
+- TypeScript or Node.js
+- Kubernetes
+- AWS
+- Redis

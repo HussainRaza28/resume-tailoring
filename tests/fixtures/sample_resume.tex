@@ -1,0 +1,151 @@
+%-------------------------
+% Resume in LaTeX
+% Layout based on Jake's Resume by Jake Gutierrez (MIT License)
+%-------------------------
+
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\input{glyphtounicode}
+\definecolor{linkblue}{RGB}{20,60,140}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% Margins
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1.0in}
+
+\urlstyle{same}
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+% Section formatting
+\titleformat{\section}{
+  \vspace{-4pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
+
+% Machine-readable PDF for ATS
+\pdfgentounicode=1
+
+%-------------------------
+% Custom commands
+\newcommand{\resumeItem}[1]{
+  \item\small{
+    {#1 \vspace{-2pt}}
+  }
+}
+
+\newcommand{\resumeSubheading}[4]{
+  \vspace{-2pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & #2 \\
+      \textit{\small#3} & \textit{\small #4} \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeProjectHeading}[2]{
+    \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \small#1 & #2 \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
+
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
+
+%-------------------------------------------
+\begin{document}
+
+%----------HEADING----------
+\begin{center}
+    \textbf{\Huge \scshape Jordan Sample} \\ \vspace{2pt}
+    \small 555-010-0199 $|$ \href{mailto:jordan.sample@example.com}{\color{linkblue}\underline{jordan.sample@example.com}} $|$
+    \href{https://www.linkedin.com/in/jordan-sample}{\color{linkblue}\underline{linkedin.com/in/jordan-sample}} $|$
+    \href{https://github.com/jordan-sample}{\color{linkblue}\underline{github.com/jordan-sample}}
+\end{center}
+
+%-----------EDUCATION-----------
+\section{Education}
+  \resumeSubHeadingListStart
+    \resumeSubheading
+      {State University}{Springfield, IL}
+      {Bachelor of Science in Computer Science $|$ Minor in Statistics}{Expected May 2027}
+      \resumeItemListStart
+        \resumeItem{\textbf{Relevant Coursework:} Data Structures, Operating Systems, Databases, Machine Learning, Computer Networks}
+      \resumeItemListEnd
+  \resumeSubHeadingListEnd
+
+%-----------EXPERIENCE-----------
+\section{Experience}
+  \resumeSubHeadingListStart
+
+    \resumeSubheading
+      {Northwind Logistics}{June 2025 -- August 2025}
+      {Software Engineering Intern, Routing Team}{Chicago, IL}
+      \resumeItemListStart
+        \resumeItem{Built a Python service that batches delivery route updates, cutting API calls to the mapping provider from 12,000 to 3,000 per day}
+        \resumeItem{Added PostgreSQL indexes to the shipment lookup query after profiling showed full table scans on 2 million rows}
+        \resumeItem{Wrote 45 unit tests with pytest for the route validation module and set them to run in GitHub Actions on every pull request}
+        \resumeItem{Worked with the team on various backend tasks and helped with code reviews}
+      \resumeItemListEnd
+
+    \resumeSubheading
+      {Springfield Public Library}{September 2023 -- May 2025}
+      {Student Technology Assistant}{Springfield, IL}
+      \resumeItemListStart
+        \resumeItem{Helped patrons with computer and printer problems at the help desk}
+        \resumeItem{Set up 20 laptops for a weekly coding club for middle school students}
+      \resumeItemListEnd
+
+  \resumeSubHeadingListEnd
+
+%-----------PROJECTS-----------
+\section{Projects}
+    \resumeSubHeadingListStart
+      \resumeProjectHeading
+          {\textbf{TrailMap} $|$ \emph{TypeScript, React, Node.js, PostgreSQL}}{Spring 2026}
+          \resumeItemListStart
+            \resumeItem{Built a web app for logging hikes on an interactive map, used by 140 members of the university hiking club}
+            \resumeItem{Designed a REST API in Node.js with JWT login and rate limiting}
+          \resumeItemListEnd
+      \resumeProjectHeading
+          {\textbf{Budget Bot} $|$ \emph{Python, SQLite}}{Fall 2025}
+          \resumeItemListStart
+            \resumeItem{Made a Discord bot that tracks shared expenses for roommates and posts a weekly summary}
+            \resumeItem{Parsed bank CSV exports from 3 banks into one SQLite schema}
+          \resumeItemListEnd
+    \resumeSubHeadingListEnd
+
+%-----------TECHNICAL SKILLS-----------
+\section{Technical Skills}
+ \begin{itemize}[leftmargin=0.15in, label={}]
+    \small{\item{
+     \textbf{Languages}{: Python, TypeScript, JavaScript, Java, SQL} \\
+     \textbf{Frameworks \& Libraries}{: React, Node.js, Express, pytest, pandas} \\
+     \textbf{Tools}{: PostgreSQL, SQLite, Docker, Git, GitHub Actions, Linux}
+    }}
+ \end{itemize}
+
+\end{document}
