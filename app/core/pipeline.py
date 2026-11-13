@@ -135,10 +135,7 @@ class Review(BaseModel):
 
 class StepStats(BaseModel):
     step: str
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cache_read_tokens: int = 0
-    cache_write_tokens: int = 0
+    usage: Usage = Usage()
     duration_ms: int = 0
     model: str = ""
     # Unsupported claims the grounding check found in this step's proposals,
@@ -148,9 +145,6 @@ class StepStats(BaseModel):
     # Unsupported claims by kind ("number", "name", "skill") and violations by rule.
     blocked_by_kind: dict[str, int] = {}
     style_by_rule: dict[str, int] = {}
-
-    def usage(self) -> Usage:
-        return Usage(self.input_tokens, self.output_tokens, self.cache_read_tokens, self.cache_write_tokens)
 
 
 # ---------------------------------------------------------------------------
@@ -325,13 +319,9 @@ def step_stats(step: str, completion: Completion, checked: list[CheckedRewrite] 
             by_kind[name] = by_kind.get(name, 0) + 1
         for v in r.style:
             by_rule[v.rule] = by_rule.get(v.rule, 0) + 1
-    u = completion.usage
     return StepStats(
         step=step,
-        input_tokens=u.input_tokens,
-        output_tokens=u.output_tokens,
-        cache_read_tokens=u.cache_read_tokens,
-        cache_write_tokens=u.cache_write_tokens,
+        usage=completion.usage,
         duration_ms=completion.duration_ms,
         model=completion.model,
         blocked_claims=sum(len(r.grounding.unsupported()) + len(r.grounding.citation_errors) for r in checked),
