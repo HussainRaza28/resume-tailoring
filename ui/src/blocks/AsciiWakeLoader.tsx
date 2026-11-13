@@ -1,13 +1,9 @@
 /**
- * ASCII wake.
- * Rebuilt from the public description of the bencho.dev "ASCII wake" block
- * (bencho.dev/blocks/ascii-wake): "A cube drawn in ink dots: the pointer drags a
- * wake of characters through it that thicken under the hand and cool back to dots
- * behind it, and a press sends a ring out." Not the original source; swap for the
- * original when it is available (see src/blocks/SOURCE.md).
- *
- * Modes: "hero" follows the pointer; "loader" drives the wake itself on an orbit
- * so it reads as work in progress. With Reduce Motion the cube is drawn once, still.
+ * ASCII wake, loader variant.
+ * Rebuilt for this app from the public description of the bencho.dev "ASCII wake"
+ * block. The original (AsciiWake.tsx) follows the pointer; this version drives the
+ * wake itself on an orbit, so it reads as work in progress while a step runs.
+ * With Reduce Motion the cube is drawn once, still.
  */
 import { useEffect, useRef } from "react";
 
@@ -23,7 +19,7 @@ type Props = {
 
 type Ring = { x: number; y: number; r: number; life: number };
 
-export default function AsciiWake({ width = 420, height = 220, mode = "hero", cell = 9, label }: Props) {
+export default function AsciiWakeLoader({ width = 420, height = 220, mode = "hero", cell = 9, label }: Props) {
   const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {

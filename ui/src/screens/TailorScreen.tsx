@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import AsciiWake from "../blocks/AsciiWake";
+import { AsciiWake } from "../blocks/AsciiWake";
 import SplitView from "../blocks/SplitView";
 import { useToast } from "../blocks/ToastStack";
 import { Notice, explainError } from "../components/Notice";
@@ -562,7 +562,7 @@ function EmptyState(p: {
   return (
     <>
       <div className="hero enter">
-        <AsciiWake width={440} height={190} />
+        <AsciiWake />
         <h1>Paste a job posting</h1>
         <p>Red flags, grounded rewrites and a review, then a one-page PDF in your own template. Nothing is invented: every claim is checked against your resume.</p>
       </div>

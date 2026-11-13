@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import AsciiWake from "../blocks/AsciiWake";
+import AsciiWakeLoader from "../blocks/AsciiWakeLoader";
 import ArcRing from "../blocks/ArcRing";
 import type { Coverage, Fact, RunState, SkillStatus } from "../lib/api";
 import { modelLabel, providerLabel, runTotals } from "../lib/api";
@@ -13,7 +13,7 @@ export function StreamPanel({ title, text }: { title: string; text: string }) {
   const tail = text.slice(-900);
   return (
     <div className="card stream enter" aria-busy="true">
-      <AsciiWake width={180} height={120} mode="loader" cell={8} label={title} />
+      <AsciiWakeLoader width={180} height={120} mode="loader" cell={8} label={title} />
       <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
         <h2>{title}</h2>
         <div className="stream-text" aria-hidden="true">
