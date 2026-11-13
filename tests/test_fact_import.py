@@ -87,7 +87,7 @@ def test_page_text_and_resume_links():
 
 
 def test_urls_are_checked():
-    assert check_url("hussain.example") == "https://hussain.example"
+    assert check_url("jordan.example") == "https://jordan.example"
     for bad in ("ftp://x.example/a", "file:///etc/passwd", "https://"):
         with pytest.raises(ReadError):
             check_url(bad)
