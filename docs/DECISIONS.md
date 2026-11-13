@@ -117,6 +117,14 @@ Choices made while building Tailor, with the reason for each.
 - **One Tectonic run at a time.** On Windows, two runs that build Tectonic's format file at the same moment fail with "Access is denied". `compile_tex` holds a `threading.Lock` while Tectonic runs. A test starts four compiles at once against a fake Tectonic that records overlaps, and it fails if the lock is removed.
 - **Five-minute compile timeout.** The first compile downloads TeX packages, which took about 30 seconds on a fast connection. The limit leaves room for a slow one.
 
+## Packaging
+
+- **PyInstaller, one folder.** `packaging/tailor.spec` builds a folder app rather than a single self-extracting file, so the app starts without unpacking itself to a temporary folder on every launch. On macOS the folder is wrapped as `Tailor.app` for Apple Silicon (`arm64`).
+- **What's bundled.** Tectonic sits at the top of the bundle, where `find_tectonic` looks first in a packaged app. The built `index.html` goes in `ui/`, and the skills lexicon and python-docx's data files come along. keyring finds its backends at runtime, so the macOS and Windows ones are named as hidden imports.
+- **Ad-hoc signing on the Mac.** CI signs the `.app` with `codesign --force --deep --sign -`. An unsigned app downloaded from the internet can show as "damaged" on Apple Silicon. An ad-hoc signature avoids that without a paid developer certificate; macOS still asks before the first open. The README has the `xattr -cr` fallback for a copy that still won't open.
+- **A `.dmg` for the Mac, an Inno Setup installer for Windows.** `hdiutil` makes the disk image. Inno Setup installs for the current user, so no administrator prompt appears, and it adds a Start menu entry and an uninstaller. Windows 10 and 11 already include the WebView2 runtime that pywebview uses.
+- **Every build tests itself.** `Tailor --self-test report.json` runs inside the packaged app without opening a window. It checks the bundled interface, the lexicon, the keychain backend and the webview backend, and compiles a small document through the XeTeX wrapper with the bundled Tectonic. CI runs it on each build before uploading the installer, so a bundle missing a file fails the build instead of failing on a user's computer. It writes to a file because a windowed app on Windows has no console.
+
 ## Tests and CI
 
 - **Tests that need Tectonic** are skipped when it isn't installed, so a fresh checkout can run everything else. CI sets `TAILOR_REQUIRE_TECTONIC=1`, which turns a missing Tectonic into a failure.

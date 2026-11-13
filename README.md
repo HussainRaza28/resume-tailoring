@@ -4,6 +4,16 @@ A desktop app that tailors a LaTeX resume to a job posting. It flags problems, s
 
 This is a work in progress. The full README, with install steps, comes with the first release.
 
+## Installing from a build
+
+CI builds an installer for Apple Silicon Macs (`.dmg`) and for Windows (`Tailor-Setup.exe`); download it from the run's artifacts.
+
+On a Mac, open the `.dmg` and drag Tailor to Applications. The app is signed ad hoc, not with a paid developer certificate, so the first time, right-click it and choose Open. If macOS still says the app is damaged, clear the download flag and try again:
+
+```bash
+xattr -cr /Applications/Tailor.app
+```
+
 ## Development
 
 You need [uv](https://docs.astral.sh/uv/).
