@@ -29,7 +29,49 @@ def ui_file() -> Path:
     return Path(__file__).resolve().parent.parent / "ui" / "dist" / "index.html"
 
 
+# A small document that uses the template's pdfTeX-only lines, so the self-test
+# also proves the XeTeX wrapper works inside the packaged app.
+SELF_TEST_TEX = r"""\documentclass{article}
+\input{glyphtounicode}
+\pdfgentounicode=1
+\begin{document}
+Tailor self-test
+\end{document}
+"""
+
+
+def self_test(report: Path) -> int:
+    """Check a packaged build without opening a window, and write the results as JSON.
+
+    CI runs this on every installer it builds. The results go to a file because a
+    windowed app on Windows has no console to print to.
+    """
+    import json
+
+    import keyring
+
+    from app.core.compile import compile_tex, find_tectonic
+    from app.core.skills import lexicon
+
+    results: dict = {"ui": ui_file().is_file(), "lexicon_entries": len(lexicon().entries)}
+    results["keyring_backend"] = type(keyring.get_keyring()).__name__
+    if sys.platform == "darwin":
+        import webview.platforms.cocoa  # noqa: F401  (the Mac webview must load in the bundle)
+    elif sys.platform == "win32":
+        import webview.platforms.edgechromium  # noqa: F401
+    results["webview"] = True
+    tectonic = find_tectonic()
+    results["tectonic"] = str(tectonic) if tectonic else None
+    results["pages"] = compile_tex(SELF_TEST_TEX, tectonic).pages if tectonic else None
+    ok = results["ui"] and results["lexicon_entries"] > 250 and results["pages"] == 1
+    results["ok"] = bool(ok)
+    report.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    return 0 if ok else 1
+
+
 def main() -> None:
+    if len(sys.argv) == 3 and sys.argv[1] == "--self-test":
+        sys.exit(self_test(Path(sys.argv[2])))
     logging.basicConfig(level=logging.INFO if os.environ.get("TAILOR_DEBUG") else logging.WARNING)
     page = ui_file()
     if not page.is_file():
