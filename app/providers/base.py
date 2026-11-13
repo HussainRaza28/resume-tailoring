@@ -181,7 +181,7 @@ def parse_reply(text: str, schema: type[BaseModel]) -> BaseModel:
         raise BadOutput(f"{e.error_count()} problem(s), first: {e.errors()[0]['msg']} (reply began: {start})") from e
 
 
-def with_retries(call: Callable[[], Any], tries: int = 3, sleep: Callable[[float], None] = time.sleep) -> Any:
+def with_retries(call: Callable[[], Any], tries: int = 3, sleep: Callable[[float], None] | None = None) -> Any:
     """Run ``call``, retrying rate limits and server errors up to ``tries`` times in all.
 
     Waits for the provider's Retry-After when it gives one (capped at 30
@@ -194,7 +194,7 @@ def with_retries(call: Callable[[], Any], tries: int = 3, sleep: Callable[[float
             if not e.retryable or attempt == tries:
                 raise
             wait = getattr(e, "retry_after_s", None)
-            sleep(min(wait, 30) if wait is not None else 2**attempt)
+            (sleep or time.sleep)(min(wait, 30) if wait is not None else 2**attempt)
     raise AssertionError("unreachable")
 
 
