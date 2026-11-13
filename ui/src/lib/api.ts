@@ -198,7 +198,6 @@ export type Settings = Partial<
     | "model.demo"
     | "effort"
     | "theme"
-    | "reduce_motion"
     | "export_dir"
     | "ollama_host",
     string
@@ -233,6 +232,8 @@ function toBytes(r: unknown): Uint8Array {
 
 export const api = {
   appInfo: () => call<AppInfo>("app_info"),
+  changeDataDir: (path: string) => call<AppInfo>("change_data_dir", { path }),
+  showDataDir: () => call<void>("show_data_dir"),
   importBaseResume: (path: string) => call<void>("import_base_resume", { path }),
   compileBase: async () => {
     const r = await call<{ pdf: string; pages: number; duration_ms: number }>("compile_base");

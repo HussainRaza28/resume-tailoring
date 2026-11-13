@@ -274,7 +274,7 @@ export async function installMock() {
       case "app_info":
         return { name: "Tailor", version: "0.1.0", data_dir: "~/Library/Application Support/Tailor/private", has_base_resume: db.hasBase, tectonic_path: "/Applications/Tailor.app/Contents/MacOS/tectonic" };
       case "get_settings":
-        return ["provider", "model.claude_api", "model.claude_code", "model.gemini", "model.ollama", "model.demo", "effort", "theme", "reduce_motion", "export_dir", "ollama_host"].map((key) => ({ key, value: db.settings[key] ?? null }));
+        return ["provider", "model.claude_api", "model.claude_code", "model.gemini", "model.ollama", "model.demo", "effort", "theme", "export_dir", "ollama_host"].map((key) => ({ key, value: db.settings[key] ?? null }));
       case "set_setting":
         db.settings[String(a.key)] = String(a.value);
         return null;
@@ -492,6 +492,10 @@ export async function installMock() {
         return null;
       case "base_resume_info":
         return { tex: "", bullets: 11, sections: ["Education", "Experience", "Projects", "Technical Skills"] };
+      case "change_data_dir":
+        return { name: "Tailor", version: "0.1.0", data_dir: String(a.path), has_base_resume: db.hasBase, tectonic_path: "/Applications/Tailor.app/Contents/MacOS/tectonic" };
+      case "show_data_dir":
+        return null;
       case "claude_code_status":
         return { installed: true, signed_in: true, path: "/Users/you/.local/bin/claude", version: "2.1.325", auth_method: "claude.ai" };
       default:

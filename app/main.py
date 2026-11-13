@@ -16,7 +16,7 @@ from pathlib import Path
 
 import webview
 
-from app.bridge import APP_NAME, Backend, Bridge, default_data_dir, window_emitter
+from app.bridge import APP_NAME, Backend, Bridge, default_data_dir, location_file, window_emitter
 from app.core.db import Db
 from app.core.secrets import KeychainStore
 
@@ -37,7 +37,7 @@ def main() -> None:
 
     data_dir = default_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
-    backend = Backend(data_dir, Db(data_dir / "tailor.db"), KeychainStore())
+    backend = Backend(data_dir, Db(data_dir / "tailor.db"), KeychainStore(), location=location_file())
 
     # "?desktop=1" tells the page to wait for the Python bridge instead of using its browser mock.
     window = webview.create_window(

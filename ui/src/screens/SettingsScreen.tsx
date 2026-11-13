@@ -4,6 +4,7 @@ import { IconTimer, IconTrash } from "../components/icons";
 import { type AppInfo, type BaselineEntry, type ClaudeCodeStatus, type KeyStatus, type OllamaModel, type Settings, api } from "../lib/api";
 import { clock, duration, median, shortDate } from "../lib/format";
 import { isCmdError } from "../lib/ipc";
+import { pickFolder } from "../lib/platform";
 
 type Props = {
   info: AppInfo | null;
@@ -12,6 +13,7 @@ type Props = {
   theme: string;
   setTheme: (t: string) => void;
   importResume: () => void;
+  onInfo: (info: AppInfo) => void;
 };
 
 function KeyField({ provider, label, hint }: { provider: "claude_api" | "gemini"; label: string; hint: string }) {
@@ -152,7 +154,18 @@ function Stopwatch() {
   );
 }
 
-export default function SettingsScreen({ info, settings, setSetting, theme, setTheme, importResume }: Props) {
+export default function SettingsScreen({ info, settings, setSetting, theme, setTheme, importResume, onInfo }: Props) {
+  const toast = useToast();
+  const moveData = async () => {
+    const folder = await pickFolder(info?.data_dir);
+    if (!folder) return;
+    try {
+      onInfo(await api.changeDataDir(folder));
+      toast.push({ tone: "success", title: "Data folder changed", body: "Your data was copied there. The old copy was left in place." });
+    } catch (e) {
+      toast.push({ tone: "error", title: "The data folder was not changed", body: isCmdError(e) ? e.message : String(e) });
+    }
+  };
   const provider = settings.provider ?? "claude_code";
   const [claudeCode, setClaudeCode] = useState<ClaudeCodeStatus | null>(null);
   const [ollama, setOllama] = useState<OllamaModel[] | null>(null);
@@ -315,7 +328,7 @@ export default function SettingsScreen({ info, settings, setSetting, theme, setT
         <section className="settings-section">
           <div>
             <h2>Base resume</h2>
-            <p className="desc">The .tex file every run starts from. Only text inside bullets, headings and skills lines is ever changed.</p>
+            <p className="desc">The .tex file every run starts from. Only text inside bullets, headings and skills lines is ever changed. Replacing it doesn't affect earlier runs: each run keeps the resume it started from.</p>
           </div>
           <div className="panel">
             <div className="row">
@@ -366,7 +379,15 @@ export default function SettingsScreen({ info, settings, setSetting, theme, setT
             <p className="desc">History, tracker, facts bank and tailored outputs. All on this computer.</p>
           </div>
           <div className="panel">
-            <span className="small mono selectable">{info?.data_dir ?? "–"}</span>
+            <div className="row">
+              <span className="grow small mono selectable">{info?.data_dir ?? "–"}</span>
+              <button className="btn btn-sm" onClick={() => api.showDataDir().catch(() => {})}>
+                Show
+              </button>
+              <button className="btn btn-sm" onClick={moveData}>
+                Change…
+              </button>
+            </div>
             <span className="small faint">
               {info?.name} {info?.version}
             </span>

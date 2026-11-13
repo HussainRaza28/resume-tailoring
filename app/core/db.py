@@ -17,7 +17,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Each migration runs once, in order; PRAGMA user_version records how far a file has got.
 MIGRATIONS = [
@@ -106,6 +106,11 @@ MIGRATIONS = [
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
     );
+    """,
+    # 2: each run keeps the base resume it started from, so replacing the base
+    # resume later can't break an earlier run (its bullet ids point into this copy).
+    """
+    ALTER TABLE runs ADD COLUMN base_tex TEXT;
     """,
 ]
 
@@ -224,16 +229,21 @@ class Db:
 
     # -- runs ----------------------------------------------------------------
 
-    def insert_run(self, run: RunRecord, posting_text: str, posting_hash: str) -> None:
+    def insert_run(self, run: RunRecord, posting_text: str, posting_hash: str, base_tex: str | None = None) -> None:
         self._write(
             """INSERT INTO runs (id, created_at, source, company, role, posting_hash, posting_text,
-                   provider, model, status, pasted_at_ms)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   provider, model, status, pasted_at_ms, base_tex)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 run.id, run.created_at or now(), run.source, run.company, run.role, posting_hash,
-                posting_text, run.provider, run.model, run.status, run.pasted_at_ms,
+                posting_text, run.provider, run.model, run.status, run.pasted_at_ms, base_tex,
             ),
         )
+
+    def run_base_tex(self, run_id: str) -> str | None:
+        """The base resume a run started from, or None for a run saved before it was kept."""
+        rows = self._rows("SELECT base_tex FROM runs WHERE id=?", (run_id,))
+        return rows[0][0] if rows else None
 
     def update_run(self, run: RunRecord) -> None:
         """Update a run's summary columns."""

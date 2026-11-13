@@ -297,7 +297,7 @@ export default function App() {
         )}
         {screen === "tracker" && <TrackerScreen openRun={openRun} />}
         {screen === "facts" && <FactsScreen />}
-        {screen === "settings" && <SettingsScreen info={info} settings={settings} setSetting={setSetting} theme={theme} setTheme={setTheme} importResume={importResume} />}
+        {screen === "settings" && <SettingsScreen info={info} settings={settings} setSetting={setSetting} theme={theme} setTheme={setTheme} importResume={importResume} onInfo={setInfo} />}
       </div>
 
       <CommandBar open={cmdOpen} onClose={() => setCmdOpen(false)} commands={commands} placeholder="Search history, switch model, or run a command" />
