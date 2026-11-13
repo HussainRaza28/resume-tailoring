@@ -39,6 +39,7 @@ from app.core import compile as compiler
 from app.core import pricing, skills
 from app.core.db import Application, Db, DbError, RunRecord, StepLog
 from app.core.export import export_file_name, person_name
+from app.core.fact_import import SuggestionResult, suggest_facts
 from app.core.facts import FactsBank, FactsError
 from app.core.pipeline import (
     BLOCKED,
@@ -60,6 +61,7 @@ from app.core.schemas import Proposal, RedFlagsReply
 from app.core.secrets import KEY_NAMES, SecretError, SecretStore, mask
 from app.core.skills import Coverage, PostingSkills
 from app.core.tex import TexDoc, TexError, read_tex
+from app.importers import files, web
 from app.providers import claude_code
 from app.providers.base import Provider, ProviderError, Usage
 from app.providers.claude_api import ClaudeApiProvider
@@ -889,6 +891,34 @@ class Backend:
         bank.save(self.facts_path)
         return bank.facts
 
+    def _suggest(self, source: str, text: str, on_event: str | None) -> SuggestionResult:
+        """Have the selected provider suggest facts from a document. Nothing is saved here."""
+        provider_name, model = self._resolve_provider(None, None)
+        provider = self._provider(provider_name, model)
+        step = "suggest_facts"
+        if on_event:
+            self.emit(on_event, {"type": "started", "step": step})
+        try:
+            return suggest_facts(provider, source, text, self._facts(), self._sink(on_event, step))
+        finally:
+            if on_event:
+                self.emit(on_event, {"type": "finished", "step": step})
+
+    def suggest_facts_from_file(self, name: str, data: str, on_event: str | None = None) -> SuggestionResult:
+        """Facts suggested from a dropped file. ``data`` is the file's bytes, base64-encoded."""
+        try:
+            raw = base64.b64decode(data, validate=True)
+        except ValueError as e:
+            raise AppError("invalid", "The file arrived damaged. Try again.") from e
+        return self._suggest(name, files.extract_text(name, raw), on_event)
+
+    def suggest_facts_from_url(self, url: str, on_event: str | None = None) -> SuggestionResult:
+        """Facts suggested from a web page or a PDF link. A page's resume links are listed too."""
+        page = web.read_url(url)
+        result = self._suggest(page.title or page.url, page.text, on_event)
+        result.pdf_links = page.pdf_links
+        return result
+
     def list_baseline(self) -> list:
         return self.db.list_baseline()
 
@@ -943,7 +973,8 @@ COMMANDS = (
     "start_run", "get_run_state", "update_run_meta", "run_step", "decide", "toggle_remove",
     "accept_suggestion", "answer_question", "compile_run", "export_run", "tailored_source",
     "list_runs", "delete_run", "list_applications", "add_application", "update_application",
-    "delete_application", "list_facts", "save_fact", "delete_fact", "list_baseline", "add_baseline",
+    "delete_application", "list_facts", "save_fact", "delete_fact", "suggest_facts_from_file",
+    "suggest_facts_from_url", "list_baseline", "add_baseline",
     "delete_baseline", "get_settings", "set_setting", "pick_folder", "pick_tex_file", "reveal",
 )
 
@@ -972,6 +1003,8 @@ def error_reply(e: Exception) -> dict:
         kind, message = e.kind, e.message
     elif isinstance(e, (ProviderError, compiler.CompileError, TexError)):
         kind, message = e.kind if isinstance(e, ProviderError) else e.code, str(e)
+    elif isinstance(e, files.ReadError):
+        kind, message = e.kind, e.message
     elif isinstance(e, FactsError):
         kind, message = "facts", str(e)
     elif isinstance(e, DbError):

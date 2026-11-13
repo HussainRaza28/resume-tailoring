@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 class Stub:
     def __init__(self, replies: list[tuple[int, str, str]]):
-        # Each reply is (status, content type, body).
+        # Each reply is (status, content type, body as text or bytes).
         self.replies = list(replies)
         self.requests: list[dict] = []
         stub = self
@@ -26,7 +26,7 @@ class Stub:
                     {"method": self.command, "path": self.path, "headers": {k.lower(): v for k, v in self.headers.items()}, "body": body}
                 )
                 status, ctype, text = stub.replies.pop(0) if len(stub.replies) > 1 else stub.replies[0]
-                data = text.encode()
+                data = text if isinstance(text, bytes) else text.encode()
                 self.send_response(status)
                 self.send_header("content-type", ctype)
                 self.send_header("content-length", str(len(data)))

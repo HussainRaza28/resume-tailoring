@@ -68,8 +68,11 @@ def main() -> None:
             reply = bridge.call(body["command"], body.get("args") or {})
             channel = (body.get("args") or {}).get("onEvent")
             sent = events.pop(channel, []) if channel else []
-            self._headers(200)
-            self.wfile.write(json.dumps({"reply": reply, "events": sent}).encode())
+            try:
+                self._headers(200)
+                self.wfile.write(json.dumps({"reply": reply, "events": sent}).encode())
+            except BrokenPipeError:
+                pass  # the test that asked has already finished and closed its page
 
         def log_message(self, *_args) -> None:
             pass

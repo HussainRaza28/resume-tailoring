@@ -69,6 +69,8 @@ class DemoProvider(Provider):
             reply = {"company": "", "role": _first_posting_line(request.user), "red_flags": _RED_FLAGS}
         elif step.startswith("rewrite"):
             reply = {"rewrites": [self._proposal(m.group(1), m.group(3)) for m in _REWRITE_LINE.finditer(request.user)]}
+        elif step == "suggest_facts":
+            reply = {"facts": [{"text": t, "quote": t} for t in _sentences_with_numbers(request.user)]}
         elif step.startswith("review"):
             reply = {
                 "score": _demo_score([m.group(2) for m in _SCORE_LINE.finditer(request.user)]),
@@ -95,6 +97,14 @@ class DemoProvider(Provider):
             "question": question,
             "why": "Removes a generic opener" if question else "Already specific",
         }
+
+
+def _sentences_with_numbers(message: str, limit: int = 5) -> list[str]:
+    """Sentences in the <document> part of a message that contain a number: the demo's facts."""
+    document = message.split("<document>", 1)[1].split("</document>", 1)[0] if "<document>" in message else ""
+    pieces = re.split(r"(?<=[.!?])\s+|\n+", document)
+    found = [p.strip().rstrip(".") for p in pieces if any(c.isdigit() for c in p) and len(p.split()) >= 4]
+    return found[:limit]
 
 
 def _first_posting_line(message: str) -> str:
