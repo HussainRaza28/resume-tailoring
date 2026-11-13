@@ -69,3 +69,74 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           npm run e2e
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: [test, interface]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (Apple Silicon)
+            os: macos-latest
+          - name: Windows
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Build the interface
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+      - name: Install Python dependencies
+        run: uv sync --locked --group build
+      - name: Download Tectonic
+        run: uv run python scripts/fetch_tectonic.py
+      - name: Build the app with PyInstaller
+        run: uv run pyinstaller packaging/tailor.spec --noconfirm
+
+      - name: Sign the app (ad hoc) and check the signature
+        if: runner.os == 'macOS'
+        run: |
+          codesign --force --deep --sign - dist/Tailor.app
+          codesign --verify --deep --strict --verbose=2 dist/Tailor.app
+      - name: Self-test the packaged app (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          dist/Tailor.app/Contents/MacOS/Tailor --self-test selftest.json || { cat selftest.json; exit 1; }
+          cat selftest.json
+      - name: Make the disk image
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist/installer
+          hdiutil create -volname Tailor -srcfolder dist/Tailor.app -ov -format UDZO dist/installer/Tailor-0.1.0-arm64.dmg
+
+      - name: Self-test the packaged app (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          dist/Tailor/Tailor.exe --self-test selftest.json || { cat selftest.json; exit 1; }
+          cat selftest.json
+      - name: Make the installer
+        if: runner.os == 'Windows'
+        run: |
+          ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
+          if [ ! -f "$ISCC" ]; then choco install innosetup --no-progress -y; fi
+          "$ISCC" packaging/windows/tailor.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tailor-${{ runner.os }}
+          path: dist/installer/*
+          if-no-files-found: error
