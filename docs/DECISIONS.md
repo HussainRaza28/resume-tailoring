@@ -12,7 +12,6 @@ Choices made while building Tailor, with the reason for each.
 
 - **Slot positions are character indexes** into the source string, because that is how Python slices strings. A test reads the sample as bytes, applies no edits and compares the bytes, so the round trip is exact at the byte level too.
 - **A slot kind is a name plus an argument number**, such as `kind="subheading"` and `arg=2`. Both are plain values, so a slot turns into JSON for the interface without a custom encoder.
-
 - **Plain text in, escaped LaTeX out.** Models and the interface see slot text as plain text. `plain_to_tex` escapes every special character, so model output can't add commands. Text that didn't change keeps its original bytes, so accepting nothing reproduces the input file exactly.
 - **A small markup mapping.** `\textbf{x}` shows as `**x**`, `\emph{x}` and `\textit{x}` as `*x*`, `$\sim$` as `~`, `$|$` as `|`, ``` ``x'' ``` as curly quotes and `--` as an en dash. A slot that uses any other command is shown as raw LaTeX, and only the user can edit it.
 - **Hand-typed LaTeX is allowlisted.** A hand edit may only use `\textbf \emph \textit \underline \href \sim \textbackslash \textless \textgreater`. Checking brace balance and the skeleton isn't enough on its own, because `\section{...}` inside a bullet's braces keeps both intact. The allowlist also blocks font-size and spacing commands, so an edit can't shrink the page to fit.
@@ -29,6 +28,14 @@ Choices made while building Tailor, with the reason for each.
 - **Coverage only counts real skills.** A skill counts as covered only when the scored resume shows it and the base resume or facts bank backs it up. Required coverage is covered divided by the required skills you have. Required skills you don't have aren't in the denominator, because no honest rewrite can add them.
 - **Posting tiers.** Skills under a requirements heading are required, under a preferred or nice-to-have heading preferred, and a line saying "a plus" or "preferred" is preferred wherever it sits. If the posting has no requirements heading, every skill found is required. A skill keeps its strongest tier.
 - **The facts bank is a JSON file** in the private data folder. It's small, the user may want to read or back it up by hand, and it's written to a temporary file and then swapped in, so a crash can't leave half a file. Fact ids are never reused after a delete, so a run that cited `f3` still points at the same fact.
+
+## Model providers
+
+- **One interface, checked output.** Each provider only sends a request and streams back text. The shared `Provider.complete` parses that text against the step's Pydantic schema and raises `BadOutput` if it doesn't fit, so the pipeline never handles an unchecked reply, whichever provider produced it.
+- **Strict schemas, written out in full.** Step replies forbid unknown fields and make every field required (a field that may be empty is `str | None` with no default), which is what the providers' structured-output modes expect. Pydantic puts nested models under `$defs`; `json_schema` inlines them because not every provider follows `$ref`.
+- **Plain synchronous calls.** The interface calls Python through pywebview, which runs each call on its own thread, so a provider can block while it streams without freezing the window. That keeps each provider readable from top to bottom, with no event loop.
+- **Retries.** Rate limits and server errors are retried up to three tries in all, waiting for the provider's Retry-After when given (capped at 30 seconds) and otherwise 2, then 4 seconds. A rejected key or a malformed reply isn't retried, because trying again gives the same answer.
+- **The Demo provider is offline and deterministic.** It builds replies from the request itself, so the whole flow runs with no key or network, and end-to-end tests get the same output every time. Its score is a simple count of specific and vague bullets, and the interface says so.
 
 ## Compiling to PDF
 
