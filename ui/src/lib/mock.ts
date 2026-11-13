@@ -1,0 +1,512 @@
+/**
+ * In-memory stand-in for the Python backend, used only when the UI runs in a plain
+ * browser (screenshots, Playwright, `npm run dev`). It serves the fake sample
+ * resume in tests/fixtures (Jordan Sample) and the offline demo provider's kind of
+ * output. None of this ships as data or appears in measured results.
+ */
+import { emit as emitTo, installMockBackend } from "./ipc";
+import samplePosting from "../../../tests/fixtures/sample_posting.txt?raw";
+import type { Application, BaselineEntry, CheckedRewrite, Coverage, Fact, RunRecord, RunState, StepEvent } from "./api";
+
+const SAMPLE_POSTING = samplePosting.trim();
+
+const now = () => new Date().toISOString();
+
+function rw(id: string, entry: string, section: string, old: string, next: string, status: CheckedRewrite["status"], extra: Partial<CheckedRewrite> = {}): CheckedRewrite {
+  return {
+    bullet_id: id,
+    entry,
+    section,
+    old_text: old,
+    new_text: next,
+    sources: [id],
+    question: null,
+    why: "",
+    status,
+    grounding: { claims: [], citation_errors: [] },
+    style: [],
+    reasons: [],
+    ...extra,
+  };
+}
+
+const NW = "Northwind Logistics | Software Engineering Intern, Routing Team";
+const LIB = "Springfield Public Library | Student Technology Assistant";
+const TM = "**TrailMap** | *TypeScript, React, Node.js, PostgreSQL*";
+const BB = "**Budget Bot** | *Python, SQLite*";
+
+function rewrites(): CheckedRewrite[] {
+  return [
+    rw("b2", NW, "Experience", "Built a Python service that batches delivery route updates, cutting API calls to the mapping provider from 12,000 to 3,000 per day", "Cut mapping API calls from 12,000 to 3,000 per day by building a Python service that batches delivery route updates", "ok", { why: "Leads with the result the platform team cares about" }),
+    rw("b3", NW, "Experience", "Added PostgreSQL indexes to the shipment lookup query after profiling showed full table scans on 2 million rows", "Removed full table scans on 2 million shipment rows by profiling the lookup query and adding PostgreSQL indexes", "ok", { why: "Puts the scale first" }),
+    rw("b4", NW, "Experience", "Wrote 45 unit tests with pytest for the route validation module and set them to run in GitHub Actions on every pull request", "Wrote 45 unit tests with pytest for the route validation module and set them to run in GitHub Actions on every pull request", "unchanged"),
+    rw("b5", NW, "Experience", "Worked with the team on various backend tasks and helped with code reviews", "Reviewed 40+ pull requests and shipped backend features with the routing team", "blocked", {
+      why: "Replaces a vague teamwork line",
+      question: "How many pull requests did you review that summer?",
+      grounding: { claims: [{ text: "40+", kind: "number", supported: false }], citation_errors: [] },
+      reasons: ['Number "40+" is not in the cited sources.'],
+    }),
+    rw("b6", LIB, "Experience", "Helped patrons with computer and printer problems at the help desk", "Resolved computer and printer problems for library patrons at the help desk", "ok", { why: "Swaps a soft verb for the outcome", question: "About how many patrons did you help in a typical week?" }),
+    rw("b7", LIB, "Experience", "Set up 20 laptops for a weekly coding club for middle school students", "Set up 20 laptops for a weekly coding club for middle school students", "unchanged"),
+    rw("b8", TM, "Projects", "Built a web app for logging hikes on an interactive map, used by 140 members of the university hiking club", "Built a web app for logging hikes on an interactive map, used by 140 members of the university hiking club", "unchanged"),
+    rw("b9", TM, "Projects", "Designed a REST API in Node.js with JWT login and rate limiting", "Designed the Node.js REST API behind TrailMap, with JWT login and rate limiting", "ok", { why: "Names the API's job for a REST-heavy role" }),
+    rw("b10", BB, "Projects", "Made a Discord bot that tracks shared expenses for roommates and posts a weekly summary", "Made a Discord bot that tracks shared expenses for roommates and posts a weekly summary", "unchanged"),
+    rw("b11", BB, "Projects", "Parsed bank CSV exports from 3 banks into one SQLite schema", "Seamlessly unified bank CSV exports from 3 banks into one SQLite schema", "blocked", {
+      style: [{ rule: "stock_word", excerpt: "Seamlessly", message: '"Seamlessly" is a stock word. Say what actually happened.' }],
+      reasons: ['Stock word: "Seamlessly" is a stock word. Say what actually happened.'],
+    }),
+  ];
+}
+
+function coverage(after: boolean): Coverage {
+  const s = (skill: string, tier: "required" | "preferred", covered: boolean, have: boolean, evidence: string | null = have ? "base" : null) => ({ skill, tier, covered, have, addable: have && !covered, evidence });
+  const skills = [
+    s("Python", "required", true, true),
+    s("SQL", "required", true, true),
+    s("PostgreSQL", "required", true, true),
+    s("Docker", "required", true, true),
+    s("Git", "required", true, true),
+    s("REST", "required", after, true),
+    s("TypeScript", "preferred", true, true),
+    s("Node.js", "preferred", true, true),
+    s("Redis", "preferred", false, true, "f1"),
+    s("Kubernetes", "preferred", false, false),
+    s("AWS", "preferred", false, false),
+  ];
+  const req = skills.filter((x) => x.tier === "required");
+  const pref = skills.filter((x) => x.tier === "preferred");
+  return {
+    skills,
+    required_total: req.length,
+    required_have: req.filter((x) => x.have).length,
+    required_covered: req.filter((x) => x.covered).length,
+    preferred_total: pref.length,
+    preferred_have: pref.filter((x) => x.have).length,
+    preferred_covered: pref.filter((x) => x.covered).length,
+  };
+}
+
+type Db = {
+  runs: Map<string, RunState>;
+  apps: Application[];
+  facts: Fact[];
+  baseline: BaselineEntry[];
+  settings: Record<string, string>;
+  keys: Record<string, string>;
+  hasBase: boolean;
+};
+
+const db: Db = {
+  runs: new Map(),
+  apps: [
+    { id: 1, run_id: null, company: "Harbor Analytics", role: "Data Engineering Intern", date: "2026-11-02", status: "interview", notes: "Phone screen Nov 18" },
+    { id: 2, run_id: null, company: "Kestrel Robotics", role: "Software Intern, Autonomy", date: "2026-10-27", status: "applied", notes: "" },
+    { id: 3, run_id: null, company: "Morrow Health", role: "Backend Engineering Intern", date: "2026-10-19", status: "rejected", notes: "Position filled" },
+    { id: 4, run_id: null, company: "Quillstone", role: "Full-Stack Intern", date: "2026-10-12", status: "offer", notes: "Decide by Dec 1" },
+  ],
+  facts: [{ id: "f1", text: "Used Redis to cache route lookups at Northwind Logistics", question: null, bullet_text: null, created_at: "2026-11-01T12:00:00Z" }],
+  baseline: [
+    { id: 1, started_at: "2026-11-04T18:00:00Z", duration_ms: 1_920_000, note: "Harbor Analytics" },
+    { id: 2, started_at: "2026-11-06T18:00:00Z", duration_ms: 2_310_000, note: "Kestrel Robotics" },
+  ],
+  settings: { provider: "demo", "model.demo": "demo", theme: "dark", export_dir: "/Users/jordan/Documents/Resumes" },
+  keys: {},
+  hasBase: true,
+};
+
+const pdfCache: Record<string, ArrayBuffer> = {};
+async function pdf(name: "base" | "tailored"): Promise<ArrayBuffer> {
+  if (!pdfCache[name]) pdfCache[name] = await (await fetch(`${import.meta.env.BASE_URL}mock/sample-${name}.pdf`)).arrayBuffer();
+  return pdfCache[name].slice(0);
+}
+
+function emit(ch: unknown, e: StepEvent) {
+  emitTo(ch, e);
+}
+
+/** The sample resume belongs to Jordan Sample, so its PDFs are named after them. */
+function exportName(company: string) {
+  const c = company.trim().replace(/[^A-Za-z0-9-]+/g, "_").replace(/^_+|_+$/g, "");
+  return c ? `Jordan_Sample_Resume_${c}.pdf` : "Jordan_Sample_Resume.pdf";
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const speed = () => Number(new URLSearchParams(location.search).get("speed") ?? "1");
+
+async function streamText(ch: unknown, step: string, text: string) {
+  emit(ch, { type: "started", step });
+  const chunks = text.match(/[\s\S]{1,48}/g) ?? [];
+  for (const c of chunks) {
+    emit(ch, { type: "delta", step, text: c });
+    await sleep(28 / speed());
+  }
+  emit(ch, { type: "finished", step });
+}
+
+function step(name: string, input: number, output: number, ms: number) {
+  return { step: name, usage: { input_tokens: input, output_tokens: output, cache_read_tokens: 0, cache_write_tokens: 0 }, duration_ms: ms, model: "demo", blocked_claims: name === "rewrite" ? 1 : 0, style_violations: name === "rewrite" ? 1 : 0, cost_usd: 0 };
+}
+
+function record(r: RunState): RunRecord {
+  return {
+    id: r.id,
+    created_at: r.created_at,
+    company: r.company,
+    role: r.role,
+    provider: r.provider,
+    model: r.model,
+    status: r.exported_at_ms ? "exported" : r.error ? "failed" : "running",
+    pasted_at_ms: r.pasted_at_ms,
+    exported_at_ms: r.exported_at_ms,
+    cost_usd: 0,
+    score_before: r.review_before?.score ?? null,
+    score_after: r.review_after?.score ?? null,
+  };
+}
+
+function seedHistory() {
+  const mk = (id: string, company: string, role: string, daysAgo: number, exported: boolean): RunState => {
+    const created = new Date(Date.now() - daysAgo * 86_400_000);
+    return {
+      id,
+      created_at: created.toISOString(),
+      company,
+      role,
+      posting: SAMPLE_POSTING,
+      provider: "demo",
+      model: "demo",
+      pasted_at_ms: created.getTime(),
+      exported_at_ms: exported ? created.getTime() + 412_000 : null,
+      red_flags: null,
+      rewrites: [],
+      decisions: {},
+      removed: [],
+      review_before: null,
+      review_after: null,
+      posting_skills: { required: [], preferred: [], mentioned: [] },
+      coverage_before: null,
+      coverage_after: null,
+      steps: [],
+      pages: 1,
+      trim_hints: [],
+      exported_path: null,
+      export_name: "",
+      error: null,
+    };
+  };
+  for (const r of [mk("h1", "Harbor Analytics", "Data Engineering Intern", 11, true), mk("h2", "Kestrel Robotics", "Software Intern, Autonomy", 17, true), mk("h3", "Morrow Health", "Backend Engineering Intern", 25, true)]) db.runs.set(r.id, r);
+}
+
+/** A finished sample run, so each step can be opened straight from a URL. */
+function seedSampleRun(stage: string) {
+  const r: RunState = {
+    id: "sample",
+    created_at: now(),
+    company: "Larkspur Freight",
+    role: "Software Engineer Intern, Platform",
+    posting: SAMPLE_POSTING,
+    provider: "demo",
+    model: "demo",
+    pasted_at_ms: Date.now() - 95_000,
+    exported_at_ms: null,
+    red_flags: {
+      company: "Larkspur Freight",
+      role: "Software Engineer Intern, Platform",
+      red_flags: [
+        { flag: "A teamwork bullet with no outcome", why: "“Worked with the team on various backend tasks” is the one line a platform lead reads as filler. It hides the code reviews that are this role's daily work.", section: "Experience" },
+        { flag: "REST work is buried in a side project", why: "The posting asks for REST API design twice. The only API bullet sits last under TrailMap and never says what the API served.", section: "Projects" },
+        { flag: "The posting's stack is not first in Skills", why: "PostgreSQL and Docker are required, but a ten-second skim of the Tools line reads Git and SQLite first.", section: "Technical Skills" },
+      ],
+    },
+    rewrites: rewrites(),
+    decisions: { b2: { state: "accepted", origin: "rewrite" }, b3: { state: "accepted", origin: "rewrite" } },
+    removed: [],
+    review_before: null,
+    review_after: null,
+    posting_skills: { required: ["Python", "SQL", "PostgreSQL", "Docker", "Git", "REST"], preferred: ["TypeScript", "Node.js", "Kubernetes", "AWS", "Redis"], mentioned: [] },
+    coverage_before: coverage(false),
+    coverage_after: coverage(true),
+    steps: [step("red_flags", 2410, 312, 6200), step("rewrite", 3120, 1240, 14800), step("rewrite_retry", 1410, 220, 3900)],
+    pages: 1,
+    trim_hints: [],
+    exported_path: null,
+    export_name: "",
+    error: null,
+  };
+  if (stage === "review" || stage === "export") {
+    r.review_before = { score: 61, verdict: "", skipped_sections: [] };
+    r.review_after = {
+      score: 72,
+      verdict: "The Northwind bullets now lead with scale a platform team can picture. The library role still reads as unrelated, and the Budget Bot project adds little for a backend internship.",
+      skipped_sections: [
+        {
+          section: "Projects",
+          reason: "Budget Bot reads as a hobby script, so a busy reader skips to Skills.",
+          rewrites: [rw("b10", BB, "Projects", "Made a Discord bot that tracks shared expenses for roommates and posts a weekly summary", "Built a Python Discord bot that tracks shared roommate expenses in SQLite and posts a weekly summary", "ok", { why: "Names the stack the posting asks for" })],
+        },
+      ],
+    };
+    r.steps.push(step("review_before", 2210, 405, 7100), step("review_after", 2260, 512, 7600));
+  }
+  db.runs.set(r.id, r);
+}
+
+export async function installMock() {
+  (window as { __TAILOR_MOCK__?: boolean }).__TAILOR_MOCK__ = true;
+  const params = new URLSearchParams(location.search);
+  if (params.get("empty") === "1") {
+    db.apps = [];
+    db.baseline = [];
+    db.facts = [];
+  } else seedHistory();
+  if (params.get("nobase") === "1") db.hasBase = false;
+  if (params.get("run") === "sample") seedSampleRun(params.get("step") ?? "rewrite");
+  const failStep = params.get("fail"); // e.g. ?fail=bad_key
+
+  const handle = async (cmd: string, args: Record<string, unknown>): Promise<unknown> => {
+    const a = (args ?? {}) as Record<string, unknown>;
+    const run = (id: unknown) => {
+      const r = db.runs.get(String(id));
+      if (!r) throw { kind: "not_found", message: "That run no longer exists." };
+      return r;
+    };
+    switch (cmd) {
+      case "app_info":
+        return { name: "Tailor", version: "0.1.0", data_dir: "~/Library/Application Support/Tailor/private", has_base_resume: db.hasBase, tectonic_path: "/Applications/Tailor.app/Contents/MacOS/tectonic" };
+      case "get_settings":
+        return ["provider", "model.claude_api", "model.claude_code", "model.gemini", "model.ollama", "model.demo", "effort", "theme", "reduce_motion", "export_dir", "ollama_host"].map((key) => ({ key, value: db.settings[key] ?? null }));
+      case "set_setting":
+        db.settings[String(a.key)] = String(a.value);
+        return null;
+      case "key_status":
+        return { provider: a.provider, saved: !!db.keys[String(a.provider)], masked: db.keys[String(a.provider)] ? "sk-ant…9f2c" : null };
+      case "save_key":
+        db.keys[String(a.provider)] = String(a.key);
+        return { provider: a.provider, saved: true, masked: "sk-ant…9f2c" };
+      case "delete_key":
+        delete db.keys[String(a.provider)];
+        return null;
+      case "ollama_models":
+        return [{ name: "llama3.2:3b", size_bytes: 2_000_000_000 }, { name: "qwen2.5:7b", size_bytes: 4_700_000_000 }];
+      case "gemini_models":
+        if (!db.keys.gemini) throw { kind: "missing_key", message: "No key" };
+        return ["gemini-flash-latest", "gemini-3.6-flash"];
+      case "compile_base":
+        await sleep(300 / speed());
+        return { pdf: Array.from(new Uint8Array(await pdf("base"))), pages: 1, duration_ms: 840 };
+      case "compile_run": {
+        const r = run(a.runId);
+        await sleep(300 / speed());
+        r.pages = r.removed.length > 99 ? 2 : 1;
+        const tailored = Object.values(r.decisions).some((d) => d.state === "accepted");
+        return pdf(tailored ? "tailored" : "base");
+      }
+      case "list_runs":
+        return [...db.runs.values()].sort((x, y) => y.created_at.localeCompare(x.created_at)).map(record);
+      case "delete_run":
+        db.runs.delete(String(a.runId));
+        return null;
+      case "get_run_state":
+        return structuredClone(run(a.runId));
+      case "start_run": {
+        const id = `run-${Date.now()}`;
+        const r: RunState = {
+          id,
+          created_at: now(),
+          company: String(a.company || "") || "Larkspur Freight",
+          role: "",
+          posting: String(a.posting),
+          provider: String(a.provider || "demo"),
+          model: String(a.model || "demo"),
+          pasted_at_ms: (a.pastedAtMs as number) ?? Date.now(),
+          exported_at_ms: null,
+          red_flags: null,
+          rewrites: [],
+          decisions: {},
+          removed: [],
+          review_before: null,
+          review_after: null,
+          posting_skills: { required: ["Python", "SQL", "PostgreSQL", "Docker", "Git", "REST"], preferred: ["TypeScript", "Node.js", "Kubernetes", "AWS", "Redis"], mentioned: [] },
+          coverage_before: coverage(false),
+          coverage_after: coverage(false),
+          steps: [],
+          pages: null,
+          trim_hints: [],
+          exported_path: null,
+          export_name: "",
+          error: null,
+        };
+        db.runs.set(id, r);
+        return structuredClone(r);
+      }
+      case "run_step": {
+        const r = run(a.runId);
+        const s = String(a.step);
+        if (failStep && s === "red_flags") {
+          await sleep(500);
+          const msgs: Record<string, string> = {
+            bad_key: "The API key was rejected. Check it in Settings.",
+            rate_limited: "Rate limited by the provider. Try again in a moment.",
+            offline: "Could not reach the provider. Check your connection.",
+          };
+          r.error = { kind: failStep, message: msgs[failStep] ?? "Failed" };
+          throw r.error;
+        }
+        if (s === "red_flags") {
+          await streamText(a.onEvent, s, JSON.stringify({ company: "Larkspur Freight", role: "Software Engineer Intern, Platform" }, null, 1).repeat(4));
+          r.company = r.company || "Larkspur Freight";
+          r.role = "Software Engineer Intern, Platform";
+          r.red_flags = {
+            company: r.company,
+            role: r.role,
+            red_flags: [
+              { flag: "A teamwork bullet with no outcome", why: "“Worked with the team on various backend tasks” is the one line a platform lead reads as filler. It hides the code reviews that are this role's daily work.", section: "Experience" },
+              { flag: "REST work is buried in a side project", why: "The posting asks for REST API design twice. The only API bullet sits last under TrailMap and never says what the API served.", section: "Projects" },
+              { flag: "The posting's stack is not first in Skills", why: "PostgreSQL and Docker are required, but a ten-second skim of the Tools line reads Git and SQLite first.", section: "Technical Skills" },
+            ],
+          };
+          r.steps.push(step("red_flags", 2410, 312, 6200));
+        } else if (s === "rewrite") {
+          await streamText(a.onEvent, s, JSON.stringify(rewrites().map((x) => ({ bullet_id: x.bullet_id, new_text: x.new_text })), null, 1));
+          r.rewrites = rewrites();
+          r.decisions = {};
+          r.steps.push(step("rewrite", 3120, 1240, 14800), step("rewrite_retry", 1410, 220, 3900));
+        } else if (s === "review") {
+          await streamText(a.onEvent, s, JSON.stringify({ score: 78, verdict: "…" }).repeat(10));
+          const accepted = Object.values(r.decisions).filter((d) => d.state === "accepted").length;
+          r.review_before = { score: 61, verdict: "", skipped_sections: [] };
+          r.review_after = {
+            score: Math.min(92, 64 + accepted * 4),
+            verdict: "The Northwind bullets now lead with scale a platform team can picture. The library role still reads as unrelated, and the Budget Bot project adds little for a backend internship.",
+            skipped_sections: [
+              {
+                section: "Projects",
+                reason: "Budget Bot reads as a hobby script, so a busy reader skips to Skills.",
+                rewrites: [
+                  rw("b10", BB, "Projects", "Made a Discord bot that tracks shared expenses for roommates and posts a weekly summary", "Built a Python Discord bot that tracks shared roommate expenses in SQLite and posts a weekly summary", "ok", { why: "Names the stack the posting asks for" }),
+                ],
+              },
+            ],
+          };
+          r.coverage_after = coverage(accepted > 0);
+          r.steps.push(step("review_before", 2210, 405, 7100), step("review_after", 2260, 512, 7600));
+        }
+        return structuredClone(r);
+      }
+      case "decide": {
+        const r = run(a.runId);
+        const id = String(a.bulletId);
+        const x = r.rewrites.find((y) => y.bullet_id === id);
+        if (!x) throw { kind: "not_found", message: "No rewrite for that bullet." };
+        const action = String(a.action);
+        if (action === "accept") {
+          if (x.status === "blocked") throw { kind: "blocked", message: x.reasons.join(" ") };
+          r.decisions[id] = { state: "accepted", origin: "rewrite" };
+        } else if (action === "reject") r.decisions[id] = { state: "rejected", origin: "rewrite" };
+        else if (action === "reset") r.decisions[id] = { state: "pending", origin: "" };
+        else if (action === "edit") {
+          x.new_text = String(a.text ?? "");
+          const bad = /\b\d+\+?\b/.test(x.new_text) && !/\b\d+\b/.test(x.old_text);
+          x.status = bad ? "blocked" : "ok";
+          x.reasons = bad ? ["A number in your edit is not in the cited sources. Answer the question to add it to your facts bank."] : [];
+          r.decisions[id] = { state: bad ? "pending" : "accepted", origin: "rewrite" };
+        }
+        r.coverage_after = coverage(Object.values(r.decisions).some((d) => d.state === "accepted"));
+        return structuredClone(r);
+      }
+      case "answer_question": {
+        const r = run(a.runId);
+        const x = r.rewrites.find((y) => y.bullet_id === a.bulletId)!;
+        const ans = String(a.answer).trim();
+        if (ans) {
+          const fid = `f${db.facts.length + 1}`;
+          db.facts.push({ id: fid, text: `${x.question} ${ans}`, question: x.question, bullet_text: x.old_text, created_at: now() });
+          await streamText(a.onEvent, "rewrite_one", "{}");
+          if (x.bullet_id === "b5") {
+            x.new_text = `Reviewed ${ans} pull requests and shipped backend fixes with the routing team`;
+            x.status = "ok";
+            x.reasons = [];
+            x.grounding = { claims: [{ text: ans, kind: "number", supported: true }], citation_errors: [] };
+            x.sources = ["b5", fid];
+          }
+        }
+        x.question = null;
+        return structuredClone(r);
+      }
+      case "accept_suggestion": {
+        const r = run(a.runId);
+        const sug = r.review_after?.skipped_sections[Number(a.section)]?.rewrites.find((y) => y.bullet_id === a.bulletId);
+        if (!sug) throw { kind: "not_found", message: "Gone" };
+        const i = r.rewrites.findIndex((y) => y.bullet_id === sug.bullet_id);
+        if (i >= 0) r.rewrites[i] = { ...sug };
+        r.decisions[sug.bullet_id] = { state: "accepted", origin: "review" };
+        return structuredClone(r);
+      }
+      case "toggle_remove": {
+        const r = run(a.runId);
+        const id = String(a.bulletId);
+        r.removed = r.removed.includes(id) ? r.removed.filter((b) => b !== id) : [...r.removed, id];
+        return structuredClone(r);
+      }
+      case "export_run": {
+        const r = run(a.runId);
+        await sleep(500 / speed());
+        r.exported_at_ms = r.exported_at_ms ?? Date.now();
+        r.exported_path = `${a.dir}/${exportName(r.company)}`;
+        r.pages = 1;
+        if (!db.apps.some((x) => x.run_id === r.id)) db.apps.unshift({ id: Date.now(), run_id: r.id, company: r.company, role: r.role, date: new Date().toISOString().slice(0, 10), status: "tailored", notes: "" });
+        return structuredClone(r);
+      }
+      case "list_applications":
+        return structuredClone(db.apps);
+      case "add_application":
+        db.apps.unshift({ id: Date.now(), run_id: null, company: String(a.company), role: String(a.role), date: String(a.date), status: a.status as Application["status"], notes: "" });
+        return 1;
+      case "update_application": {
+        const x = a.application as Application;
+        db.apps = db.apps.map((y) => (y.id === x.id ? x : y));
+        return null;
+      }
+      case "delete_application":
+        db.apps = db.apps.filter((y) => y.id !== a.id);
+        return null;
+      case "list_facts":
+        return structuredClone(db.facts);
+      case "save_fact":
+        if (a.id) db.facts = db.facts.map((f) => (f.id === a.id ? { ...f, text: String(a.text) } : f));
+        else db.facts.push({ id: `f${db.facts.length + 1}`, text: String(a.text), question: null, bullet_text: null, created_at: now() });
+        return structuredClone(db.facts);
+      case "delete_fact":
+        db.facts = db.facts.filter((f) => f.id !== a.id);
+        return structuredClone(db.facts);
+      case "list_baseline":
+        return structuredClone(db.baseline);
+      case "add_baseline":
+        db.baseline.push({ id: Date.now(), started_at: now(), duration_ms: Number(a.durationMs), note: String(a.note ?? "") });
+        return structuredClone(db.baseline);
+      case "delete_baseline":
+        db.baseline = db.baseline.filter((b) => b.id !== a.id);
+        return structuredClone(db.baseline);
+      case "import_base_resume":
+        db.hasBase = true;
+        return null;
+      case "base_resume_info":
+        return { tex: "", bullets: 11, sections: ["Education", "Experience", "Projects", "Technical Skills"] };
+      case "claude_code_status":
+        return { installed: true, signed_in: true, path: "/Users/you/.local/bin/claude", version: "2.1.325", auth_method: "claude.ai" };
+      default:
+        throw { kind: "unknown", message: `mock has no handler for ${cmd}` };
+    }
+  };
+  // The real backend adds the export file name to every run it returns; so does the mock.
+  installMockBackend(async (cmd, args) => {
+    const out = await handle(cmd, args);
+    if (out && typeof out === "object" && "decisions" in out && "posting" in out) {
+      const r = out as RunState;
+      r.export_name = exportName(r.company);
+    }
+    return out;
+  });
+}
+
+export const MOCK_POSTING = SAMPLE_POSTING;
