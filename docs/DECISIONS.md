@@ -84,6 +84,13 @@ Choices made while building Tailor, with the reason for each.
 - **API keys in the system keychain** through `keyring`: the macOS Keychain and the Windows Credential Manager. The interface only gets a masked form, the first 6 and last 4 characters.
 - **The data folder** is the OS app-data folder (`~/Library/Application Support/Tailor/private` on a Mac, `%APPDATA%\Tailor\private` on Windows). `TAILOR_DATA_DIR` overrides it, for development against the gitignored `data/private/`.
 
+## Settings and data
+
+- **Each run keeps the resume it started from.** The base resume's text is stored with the run (migration 2 adds the column). A run's bullet ids point into that text, so replacing the base resume in Settings can't break or change an earlier run. Runs saved before the column existed fall back to the current base resume.
+- **Moving the data folder copies, then switches.** The chosen folder is recorded in `location.json` beside the default data folder, where the app looks before opening anything. An empty folder receives the data as it is, a folder with other files in it gets a `Tailor` folder inside, and a folder that already holds Tailor data is used without copying. The old copy is left in place, so a failed or mistaken move loses nothing. `TAILOR_DATA_DIR` still wins, and the app refuses to move data while it's set.
+- **Line endings are kept.** `.tex` files are read with `newline=""`. `Path.read_text` turns Windows CRLF into LF, which changed a resume saved on Windows on its way in.
+- **Reduce Motion follows the system setting** through `prefers-reduced-motion`, so there's no separate switch in the app to fall out of step with it.
+
 ## Compiling to PDF
 
 - **Tectonic 0.15.0, pinned.** It is the newest release with ready-made builds for Apple Silicon Macs, Windows and Linux. A pinned version means every build ships the same Tectonic, and the download script needs no GitHub API call to pick one.
