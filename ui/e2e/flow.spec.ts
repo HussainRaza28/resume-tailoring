@@ -124,9 +124,18 @@ test("facts import suggests facts and saves only what is accepted", async ({ pag
   await blocked.getByRole("button", { name: "Reject" }).click();
   await expect(blocked).toHaveCount(0);
 
-  const good = page.locator(".suggestion", { hasText: "140 members" });
+  // What the resume already says is tucked away, closed, with what covers it.
+  const covered = page.locator(".covered-group");
+  await expect(covered.locator("summary")).toHaveText("Already on your resume (1)");
+  await expect(covered.getByText("Budget Bot parses CSV exports from 3 banks")).toBeHidden();
+  await expect(page.locator(".suggestion", { hasText: "CSV exports" })).toHaveCount(0);
+  await covered.locator("summary").click();
+  await expect(covered.getByText("Budget Bot parses CSV exports from 3 banks")).toBeVisible();
+  await expect(covered.getByText("b11")).toBeVisible();
+
+  const good = page.locator(".suggestion", { hasText: "25 contributors" });
   await good.getByRole("button", { name: "Accept" }).click();
-  await expect(page.locator('input[aria-label^="Edit fact"][value="TrailMap is used by 140 members of the university hiking club"]')).toBeVisible();
+  await expect(page.locator('input[aria-label^="Edit fact"][value="TrailMap had 25 contributors on GitHub"]')).toBeVisible();
 
   // A page can lead on to its resume PDF.
   await page.getByLabel("Page to read").fill("jordan.example");

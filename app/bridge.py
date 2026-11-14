@@ -903,7 +903,8 @@ class Backend:
         if on_event:
             self.emit(on_event, {"type": "started", "step": step})
         try:
-            return suggest_facts(provider, source, text, self._facts(), self._sink(on_event, step))
+            resume = TexDoc.parse(self._base_tex()) if self.base_resume_path.is_file() else None
+            return suggest_facts(provider, source, text, self._facts(), self._sink(on_event, step), resume)
         finally:
             if on_event:
                 self.emit(on_event, {"type": "finished", "step": step})

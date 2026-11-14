@@ -193,6 +193,10 @@ export interface Suggestion {
   reasons: string[];
   /** The facts bank already has it. */
   duplicate: boolean;
+  /** The bullet, skills line or fact that already says all of it, if any. */
+  covered_by: string | null;
+  covered_in: "resume" | "facts" | null;
+  covered_text: string | null;
 }
 
 export interface SuggestionResult {

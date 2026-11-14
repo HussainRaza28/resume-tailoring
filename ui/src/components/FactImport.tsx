@@ -1,7 +1,9 @@
 /**
  * Facts import: drop a file or paste a link, and the selected provider suggests
  * short facts from it. Each suggestion is checked against the document, and
- * nothing is saved until the user accepts it (as is, or edited).
+ * nothing is saved until the user accepts it (as is, or edited). Suggestions
+ * the resume or facts bank already cover add nothing, so they sit in a closed
+ * group under the new ones.
  */
 import { useState } from "react";
 import { Upload } from "../blocks/UploadDropzone";
@@ -55,6 +57,11 @@ export default function FactImport({ onSaved }: { onSaved: (facts: Fact[]) => vo
       setBusy(null);
     }
   };
+
+  const fresh = rows.filter((r) => !r.covered_by);
+  const covered = rows.filter((r) => r.covered_by);
+  const allOnResume = covered.every((r) => r.covered_in === "resume");
+  const coveredLabel = allOnResume ? "Already on your resume" : covered.every((r) => r.covered_in === "facts") ? "Already in your facts bank" : "Already on your resume or in your facts bank";
 
   const update = (key: number, change: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...change } : r)));
   const drop = (key: number) => setRows((rs) => rs.filter((r) => r.key !== key));
@@ -110,7 +117,7 @@ export default function FactImport({ onSaved }: { onSaved: (facts: Fact[]) => vo
         <div className="fact-suggestions">
           <div className="row">
             <h2 className="grow">Suggested from {result.source}</h2>
-            <span className="small faint">{rows.length ? "Nothing is saved until you accept it." : "All done."}</span>
+            <span className="small faint">{fresh.length ? "Nothing is saved until you accept it." : "Nothing new to add."}</span>
           </div>
           {result.truncated && <p className="small muted">The document was long, so only its first part was read.</p>}
           {result.pdf_links.length > 0 && (
@@ -124,7 +131,10 @@ export default function FactImport({ onSaved }: { onSaved: (facts: Fact[]) => vo
             </div>
           )}
           {result.suggestions.length === 0 && <p className="small muted">No facts with specifics were found.</p>}
-          {rows.map((row) => (
+          {result.suggestions.length > 0 && fresh.length === 0 && covered.length > 0 && (
+            <p className="small muted">Everything in it is already on your resume or in your facts bank.</p>
+          )}
+          {fresh.map((row) => (
             <div key={row.key} className="suggestion" data-status={row.duplicate ? "duplicate" : row.supported ? "ok" : "blocked"}>
               {row.editing ? (
                 <input
@@ -170,6 +180,24 @@ export default function FactImport({ onSaved }: { onSaved: (facts: Fact[]) => vo
               </div>
             </div>
           ))}
+          {covered.length > 0 && (
+            <details className="covered-group">
+              <summary>
+                {coveredLabel} <span className="num">({covered.length})</span>
+              </summary>
+              <ul>
+                {covered.map((row) => (
+                  <li key={row.key}>
+                    <p className="suggestion-text">{row.text}</p>
+                    <p className="small faint">
+                      {row.covered_in === "facts" ? "Your facts bank" : "Your resume"} already says it{" "}
+                      <span className="chip">{row.covered_by}</span>: “{row.covered_text}”
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </div>
       )}
     </div>

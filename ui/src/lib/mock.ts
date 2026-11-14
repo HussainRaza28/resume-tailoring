@@ -497,9 +497,9 @@ export async function installMock() {
           source: cmd === "suggest_facts_from_url" ? "Jordan Sample" : String(a.name),
           truncated: false,
           suggestions: [
-            { text: "TrailMap is used by 140 members of the university hiking club", quote: "used by 140 members of the university hiking club", supported: true, reasons: [], duplicate: false },
-            { text: "Budget Bot parses CSV exports from 3 banks", quote: "CSV exports from 3 banks", supported: true, reasons: [], duplicate: false },
-            { text: "TrailMap has 2,000 monthly users", quote: "TrailMap", supported: false, reasons: ['Number "2,000" is not in the document.'], duplicate: false },
+            { text: "TrailMap had 25 contributors on GitHub", quote: "25 contributors", supported: true, reasons: [], duplicate: false, covered_by: null, covered_in: null, covered_text: null },
+            { text: "Budget Bot parses CSV exports from 3 banks", quote: "CSV exports from 3 banks", supported: true, reasons: [], duplicate: false, covered_by: "b11", covered_in: "resume", covered_text: "Budget Bot | Python, SQLite. Parsed bank CSV exports from 3 banks into one SQLite schema" },
+            { text: "TrailMap has 2,000 monthly users", quote: "TrailMap", supported: false, reasons: ['Number "2,000" is not in the document.'], duplicate: false, covered_by: null, covered_in: null, covered_text: null },
           ],
           pdf_links: cmd === "suggest_facts_from_url" ? [{ url: "https://jordan.example/resume.pdf", label: "Resume (PDF)" }] : [],
         };

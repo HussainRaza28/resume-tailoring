@@ -10,8 +10,9 @@ from docx import Document
 
 from app.bridge import Backend, Bridge
 from app.core.db import Db
-from app.core.fact_import import MAX_CHARS, suggest_facts
+from app.core.fact_import import MAX_CHARS, covered_by, known_sources, suggest_facts
 from app.core.facts import FactsBank
+from app.core.tex import TexDoc
 from app.core.secrets import MemoryStore
 from app.importers.files import ReadError, extract_text
 from app.importers.web import check_url, page_from_html, read_url
@@ -19,6 +20,7 @@ from tests.fake_provider import FakeProvider
 from tests.http_stub import Stub
 
 ROOT = Path(__file__).parent.parent
+SAMPLE_TEX = (ROOT / "tests" / "fixtures" / "sample_resume.tex").read_text(encoding="utf-8")
 SAMPLE_PDF = (ROOT / "ui" / "public" / "mock" / "sample-base.pdf").read_bytes()
 NOTES = "TrailMap is used by 140 members of the hiking club.\nBudget Bot reads CSV exports from 3 banks.\n"
 
@@ -165,6 +167,56 @@ def test_long_documents_are_cut_and_say_so():
     assert len(p.calls[0].user) < MAX_CHARS + 2000
 
 
+# -- only facts that add something new ---------------------------------------
+
+
+def test_a_fact_the_resume_already_states_is_covered_by_that_bullet():
+    known = known_sources(TexDoc.parse(SAMPLE_TEX), FactsBank())
+    # The bullet says 140 members of the university hiking club, and "TrailMap" is its project heading.
+    found = covered_by("TrailMap had 140 users from the university hiking club", known)
+    assert found is not None and found[0] == "b8" and found[1] == "resume"
+    assert covered_by("Budget Bot reads CSV exports from 3 banks", known)[0] == "b11"
+
+
+def test_a_fact_with_anything_new_is_not_covered():
+    known = known_sources(TexDoc.parse(SAMPLE_TEX), FactsBank())
+    assert covered_by("TrailMap had 400 users from the university hiking club", known) is None, "a new number"
+    assert covered_by("Used Redis to cache route lookups at Northwind", known) is None, "a new skill"
+    assert covered_by("Budget Bot has 25 weekly users", known) is None
+    # Nothing to check but words: one shared word out of two isn't enough.
+    assert covered_by("Enjoys hiking", known) is None
+
+
+def test_a_fact_the_facts_bank_already_states_is_covered_by_that_fact():
+    bank = FactsBank()
+    fid = bank.add("Used Redis to cache route lookups at Northwind Logistics")
+    found = covered_by("Cached route lookups in Redis at Northwind Logistics", known_sources(None, bank))
+    assert found == (fid, "facts", "Used Redis to cache route lookups at Northwind Logistics")
+
+
+def test_suggestions_say_what_already_covers_them():
+    bank = FactsBank()
+    bank.add("Used Redis to cache route lookups at Northwind Logistics")
+    p = FakeProvider().reply("suggest_facts", reply(
+        "TrailMap is used by 140 members of the hiking club",
+        "Budget Bot reads CSV exports from 3 banks",
+        "Budget Bot has 25 weekly users",
+        "Used Redis to cache route lookups at Northwind Logistics",
+    ))
+    notes = NOTES + "Budget Bot has 25 weekly users. Used Redis to cache route lookups at Northwind Logistics.\n"
+    result = suggest_facts(p, "notes.txt", notes, bank, resume=TexDoc.parse(SAMPLE_TEX))
+    cover = {s.text: (s.covered_by, s.covered_in) for s in result.suggestions}
+    assert cover["TrailMap is used by 140 members of the hiking club"] == ("b8", "resume")
+    assert cover["Budget Bot reads CSV exports from 3 banks"] == ("b11", "resume")
+    assert cover["Budget Bot has 25 weekly users"] == (None, None)
+    assert cover["Used Redis to cache route lookups at Northwind Logistics"] == ("f1", "facts")
+    covered = next(s for s in result.suggestions if s.covered_by == "b8")
+    assert "140 members of the university hiking club" in covered.covered_text
+    request = p.calls[0]
+    assert "<resume>" in request.context and "used by 140 members" in request.context
+    assert "already cover" in request.user
+
+
 # -- through the bridge -------------------------------------------------------
 
 
@@ -185,6 +237,16 @@ def test_file_import_suggests_but_saves_nothing(bridge):
     assert "TrailMap is used by 140 members of the hiking club" in texts
     assert all(s["supported"] for s in out["ok"]["suggestions"])
     assert bridge.call("list_facts", {})["ok"] == [], "nothing is saved until the user accepts"
+
+
+def test_file_import_checks_against_the_base_resume(bridge, tmp_path):
+    tex = tmp_path / "resume.tex"
+    tex.write_text(SAMPLE_TEX, encoding="utf-8")
+    assert "ok" in bridge.call("import_base_resume", {"path": str(tex)})
+    data = base64.b64encode(NOTES.encode()).decode()
+    out = bridge.call("suggest_facts_from_file", {"name": "notes.txt", "data": data})["ok"]
+    cover = {s["text"]: s["covered_by"] for s in out["suggestions"]}
+    assert cover["TrailMap is used by 140 members of the hiking club"] == "b8"
 
 
 def test_bad_file_reports_its_reason(bridge):

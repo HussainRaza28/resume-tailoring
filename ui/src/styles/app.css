@@ -1874,6 +1874,25 @@ button.chip:hover {
   border-top: 1px solid var(--rule);
   padding-top: 14px;
 }
+.covered-group {
+  border-radius: var(--radius-inner);
+  background: var(--raised);
+  padding: 10px 14px;
+}
+.covered-group summary {
+  cursor: pointer;
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+.covered-group ul {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+.covered-group .suggestion-text {
+  color: var(--muted);
+}
 .suggestion {
   display: grid;
   gap: 6px;

@@ -131,7 +131,7 @@ Three more things are worked out in code, not by a model:
 
 ## 8. Facts import: `fact_import.py`, `app/importers/`
 
-You can drop a file (PDF, Word, text or Markdown) or paste a link to your site. `files.py` reads the text with `pypdf` or `python-docx`, and `web.py` fetches the page with `httpx2` and keeps its readable text with `beautifulsoup4`, listing any links that look like a resume PDF. The selected provider then suggests short, specific facts. Each suggestion goes through the same grounding check as a rewrite, with the document as its source, so a number the document doesn't contain is flagged. Nothing is saved until you accept a suggestion, as it is or after editing it.
+You can drop a file (PDF, Word, text or Markdown) or paste a link to your site. `files.py` reads the text with `pypdf` or `python-docx`, and `web.py` fetches the page with `httpx2` and keeps its readable text with `beautifulsoup4`, listing any links that look like a resume PDF. The selected provider then suggests short, specific facts. Each suggestion goes through the same grounding check as a rewrite, with the document as its source, so a number the document doesn't contain is flagged. Then `covered_by` compares each suggestion with what you've already said: every bullet on the base resume with its heading, every skills line and every saved fact. If one of them supports all the suggestion's numbers, names and skills (the same grounding check again) and shares most of its words, the suggestion adds nothing new. It's shown in a closed "Already on your resume" group instead of with the new ones. Nothing is saved until you accept a suggestion, as it is or after editing it.
 
 ## 9. Packaging
 
