@@ -13,10 +13,8 @@ from app.providers.base import CompletionRequest, DeltaSink, Provider, RawReply,
 
 # Bullet lines in the rewrite message: "[b2] (Northwind Logistics | Intern) Built a ..."
 _REWRITE_LINE = re.compile(r"^\[(b\d+)\] \(([^)]*)\) (.+)$", re.MULTILINE)
-# Bullet lines in a resume: "- [b2] Built a ..."
-_SCORE_LINE = re.compile(r"^- \[(b\d+)\] (.+)$", re.MULTILINE)
-# One change in the Re-score message: "[b2]" then "  before: ..." and "  after: ..."
-_CHANGE = re.compile(r"^\[(b\d+)\]\n  before: (.*)\n  after: (.*)$", re.MULTILINE)
+# Bullet lines in a resume, with or without an id: "- [b2] Built a ..." or "- Built a ..."
+_SCORE_LINE = re.compile(r"^- (?:\[b\d+\] )?(.+)$", re.MULTILINE)
 
 # Openers that say what a team did instead of what the person did.
 _VAGUE = ["Worked with ", "Helped ", "Responsible for ", "Assisted ", "Was part of ", "Participated in "]
@@ -40,13 +38,6 @@ _RED_FLAGS = [
     },
 ]
 
-_SKIPPED = [
-    {
-        "section": "Technical Skills",
-        "reason": "The posting's stack is buried mid-line, so a skim of the first few items misses it.",
-    },
-]
-
 # How much each kind of bullet moves the demo score.
 _BASE_SCORE = 52
 _PER_SPECIFIC_BULLET = 3
@@ -56,13 +47,12 @@ _PER_VAGUE_BULLET = 6
 _CHUNK = 64
 
 
-def rewrite_line(text: str) -> tuple[str, str | None]:
-    """Swap a vague opener for a plainer one and ask for a number. Other bullets stay as they are."""
+def rewrite_line(text: str) -> str:
+    """Swap a vague opener for a plainer one. Other bullets stay as they are."""
     for opener in _VAGUE:
         if text.startswith(opener):
-            new_opener = _REPLACEMENTS.get(opener, "Handled ")
-            return new_opener + text[len(opener) :], "About how many people or tasks did this cover?"
-    return text, None
+            return _REPLACEMENTS.get(opener, "Handled ") + text[len(opener) :]
+    return text
 
 
 class DemoProvider(Provider):
@@ -74,39 +64,21 @@ class DemoProvider(Provider):
 
     def _send(self, request: CompletionRequest, on_delta: DeltaSink) -> RawReply:
         step = request.step
-        if step == "diagnose":
-            score = _demo_score([m.group(2) for m in _SCORE_LINE.finditer(request.context)])
+        if step == "score":
             reply = {
                 "company": "",
                 "role": _first_posting_line(request.user),
-                "ats_score": score,
-                "hiring_manager_score": score,
-                "verdict": "Demo reading from a simple count of specific and vague bullets. Connect a provider for a real one.",
+                "ats_score": _demo_score([m.group(1) for m in _SCORE_LINE.finditer(request.context)]),
                 "red_flags": _RED_FLAGS,
-                "skipped_sections": _SKIPPED,
-                "missing_keywords": [],
             }
         elif step.startswith("rewrite"):
             reply = {"rewrites": [self._proposal(m.group(1), m.group(3)) for m in _REWRITE_LINE.finditer(request.user)]}
         elif step == "suggest_facts":
             reply = {"facts": [{"text": t, "quote": t} for t in _sentences_with_numbers(request.user)]}
         elif step == "rescore":
-            base = _demo_score(_bullets_in(request.user, "resume_a"))
-            tailored = _demo_score(_bullets_in(request.user, "resume_b"))
             reply = {
-                "base_ats_score": base,
-                "base_hiring_manager_score": base,
-                "tailored_ats_score": tailored,
-                "tailored_hiring_manager_score": tailored,
-                "verdict": "Demo scores from a simple count of specific and vague bullets. Connect a provider for a real one.",
-                "changes": [
-                    {
-                        "bullet_id": m.group(1),
-                        "effect": _demo_score([m.group(3)]) - _demo_score([m.group(2)]),
-                        "reason": "Counted by the demo: specific bullets gain points, vague openers lose them.",
-                    }
-                    for m in _CHANGE.finditer(request.user)
-                ],
+                "base_ats_score": _demo_score(_bullets_in(request.user, "resume_a")),
+                "tailored_ats_score": _demo_score(_bullets_in(request.user, "resume_b")),
             }
         else:
             raise ValueError(f"the Demo provider has no reply for step {step!r}")
@@ -120,13 +92,12 @@ class DemoProvider(Provider):
 
     @staticmethod
     def _proposal(bullet_id: str, text: str) -> dict:
-        new_text, question = rewrite_line(text)
+        new_text = rewrite_line(text)
         return {
             "bullet_id": bullet_id,
             "new_text": new_text,
             "sources": [bullet_id],
-            "question": question,
-            "why": "Removes a generic opener" if question else "Already specific",
+            "why": "Removes a generic opener" if new_text != text else "",
         }
 
 
@@ -148,7 +119,7 @@ def _bullets_in(message: str, tag: str) -> list[str]:
     """Bullet texts inside <tag>...</tag> in a message."""
     opening = f"<{tag}>\n"  # the instructions also name the tag, mid-sentence
     part = message.split(opening, 1)[1].split(f"</{tag}>", 1)[0] if opening in message else ""
-    return [m.group(2) for m in _SCORE_LINE.finditer(part)]
+    return [m.group(1) for m in _SCORE_LINE.finditer(part)]
 
 
 def _demo_score(bullets: list[str]) -> int:

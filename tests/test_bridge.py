@@ -112,7 +112,7 @@ def test_keys_are_masked_and_validated(h):
 def test_missing_key_is_reported_when_a_step_runs(ready):
     ready.ok("set_setting", key="provider", value="claude_api")
     run = ready.ok("start_run", posting=POSTING)
-    assert ready.err("run_step", runId=run["id"], step="diagnose")["kind"] == "missing_key"
+    assert ready.err("run_step", runId=run["id"], step="score")["kind"] == "missing_key"
 
 
 def test_settings_are_limited_to_known_keys(h):
@@ -127,14 +127,14 @@ def test_start_run_needs_a_posting_and_a_resume(h):
 
 
 def test_whole_flow_with_the_demo_provider(ready):
-    run = ready.ok("start_run", posting=POSTING, pastedAtMs=123)
+    run = ready.ok("start_run", posting=POSTING, pastedAtMs=123, postingUrl="https://jobs.example.com/1")
     assert run["provider"] == "demo" and run["pasted_at_ms"] == 123
+    assert run["posting_url"] == "https://jobs.example.com/1"
     assert run["export_name"].startswith("Jordan_Sample_Resume")
     assert run["coverage_before"] is not None
 
-    run = ready.ok("run_step", runId=run["id"], step="diagnose", onEvent="ch1")
-    assert len(run["diagnosis"]["red_flags"]) == 3
-    assert run["diagnosis"]["score"]["overall"] > 0
+    run = ready.ok("run_step", runId=run["id"], step="score", onEvent="ch1")
+    assert len(run["score"]["red_flags"]) == 3 and run["score"]["ats"] > 0
     kinds = [e["type"] for c, e in ready.events if c == "ch1"]
     assert kinds[0] == "started" and kinds[-1] == "finished" and "delta" in kinds
 
@@ -147,61 +147,133 @@ def test_whole_flow_with_the_demo_provider(ready):
     assert run["decisions"][bullet] == {"state": "accepted", "origin": "rewrite"}
 
     run = ready.ok("run_step", runId=run["id"], step="rescore", onEvent="ch3")
-    scores = run["rescore"]
-    assert scores["tailored"]["overall"] > scores["base"]["overall"]
-    assert [c["bullet_id"] for c in scores["changes"]] == [bullet]
-    assert scores["scored"] == {bullet: changed[0]["new_text"]}
-    assert [s["step"] for s in run["steps"]] == ["diagnose", "rewrite", "rescore"]
+    final = run["final"]
+    assert final["after"] > final["before"]
+    assert final["scored"] == {bullet: changed[0]["new_text"]}
+    assert [s["step"] for s in run["steps"]] == ["score", "rewrite", "rescore"]
     assert all(s["cost_usd"] == 0.0 for s in run["steps"])
 
     record = ready.ok("list_runs")[0]
     assert record["id"] == run["id"]
-    assert (record["score_before"], record["score_after"]) == (scores["base"]["overall"], scores["tailored"]["overall"])
+    assert (record["score_before"], record["score_after"]) == (final["before"], final["after"])
     assert len(ready.db.step_logs(run["id"])) == 3
 
     source = ready.ok("tailored_source", runId=run["id"])
     assert changed[0]["new_text"].replace("&", "\\&") in source
 
 
+def test_score_runs_on_sonnet_even_when_opus_is_chosen(ready, monkeypatch):
+    used = []
+    real = ready.backend._provider
+
+    def spy(provider, model):
+        used.append((provider, model))
+        return real("demo", "demo")
+
+    monkeypatch.setattr(ready.backend, "_provider", spy)
+    run = ready.ok("start_run", posting=POSTING, provider="claude_api", model="claude-opus-5-5")
+    ready.ok("run_step", runId=run["id"], step="score")
+    ready.ok("run_step", runId=run["id"], step="rewrite")
+    assert used == [("claude_api", "claude-sonnet-5-5"), ("claude_api", "claude-opus-5-5")]
+
+
 def test_state_survives_a_restart(ready, tmp_path):
     run = ready.ok("start_run", posting=POSTING)
-    run = ready.ok("run_step", runId=run["id"], step="diagnose")
+    run = ready.ok("run_step", runId=run["id"], step="score")
     ready.backend.runs.clear()  # as if the app had been closed and opened again
     again = ready.ok("get_run_state", runId=run["id"])
-    assert again["diagnosis"] == run["diagnosis"]
+    assert again["score"] == run["score"]
 
 
-def test_a_lowering_change_can_be_undone_and_a_new_rewrite_clears_old_scores(ready):
+def test_a_new_rewrite_clears_the_old_final_score(ready):
     run = ready.ok("start_run", posting=POSTING)
     run = ready.ok("run_step", runId=run["id"], step="rewrite")
-    # Dropping b2's numbers: the demo scores a bullet with a number higher.
-    worse = "Built a Python service that batches delivery route updates"
-    run = ready.ok("decide", runId=run["id"], bulletId="b2", action="edit", text=worse)
-    assert run["decisions"]["b2"]["state"] == "accepted"
     run = ready.ok("run_step", runId=run["id"], step="rescore")
-    effects = {c["bullet_id"]: c["effect"] for c in run["rescore"]["changes"]}
-    assert effects["b2"] < 0
-    # Undo is keeping the original bullet: it drops out of the accepted changes.
-    run = ready.ok("decide", runId=run["id"], bulletId="b2", action="reject")
-    assert run["decisions"]["b2"]["state"] == "rejected"
-    assert "b2" not in ready.backend.runs[run["id"]].current()
+    assert run["final"] is not None
     run = ready.ok("run_step", runId=run["id"], step="rewrite")
-    assert run["rescore"] is None
+    assert run["final"] is None
 
 
-def test_runs_saved_before_diagnose_still_load():
+def test_the_note_becomes_facts_the_rewrite_and_checker_use(ready):
+    run = ready.ok("start_run", posting=POSTING)
+    note = "TrailMap also has 12 trail guides using it. ok\nI used Redis to cache route lookups at Northwind Logistics."
+    run = ready.ok("add_note", runId=run["id"], note=note)
+    facts = ready.ok("list_facts")
+    assert [f["text"] for f in facts] == [
+        "TrailMap also has 12 trail guides using it", "I used Redis to cache route lookups at Northwind Logistics"]
+    assert run["note_fact_ids"] == [f["id"] for f in facts]
+    # Redis is now a skill the person has, so coverage counts it.
+    assert any(s["skill"] == "Redis" and s["have"] for s in run["coverage_before"]["skills"])
+
+    # The rewrite is sent the note's facts, and the checker accepts a rewrite that cites one.
+    rid = run["id"]
+    ready.ok("run_step", runId=rid, step="rewrite")
+    from app.core.schemas import Proposal
+
+    ctx = ready.backend._run_context(rid)
+    bank = ready.backend._facts()
+    text = "Built a web app for logging hikes on an interactive map, used by 140 members and 12 trail guides"
+    fid = facts[0]["id"]
+    assert ctx.check(Proposal(bullet_id="b8", new_text=text, sources=["b8", fid], why=""), bank).status == "ok"
+
+
+def test_undoing_the_note_removes_its_facts_and_rechecks_rewrites_that_used_them(ready):
+    ready.ok("save_fact", id=None, text="Mentored 3 new interns on the routing team")
+    run = ready.ok("start_run", posting=POSTING)
+    rid = run["id"]
+    run = ready.ok("add_note", runId=rid, note="TrailMap also has 12 trail guides using it. Mentored 3 new interns on the routing team.")
+    assert len(run["note_fact_ids"]) == 1, "a fact saved before the note isn't counted as the note's"
+    fid = run["note_fact_ids"][0]
+    run = ready.ok("run_step", runId=rid, step="rewrite")
+
+    # Pretend the rewrite used the note's fact for b8, and the user accepted it.
+    from app.core.schemas import Proposal
+
+    backend = ready.backend
+    ctx = backend._run_context(rid)
+    text = "Built a web app for logging hikes on an interactive map, used by 140 members and 12 trail guides"
+    checked = ctx.check(Proposal(bullet_id="b8", new_text=text, sources=["b8", fid], why=""), backend._facts())
+    assert checked.status == "ok"
+
+    def use_fact(r):
+        r.rewrites = [checked if x.bullet_id == "b8" else x for x in r.rewrites]
+
+    backend._change_run(rid, use_fact)
+    ready.ok("decide", runId=rid, bulletId="b8", action="accept")
+
+    run = ready.ok("undo_note", runId=rid)
+    assert run["note_fact_ids"] == []
+    assert [f["text"] for f in ready.ok("list_facts")] == ["Mentored 3 new interns on the routing team"]
+    b8 = next(r for r in run["rewrites"] if r["bullet_id"] == "b8")
+    assert b8["status"] == "blocked" and any("12" in reason for reason in b8["reasons"])
+    assert run["decisions"]["b8"]["state"] == "pending", "an accepted rewrite that lost its fact goes back to undecided"
+
+
+def test_runs_saved_by_earlier_versions_still_load():
     from app.bridge import RunState
 
-    old = {
+    first = {
         "id": "r1", "created_at": "2026-11-01T00:00:00+00:00", "posting": "p", "provider": "demo", "model": "demo",
         "red_flags": {"company": "Acme", "role": "Intern", "red_flags": [{"flag": "f", "why": "w", "section": "s"}]},
         "review_before": {"score": 58, "verdict": "before", "skipped_sections": []},
         "review_after": {"score": 54, "verdict": "after", "skipped_sections": []},
     }
-    run = RunState.model_validate(old)
-    assert run.diagnosis.company == "Acme" and run.diagnosis.red_flags[0].flag == "f"
-    assert run.diagnosis.score.overall == 58
-    assert (run.rescore.base.overall, run.rescore.tailored.overall) == (58, 54)
+    run = RunState.model_validate(first)
+    assert run.score.company == "Acme" and run.score.red_flags[0].flag == "f" and run.score.ats == 58
+    assert (run.final.before, run.final.after) == (58, 54)
+
+    second = {
+        "id": "r2", "created_at": "2026-11-14T00:00:00+00:00", "posting": "p", "provider": "demo", "model": "demo",
+        "diagnosis": {"company": "Acme", "role": "Intern", "score": {"ats": 61, "hiring_manager": 54, "overall": 58},
+                      "verdict": "v", "red_flags": [{"flag": "f", "why": "w", "section": "s"}],
+                      "skipped_sections": [], "missing_keywords": []},
+        "rescore": {"base": {"ats": 60, "hiring_manager": 56, "overall": 58},
+                    "tailored": {"ats": 70, "hiring_manager": 66, "overall": 68}, "verdict": "", "changes": [],
+                    "scored": {"b2": "x"}},
+        "rewrites": [],
+    }
+    run = RunState.model_validate(second)
+    assert run.score.ats == 61 and (run.final.before, run.final.after, run.final.scored) == (60, 70, {"b2": "x"})
 
 
 def test_blocked_edit_stays_pending_and_cannot_be_accepted(ready):
@@ -225,27 +297,6 @@ def test_hand_typed_latex_never_reaches_the_file(ready):
                    text="Wrote 45 unit tests with pytest \\section{Summary} for the route validation module")
     source = ready.ok("tailored_source", runId=run["id"])
     assert "\\section{Summary}" not in source
-
-
-def test_answer_goes_into_the_facts_bank(ready):
-    run = ready.ok("start_run", posting=POSTING)
-    run = ready.ok("run_step", runId=run["id"], step="rewrite")
-    asked = next(r for r in run["rewrites"] if r["question"])
-    run = ready.ok("answer_question", runId=run["id"], bulletId=asked["bullet_id"], answer="about 30 a week")
-    facts = ready.ok("list_facts")
-    assert len(facts) == 1 and facts[0]["text"].endswith("about 30 a week")
-    assert facts[0]["bullet_text"] == asked["old_text"]
-    redone = next(r for r in run["rewrites"] if r["bullet_id"] == asked["bullet_id"])
-    assert redone["question"] is None
-
-
-def test_blank_answer_dismisses_the_question(ready):
-    run = ready.ok("start_run", posting=POSTING)
-    run = ready.ok("run_step", runId=run["id"], step="rewrite")
-    asked = next(r for r in run["rewrites"] if r["question"])
-    run = ready.ok("answer_question", runId=run["id"], bulletId=asked["bullet_id"], answer="  ")
-    assert next(r for r in run["rewrites"] if r["bullet_id"] == asked["bullet_id"])["question"] is None
-    assert ready.ok("list_facts") == []
 
 
 def test_facts_tracker_and_baseline(h):

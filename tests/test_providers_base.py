@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.core.schemas import DiagnoseReply, RescoreReply, RewritesReply
+from app.core.schemas import RescoreReply, RewritesReply, ScoreReply
 from tests.sample_schema import SampleReply
 from app.providers.base import (
     BadKey,
@@ -26,19 +26,19 @@ def req(step, schema=SampleReply, user="u", context="c"):
 
 
 def test_schemas_are_strict_and_inline():
-    schema = json_schema(DiagnoseReply)
+    schema = json_schema(ScoreReply)
     assert "$defs" not in schema
     assert "$ref" not in str(schema)
     assert schema["additionalProperties"] is False
-    keyword = schema["properties"]["missing_keywords"]["items"]
-    assert keyword["additionalProperties"] is False
-    assert set(keyword["required"]) == {"keyword", "evidence"}
+    flag = schema["properties"]["red_flags"]["items"]
+    assert flag["additionalProperties"] is False
+    assert set(flag["required"]) == {"flag", "why", "section"}
     proposal = json_schema(RewritesReply)["properties"]["rewrites"]["items"]
-    assert set(proposal["required"]) == {"bullet_id", "new_text", "sources", "question", "why"}
+    assert set(proposal["required"]) == {"bullet_id", "new_text", "sources", "why"}
 
 
 def test_every_field_is_required():
-    for model in (DiagnoseReply, RewritesReply, RescoreReply):
+    for model in (ScoreReply, RewritesReply, RescoreReply):
         schema = json_schema(model)
         assert set(schema["required"]) == set(schema["properties"]), model.__name__
 
@@ -100,7 +100,7 @@ def test_retries_give_up_after_three_tries():
 
 def test_fake_returns_scripted_replies_in_order():
     p = FakeProvider().reply("a", {"rewrites": []}).reply("a", {"rewrites": [
-        {"bullet_id": "b1", "new_text": "x", "sources": ["b1"], "question": None, "why": "y"}]})
+        {"bullet_id": "b1", "new_text": "x", "sources": ["b1"], "why": "y"}]})
     assert p.complete(req("a", RewritesReply)).data.rewrites == []
     assert len(p.complete(req("a", RewritesReply)).data.rewrites) == 1
     assert len(p.complete(req("a", RewritesReply)).data.rewrites) == 1
@@ -119,44 +119,42 @@ def test_fake_streams_and_reports_usage():
 # -- the Demo provider -----------------------------------------------------
 
 
-def test_demo_diagnose_takes_the_role_from_the_posting_and_scores_the_resume():
+def test_demo_score_takes_the_role_from_the_posting_and_counts_the_resume():
     resume = "- [b1] Cut calls from 12,000 to 3,000\n- [b2] Worked with the team"
     user = "Read this.\n<job_posting>\nPlatform Intern\nMore\n</job_posting>"
-    out = DemoProvider().complete(req("diagnose", DiagnoseReply, user, context=resume)).data
+    out = DemoProvider().complete(req("score", ScoreReply, user, context=resume)).data
     assert out.role == "Platform Intern"
     assert len(out.red_flags) == 3
-    assert out.ats_score == out.hiring_manager_score == 52 + 3 - 6
+    assert out.ats_score == 52 + 3 - 6
 
 
 def test_demo_rewrites_only_vague_bullets():
     user = "[b2] (Northwind) Built a Python service\n[b5] (Northwind) Worked with the team on backend tasks\n"
     out = DemoProvider().complete(req("rewrite", RewritesReply, user)).data.rewrites
     assert [p.bullet_id for p in out] == ["b2", "b5"]
-    assert out[0].new_text == "Built a Python service" and out[0].question is None
+    assert out[0].new_text == "Built a Python service" and out[0].why == ""
     assert out[1].new_text == "Worked alongside the team on backend tasks"
-    assert out[1].question and out[1].sources == ["b5"]
+    assert out[1].sources == ["b5"]
 
 
 def test_demo_rewrite_line():
-    assert rewrite_line("Helped patrons fix printers") == ("Supported patrons fix printers", rewrite_line("Helped x")[1])
-    assert rewrite_line("Assisted the lead")[0] == "Handled the lead"
+    assert rewrite_line("Helped patrons fix printers") == "Supported patrons fix printers"
+    assert rewrite_line("Assisted the lead") == "Handled the lead"
+    assert rewrite_line("Built a thing") == "Built a thing"
 
 
-def test_demo_rescore_counts_both_resumes_and_each_change():
+def test_demo_rescore_counts_both_resumes():
     user = (
-        "<resume_a>\n- [b1] Built a thing\n- [b2] Worked with the team\n</resume_a>\n"
-        "<resume_b>\n- [b1] Built a thing for 40 users\n- [b2] Worked alongside the team\n</resume_b>\n"
-        "<changes>\n[b1]\n  before: Built a thing\n  after: Built a thing for 40 users\n"
-        "[b2]\n  before: Worked with the team\n  after: Worked alongside the team\n</changes>"
+        "<resume_a>\n- Built a thing\n- Worked with the team\n</resume_a>\n"
+        "<resume_b>\n- Built a thing for 40 users\n- Worked alongside the team\n</resume_b>\n"
     )
     out = DemoProvider().complete(req("rescore", RescoreReply, user)).data
     assert out.base_ats_score == 52 - 6
     assert out.tailored_ats_score == 52 + 3
-    assert {c.bullet_id: c.effect for c in out.changes} == {"b1": 3, "b2": 6}
 
 
 def test_demo_streams_in_chunks():
     chunks = []
-    DemoProvider().complete(req("diagnose", DiagnoseReply, user="<job_posting>\nX\n</job_posting>"), chunks.append)
+    DemoProvider().complete(req("score", ScoreReply, user="<job_posting>\nX\n</job_posting>"), chunks.append)
     assert len(chunks) > 1
     assert all(len(c) <= 64 for c in chunks)

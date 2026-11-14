@@ -46,15 +46,15 @@ from app.core.pipeline import (
     UNCHANGED,
     CheckedRewrite,
     Context,
-    Diagnosis,
-    Rescore,
-    ScoreCard,
+    FinalScore,
+    ScoreResult,
     StepStats,
     TrimHint,
     coverage_for,
-    diagnose,
     export_edits,
     rescore,
+    score,
+    split_note,
     rewrite,
     trim_hints,
 )
@@ -140,11 +140,15 @@ class RunState(BaseModel):
     model: str
     pasted_at_ms: int | None = None
     exported_at_ms: int | None = None
-    diagnosis: Diagnosis | None = None
+    # The posting's link, when the run started from the Jobs screen.
+    posting_url: str = ""
+    score: ScoreResult | None = None
     rewrites: list[CheckedRewrite] = []
     decisions: dict[str, Decision] = {}
     removed: list[str] = []
-    rescore: Rescore | None = None
+    final: FinalScore | None = None
+    # Facts saved from this run's "Anything to add?" note, so they can be undone.
+    note_fact_ids: list[str] = []
     posting_skills: PostingSkills = PostingSkills()
     coverage_before: Coverage | None = None
     coverage_after: Coverage | None = None
@@ -158,32 +162,42 @@ class RunState(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _from_older_runs(cls, data: Any) -> Any:
-        """Read runs saved before Diagnose and Re-score replaced Red flags and Review.
+        """Read runs saved by earlier versions of the steps.
 
-        Their red flags become a diagnosis, and their two review scores become a
-        re-score with the same number standing for both readings.
+        The first version had Red flags and Review scores; the second had
+        Diagnose and Re-score, each with ATS and hiring-manager scores. Their
+        red flags and ATS scores carry over; anything else is dropped.
         """
-        if not isinstance(data, dict) or "diagnosis" in data:
+        if not isinstance(data, dict) or "score" in data or "final" in data:
             return data
         data = dict(data)
         flags = data.pop("red_flags", None)
         before = data.pop("review_before", None)
         after = data.pop("review_after", None)
-        if flags:
-            score = before["score"] if before else 0
-            data["diagnosis"] = {
+        diagnosis = data.pop("diagnosis", None)
+        rescored = data.pop("rescore", None)
+        if diagnosis:
+            data["score"] = {
+                "company": diagnosis.get("company", ""),
+                "role": diagnosis.get("role", ""),
+                "ats": diagnosis["score"]["ats"],
+                "red_flags": diagnosis.get("red_flags", []),
+            }
+        elif flags:
+            data["score"] = {
                 "company": flags.get("company", ""),
                 "role": flags.get("role", ""),
-                "score": ScoreCard.of(score, score).model_dump(),
-                "verdict": before.get("verdict", "") if before else "",
+                "ats": before["score"] if before else 0,
                 "red_flags": flags.get("red_flags", []),
             }
-        if before and after:
-            data["rescore"] = {
-                "base": ScoreCard.of(before["score"], before["score"]).model_dump(),
-                "tailored": ScoreCard.of(after["score"], after["score"]).model_dump(),
-                "verdict": after.get("verdict", ""),
+        if rescored:
+            data["final"] = {
+                "before": rescored["base"]["ats"],
+                "after": rescored["tailored"]["ats"],
+                "scored": rescored.get("scored", {}),
             }
+        elif before and after:
+            data["final"] = {"before": before["score"], "after": after["score"]}
         return data
 
     def accepted(self) -> dict[str, str]:
@@ -211,6 +225,25 @@ class RunState(BaseModel):
         return sum(s.cost_usd or 0.0 for s in self.steps)
 
 
+# Score is meant to be fast. A Claude provider runs it on Sonnet, whichever model is chosen for the rest.
+SCORE_MODELS = {"claude_api": "claude-sonnet-5-5", "claude_code": "sonnet"}
+
+
+def missing_keywords(run: RunState) -> list[tuple[str, str]]:
+    """The posting's required and preferred skills the person can back up but doesn't show, counted in code.
+
+    Each comes with where it's backed up: "base resume" or a fact id.
+    """
+    coverage = run.coverage_after or run.coverage_before
+    if coverage is None:
+        return []
+    return [
+        (s.skill, "base resume" if s.evidence == "base" else s.evidence or "")
+        for s in coverage.skills
+        if s.tier in ("required", "preferred") and s.have and not s.covered
+    ]
+
+
 # A real posting runs to a few thousand characters. A page with less than this
 # is a shell that loads the posting in the browser, or a sign-in wall.
 MIN_POSTING_CHARS = 600
@@ -219,9 +252,9 @@ MIN_POSTING_CHARS = 600
 def score_before(run: RunState) -> int | None:
     """The base resume's score: from Re-score when it has run, which is the fairer
     number, otherwise from Diagnose."""
-    if run.rescore:
-        return run.rescore.base.overall
-    return run.diagnosis.score.overall if run.diagnosis else None
+    if run.final:
+        return run.final.before
+    return run.score.ats if run.score else None
 
 
 def now_ms() -> int:
@@ -231,7 +264,7 @@ def now_ms() -> int:
 def guess_company(posting: str) -> str:
     """A first guess at the company from the posting.
 
-    The user can edit it, and the Diagnose step fills it in from the model when
+    The user can edit it, and the Score step fills it in from the model when
     it's still empty.
     """
     patterns = [
@@ -411,7 +444,7 @@ class Backend:
             "cache_write_tokens": usage.cache_write_tokens,
             "cost_usd": run.cost(),
             "score_before": score_before(run),
-            "score_after": run.rescore.tailored.overall if run.rescore else None,
+            "score_after": run.final.after if run.final else None,
             "coverage_before": run.coverage_before.required_pct() if run.coverage_before else None,
             "coverage_after": run.coverage_after.required_pct() if run.coverage_after else None,
             "blocked_claims": sum(s.blocked_claims for s in run.steps),
@@ -585,6 +618,7 @@ class Backend:
         model: str | None = None,
         pasted_at_ms: int | None = None,
         role: str | None = None,
+        posting_url: str | None = None,
     ) -> RunState:
         if len(posting.strip()) < 40:
             raise AppError("invalid", "Paste the full job posting first.")
@@ -597,6 +631,7 @@ class Backend:
             created_at=datetime.now(timezone.utc).isoformat(),
             company=(company or "").strip() or guess_company(posting),
             role=(role or "").strip(),
+            posting_url=(posting_url or "").strip(),
             posting=posting.strip(),
             provider=provider,
             model=model,
@@ -632,31 +667,34 @@ class Backend:
         return self._change_run(run_id, change)
 
     def run_step(self, run_id: str, step: str, on_event: str | None = None) -> RunState:
-        """Run one model step: "diagnose", "rewrite" or "rescore"."""
+        """Run one model step: "score", "rewrite" or "rescore"."""
         run = self._get_run(run_id)
         ctx = self._run_context(run_id)
         facts = self._facts()
-        provider = self._provider(run.provider, run.model)
+        # Score is meant to be quick, so a Claude provider runs it on Sonnet even when Opus is chosen.
+        model = SCORE_MODELS.get(run.provider, run.model) if step == "score" else run.model
+        provider = self._provider(run.provider, model)
         if on_event:
             self.emit(on_event, {"type": "started", "step": step})
         sink = self._sink(on_event, step)
         steps_before = len(run.steps)
         updates: dict[str, Any] = {}
         try:
-            if step == "diagnose":
-                found, stats = diagnose(provider, ctx, run.company, run.posting, facts, sink)
+            if step == "score":
+                found, stats = score(provider, ctx, run.company, run.posting, sink)
                 self._record_step(run, stats)
-                updates = {"diagnosis": found, "company": run.company or found.company, "role": run.role or found.role}
+                updates = {"score": found, "company": run.company or found.company, "role": run.role or found.role}
             elif step == "rewrite":
-                checked, all_stats = rewrite(provider, ctx, run.posting, run.diagnosis, facts, None, sink)
+                flags = run.score.red_flags if run.score else []
+                checked, all_stats = rewrite(provider, ctx, run.posting, flags, missing_keywords(run), facts, sink)
                 for stats in all_stats:
                     self._record_step(run, stats)
                 self._log_blocks(run, checked)
-                updates = {"rewrites": checked, "decisions": {}, "rescore": None}
+                updates = {"rewrites": checked, "decisions": {}, "final": None}
             elif step == "rescore":
                 scored, stats = rescore(provider, ctx, run.posting, run.current(), sink)
                 self._record_step(run, stats)
-                updates = {"rescore": scored}
+                updates = {"final": scored}
             else:
                 raise AppError("invalid", f"Unknown step {step}.")
         except ProviderError as e:
@@ -710,9 +748,7 @@ class Backend:
             elif action == "reset":
                 decision.state = "pending"
             elif action == "edit":
-                proposal = Proposal(
-                    bullet_id=bullet_id, new_text=text or "", sources=current.sources, question=None, why=current.why
-                )
+                proposal = Proposal(bullet_id=bullet_id, new_text=text or "", sources=current.sources, why=current.why)
                 checked = ctx.check(proposal, facts)
                 if checked is None:
                     raise AppError("not_found", "Unknown bullet.")
@@ -745,58 +781,62 @@ class Backend:
 
         return self._change_run(run_id, change)
 
-    def answer_question(self, run_id: str, bullet_id: str, answer: str, on_event: str | None = None) -> RunState:
-        """Answer a "How many…?" question.
+    def add_note(self, run_id: str, note: str) -> RunState:
+        """Save the "Anything to add?" note as facts, one per sentence, for the rewrite and the checker.
 
-        A real answer goes into the facts bank and the bullet is rewritten with
-        it. A blank answer just dismisses the question.
+        A fact the bank already has keeps its id and isn't counted as added, so
+        undoing the note never removes a fact saved before it.
         """
-        run = self._get_run(run_id)
-        current = next((r for r in run.rewrites if r.bullet_id == bullet_id), None)
-        if current is None:
-            raise AppError("not_found", "No rewrite for that bullet.")
-        if not answer.strip():
-
-            def dismiss(r: RunState) -> None:
-                for item in r.rewrites:
-                    if item.bullet_id == bullet_id:
-                        item.question = None
-
-            return self._change_run(run_id, dismiss)
-
-        question = current.question or ""
+        pieces = split_note(note)
+        if not pieces:
+            return self._get_run(run_id)
         bank = self._facts()
-        bank.add(f"{question.strip()} {answer.strip()}", question, current.old_text)
+        known = {f.id for f in bank.facts}
+        added = []
+        for text in pieces:
+            fact_id = bank.add(text)
+            if fact_id and fact_id not in known and fact_id not in added:
+                added.append(fact_id)
         bank.save(self.facts_path)
-
         ctx = self._run_context(run_id)
-        provider = self._provider(run.provider, run.model)
-        step = "rewrite_one"
-        if on_event:
-            self.emit(on_event, {"type": "started", "step": step})
-        try:
-            checked, all_stats = rewrite(
-                provider, ctx, run.posting, run.diagnosis, bank, [bullet_id], self._sink(on_event, step)
-            )
-        finally:
-            if on_event:
-                self.emit(on_event, {"type": "finished", "step": step})
-        self._log_blocks(run, checked)
-        before = len(run.steps)
-        for stats in all_stats:
-            self._record_step(run, stats)
-        new_steps = run.steps[before:]
 
-        def apply(r: RunState) -> None:
-            r.steps.extend(new_steps)
-            if checked:
-                fresh = checked[0]
-                fresh.question = None
-                r.rewrites = [fresh if x.bullet_id == bullet_id else x for x in r.rewrites]
-                r.decisions[bullet_id] = Decision()
+        def change(run: RunState) -> None:
+            run.note_fact_ids = run.note_fact_ids + added
+            # A skill named in the note now counts as one the person has.
+            self._recompute_coverage(run, ctx, bank)
+
+        return self._change_run(run_id, change)
+
+    def undo_note(self, run_id: str) -> RunState:
+        """Remove the facts this run's note added, and check its rewrites again without them.
+
+        A rewrite that leaned on one of those facts is blocked again, and an
+        accepted one goes back to undecided.
+        """
+        bank = self._facts()
+        run = self._get_run(run_id)
+        for fact_id in run.note_fact_ids:
+            bank.remove(fact_id)
+        bank.save(self.facts_path)
+        ctx = self._run_context(run_id)
+        gone = set(run.note_fact_ids)
+
+        def change(r: RunState) -> None:
+            for i, item in enumerate(r.rewrites):
+                if not gone & set(item.sources):
+                    continue
+                proposal = Proposal(bullet_id=item.bullet_id, new_text=item.new_text, sources=item.sources, why=item.why)
+                checked = ctx.check(proposal, bank)
+                if checked is None:
+                    continue
+                checked.sources = [s for s in checked.sources if s not in gone]
+                r.rewrites[i] = checked
+                if checked.status != OK and r.decisions.get(item.bullet_id, Decision()).state == "accepted":
+                    r.decisions[item.bullet_id] = Decision()
+            r.note_fact_ids = []
             self._recompute_coverage(r, ctx, bank)
 
-        return self._change_run(run_id, apply)
+        return self._change_run(run_id, change)
 
     def compile_run(self, run_id: str) -> str:
         """Compile the tailored resume. Returns the PDF, base64-encoded; the page count is saved on the run."""
@@ -1048,7 +1088,7 @@ COMMANDS = (
     "app_info", "change_data_dir", "show_data_dir", "key_status", "save_key", "delete_key", "import_base_resume", "base_resume_info",
     "compile_base", "ollama_models", "gemini_models", "claude_code_status",
     "start_run", "get_run_state", "update_run_meta", "run_step", "decide", "toggle_remove",
-    "answer_question", "compile_run", "export_run", "tailored_source",
+    "add_note", "undo_note", "compile_run", "export_run", "tailored_source",
     "list_runs", "delete_run", "list_applications", "add_application", "update_application",
     "delete_application", "list_facts", "save_fact", "delete_fact", "suggest_facts_from_file",
     "suggest_facts_from_url", "list_baseline", "add_baseline",

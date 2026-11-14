@@ -10,31 +10,32 @@ from app.core.pipeline import (
     BLOCKED,
     CHARS_PER_LINE,
     OK,
+    RUBRIC,
     SYSTEM,
     UNCHANGED,
     Context,
     clean_model_text,
-    RUBRIC,
-    Diagnosis,
-    ScoreCard,
     coverage_for,
-    diagnose,
-    diagnose_prompt,
+    dropped_specifics,
     export_edits,
     rescore,
     rescore_prompt,
     rewrite,
     rewrite_prompt,
+    score,
+    score_prompt,
     skills_reorder_edits,
+    split_note,
     trim_hints,
 )
-from app.core.schemas import Proposal, RedFlag, SkippedSection
+from app.core.schemas import Proposal, RedFlag
 from app.providers.base import ServerError
 from app.providers.demo import DemoProvider
 from tests.fake_provider import FakeProvider
 
 SAMPLE = (Path(__file__).parent / "fixtures" / "sample_resume.tex").read_text(encoding="utf-8")
 POSTING = (Path(__file__).parent / "fixtures" / "sample_posting.txt").read_text(encoding="utf-8")
+FLAG = RedFlag(flag="Vague teamwork bullet", why="Says nothing", section="Experience")
 
 
 @pytest.fixture
@@ -42,26 +43,25 @@ def ctx():
     return Context(SAMPLE)
 
 
-def proposal(bid, text, sources=(), question=None):
-    return Proposal(bullet_id=bid, new_text=text, sources=list(sources), question=question, why="")
+def proposal(bid, text, sources=()):
+    return Proposal(bullet_id=bid, new_text=text, sources=list(sources), why="")
 
 
 def test_prompts_keep_the_original_wording():
-    diag = diagnose_prompt("Acme", "p", "(empty)")
-    assert "The top 3 red flags a hiring manager spots in under 10 seconds" in diag
-    assert "reading 200 resumes in one sitting" in diag
-    assert "Be brutally honest, with no compliments or padding." in diag
-    assert "(Acme)" in diag and "()" not in diagnose_prompt("", "p", "(empty)")
-    rw = rewrite_prompt("p", None, "", [], "")
+    sp = score_prompt("Acme", "p")
+    assert "top 3 red flags a hiring manager spots in under 10 seconds" in sp
+    assert "Be brutally honest, with no compliments or padding." in sp
+    assert "(Acme)" in sp and "()" not in score_prompt("", "p")
+    rw = rewrite_prompt("p", [FLAG], [], "", [], "")
+    assert "Rewrite my experience section to kill those red flags." in rw
     assert "Lead every line with measurable impact using the Google XYZ formula" in rw
     assert "strip out every generic phrase" in rw
-    assert "reading 200 resumes in one sitting" in rescore_prompt("p", "a", "b", [])
     assert "Never suggest a summary, objective or profile section." in SYSTEM
 
 
-def test_diagnose_and_rescore_share_one_rubric():
-    assert RUBRIC in diagnose_prompt("", "p", "(empty)")
-    assert RUBRIC in rescore_prompt("p", "a", "b", [])
+def test_score_and_done_share_one_rubric():
+    assert RUBRIC in score_prompt("", "p")
+    assert RUBRIC in rescore_prompt("p", "a", "b")
 
 
 def test_base_plain_lists_bullets_with_ids(ctx):
@@ -87,21 +87,19 @@ def test_check_accepts_grounded_and_blocks_invented(ctx):
 
 
 def test_own_bullet_is_always_a_source_and_heading_counts(ctx):
-    r = ctx.check(proposal("b2", "Built a Python service at Northwind Logistics that batches delivery route updates"),
-                  FactsBank())
+    r = ctx.check(proposal("b2", "Built a Python service at Northwind Logistics that batches delivery route updates, "
+                                 "cutting API calls to the mapping provider from 12,000 to 3,000 per day"), FactsBank())
     assert r.sources[0] == "b2"
     assert r.status == OK, r.reasons
 
 
-def test_facts_unlock_numbers_and_answered_questions_are_not_repeated(ctx):
+def test_facts_unlock_numbers(ctx):
     facts = FactsBank()
-    old = ctx.doc.text("b8")
     text = "Built a web app for logging hikes on an interactive map, used by 140 members and 12 trail guides"
     assert ctx.check(proposal("b8", text, ["b8"]), facts).status == BLOCKED
-    fid = facts.add("TrailMap is also used by 12 trail guides", "How many guides use it?", old)
-    ok = ctx.check(proposal("b8", text, ["b8", fid], question="How many guides use it?"), facts)
+    fid = facts.add("TrailMap is also used by 12 trail guides")
+    ok = ctx.check(proposal("b8", text, ["b8", fid]), facts)
     assert ok.status == OK, ok.reasons
-    assert ok.question is None, "already answered"
 
 
 def test_non_bullet_ids_are_ignored(ctx):
@@ -109,90 +107,117 @@ def test_non_bullet_ids_are_ignored(ctx):
     assert ctx.check(proposal("b999", "x"), FactsBank()) is None
 
 
-def diagnosis_reply(**changes):
+# -- never less specific ------------------------------------------------------
+
+
+def test_a_rewrite_may_not_drop_a_number_tool_or_name(ctx):
+    original = ctx.doc.text("b2")  # Python, 12,000 and 3,000
+    assert dropped_specifics(original, original) == []
+    assert set(dropped_specifics(original, "Built a service that batches delivery route updates")) == {
+        "Python", "API", "12,000", "3,000"}
+    vaguer = ctx.check(proposal("b2", "Cut mapping API calls by batching delivery route updates in a Python service",
+                                ["b2"]), FactsBank())
+    assert vaguer.status == BLOCKED
+    assert set(vaguer.dropped) == {"12,000", "3,000"}
+    assert 'Drops "12,000" from the original.' in vaguer.reasons
+    less_technical = ctx.check(proposal("b3", "Sped up the shipment lookup query after profiling showed full table "
+                                              "scans on 2 million rows", ["b3"]), FactsBank())
+    assert less_technical.status == BLOCKED and less_technical.dropped == ["PostgreSQL"]
+
+
+def test_adding_detail_from_a_fact_is_fine(ctx):
+    facts = FactsBank()
+    fid = facts.add("Added Redis caching to route lookups at Northwind")
+    more = ctx.check(proposal("b3", "Added PostgreSQL indexes and Redis caching to the shipment lookup query after "
+                                    "profiling showed full table scans on 2 million rows", ["b3", fid]), facts)
+    assert more.status == OK, more.reasons
+    assert more.dropped == []
+
+
+# -- Score -------------------------------------------------------------------------
+
+
+def score_reply(**changes):
     reply = {
-        "company": "Acme", "role": "Backend Intern", "ats_score": 61, "hiring_manager_score": 54, "verdict": "Thin.",
+        "company": "Acme", "role": "Backend Intern", "ats_score": 61,
         "red_flags": [
             {"flag": "Add a professional summary", "why": "Recruiters like them", "section": "Header"},
             {"flag": "Vague teamwork bullet", "why": "Says nothing", "section": "Experience"},
             {"flag": "No scale numbers", "why": "Backend role", "section": "Projects"},
             {"flag": "Library job", "why": "Unrelated", "section": "Experience"},
             {"flag": "Extra", "why": "x", "section": "x"}],
-        "skipped_sections": [
-            {"section": "Summary", "reason": "There isn't one"},
-            {"section": "Projects", "reason": "Generic verbs"}],
-        "missing_keywords": [],
     }
     reply.update(changes)
     return reply
 
 
-def test_diagnose_scores_and_drops_summary_advice(ctx):
-    p = FakeProvider().reply("diagnose", diagnosis_reply())
-    found, stats = diagnose(p, ctx, "", "posting", FactsBank())
-    assert (found.score.ats, found.score.hiring_manager, found.score.overall) == (61, 54, 58)
+def test_score_gives_the_ats_score_and_three_flags_without_summary_advice(ctx):
+    p = FakeProvider().reply("score", score_reply())
+    found, stats = score(p, ctx, "", "posting")
+    assert found.ats == 61 and found.company == "Acme" and found.role == "Backend Intern"
     assert [f.flag for f in found.red_flags] == ["Vague teamwork bullet", "No scale numbers", "Library job"]
-    assert [s.section for s in found.skipped_sections] == ["Projects"], "never a summary section"
-    assert found.company == "Acme" and found.verdict == "Thin."
-    assert stats.step == "diagnose"
+    assert stats.step == "score"
     request = p.calls[0]
-    assert "[b2]" in request.context
-    assert request.system == SYSTEM
-    assert "<facts_bank>" in request.user
+    assert "[b2]" in request.context and request.system == SYSTEM
+    assert "<facts_bank>" not in request.user, "the score is of the page, so it stays small"
+    assert request.max_tokens <= 2000
 
 
-def test_diagnose_scores_are_clamped():
-    assert ScoreCard.of(140, -5) == ScoreCard(ats=100, hiring_manager=0, overall=50)
+def test_score_is_clamped(ctx):
+    found, _ = score(FakeProvider().reply("score", score_reply(ats_score=140)), ctx, "", "p")
+    assert found.ats == 100
 
 
-def test_diagnose_keeps_only_keywords_with_real_evidence(ctx):
-    facts = FactsBank()
-    fact_id = facts.add("Used Redis to cache route lookups at Northwind")
-    reply = diagnosis_reply(missing_keywords=[
-        {"keyword": "Postgres", "evidence": ["b3"]},  # b3 says PostgreSQL: same skill, another name
-        {"keyword": "Redis", "evidence": ["b2", fact_id]},  # only the fact backs it
-        {"keyword": "Kubernetes", "evidence": ["b2"]},  # b2 never mentions it
-        {"keyword": "Kafka", "evidence": ["f99"]},  # no such fact
-        {"keyword": "batches", "evidence": ["b2"]},  # not a known skill, but the word is there
-        {"keyword": "redis", "evidence": [fact_id]},  # a repeat
-    ])
-    found, _ = diagnose(FakeProvider().reply("diagnose", reply), ctx, "", "posting", facts)
-    assert [(k.keyword, k.evidence) for k in found.missing_keywords] == [
-        ("Postgres", ["b3"]), ("Redis", [fact_id]), ("batches", ["b2"])]
+# -- the note ----------------------------------------------------------------------
 
 
-def test_rewrite_is_aimed_at_the_diagnosis(ctx):
-    diagnosis = Diagnosis(
-        score=ScoreCard.of(60, 50),
-        red_flags=[RedFlag(flag="Vague teamwork bullet", why="Says nothing", section="Experience")],
-        skipped_sections=[SkippedSection(section="Projects", reason="Generic verbs")],
+def test_a_note_splits_into_facts():
+    note = (
+        "TrailMap had 25 contributors on GitHub. I also used Redis to cache lookups at Northwind!\n"
+        "- Wrote the Node.js API in 2 weeks\n"
+        "* ok\n"
+        "it handled 40 requests a second. e.g. fine\n"
+        "\n"
+        "Mentored 3 interns. Mentored 3 interns."
     )
+    assert split_note(note) == [
+        "TrailMap had 25 contributors on GitHub",
+        "I also used Redis to cache lookups at Northwind!",
+        "Wrote the Node.js API in 2 weeks",
+        "it handled 40 requests a second",
+        "Mentored 3 interns",
+    ]
+    assert split_note("   ") == []
+
+
+# -- Rewrite -----------------------------------------------------------------------
+
+
+def test_rewrite_gets_the_flags_and_missing_keywords_and_only_changes_what_they_call_for(ctx):
     p = FakeProvider().reply("rewrite", {"rewrites": []})
-    rewrite(p, ctx, "posting", diagnosis, FactsBank())
+    rewrite(p, ctx, "posting", [FLAG], [("Redis", "f1"), ("Docker", "base resume")], FactsBank())
     user = p.calls[0].user
-    assert "fix exactly what the diagnosis below found" in user
     assert "1. Vague teamwork bullet (Experience): Says nothing" in user
-    assert "- Projects: Generic verbs" in user
+    assert "- Redis (shown by f1)" in user and "- Docker (shown by base resume)" in user
+    assert "Only change a bullet if one of the red flags or missing keywords below calls for it." in user
+    assert "Never make a bullet less specific or less technical" in user
 
 
 def test_rewrite_retries_blocked_bullets_once(ctx):
     first = {"rewrites": [
         {"bullet_id": "b2", "new_text": "Cut mapping API calls 75% with a batching Python service", "sources": ["b2"],
-         "question": None, "why": "scale"},
-        {"bullet_id": "b5", "new_text": "Reviewed code for the backend team", "sources": ["b5"],
-         "question": "How many pull requests did you review?", "why": "vague"}]}
+         "why": "scale"},
+        {"bullet_id": "b5", "new_text": "Handled backend tasks and code reviews with the routing team", "sources": ["b5"],
+         "why": "vague"}]}
     second = {"rewrites": [
         {"bullet_id": "b2", "new_text": "Cut mapping API calls from 12,000 to 3,000 per day with a batching Python service",
-         "sources": ["b2"], "question": None, "why": "scale"}]}
+         "sources": ["b2"], "why": "scale"}]}
     p = FakeProvider().reply("rewrite", first).reply("rewrite_retry", second)
-    diagnosis = Diagnosis(score=ScoreCard.of(50, 50), red_flags=[RedFlag(flag="f", why="w", section="Experience")])
-    out, stats = rewrite(p, ctx, "posting", diagnosis, FactsBank())
+    out, stats = rewrite(p, ctx, "posting", [FLAG], [], FactsBank())
     assert len(out) == 10, "one entry per target bullet"
     b2 = next(r for r in out if r.bullet_id == "b2")
     assert b2.status == OK, b2.reasons
     assert "12,000 to 3,000" in b2.new_text
-    b5 = next(r for r in out if r.bullet_id == "b5")
-    assert b5.question == "How many pull requests did you review?"
     assert len(stats) == 2
     assert stats[0].blocked_claims == 1, "the invented 75% is counted before blocking"
     assert stats[0].blocked_by_kind == {"number": 1}
@@ -203,59 +228,35 @@ def test_rewrite_retries_blocked_bullets_once(ctx):
 
 
 def test_still_blocked_after_retry_stays_blocked(ctx):
-    bad = {"rewrites": [{"bullet_id": "b2", "new_text": "Saved Northwind $1M with Rust", "sources": ["b2"],
-                         "question": None, "why": ""}]}
+    bad = {"rewrites": [{"bullet_id": "b2", "new_text": "Saved Northwind $1M with Rust", "sources": ["b2"], "why": ""}]}
     p = FakeProvider().reply("rewrite", bad).reply("rewrite_retry", bad)
-    out, _ = rewrite(p, ctx, "posting", None, FactsBank(), only=["b2"])
-    assert len(out) == 1 and out[0].status == BLOCKED
+    out, _ = rewrite(p, ctx, "posting", [], [], FactsBank())
+    assert next(r for r in out if r.bullet_id == "b2").status == BLOCKED
 
 
 def test_failed_retry_keeps_first_result(ctx):
-    bad = {"rewrites": [{"bullet_id": "b2", "new_text": "Saved $1M", "sources": ["b2"], "question": None, "why": ""}]}
+    bad = {"rewrites": [{"bullet_id": "b2", "new_text": "Saved $1M", "sources": ["b2"], "why": ""}]}
     p = FakeProvider().reply("rewrite", bad).fail("rewrite_retry", ServerError())
-    out, stats = rewrite(p, ctx, "posting", None, FactsBank(), only=["b2"])
-    assert out[0].status == BLOCKED and len(stats) == 1
+    out, stats = rewrite(p, ctx, "posting", [], [], FactsBank())
+    assert next(r for r in out if r.bullet_id == "b2").status == BLOCKED and len(stats) == 1
 
 
-def rescore_reply(**changes):
-    reply = {"base_ats_score": 60, "base_hiring_manager_score": 56, "tailored_ats_score": 70,
-             "tailored_hiring_manager_score": 66, "verdict": "Better.", "changes": []}
-    reply.update(changes)
-    return reply
+# -- Done ---------------------------------------------------------------------------
 
 
-def test_rescore_scores_both_resumes_in_one_call(ctx):
+def test_done_scores_both_resumes_in_one_call(ctx):
     accepted = "Made a Discord bot that tracks roommate expenses and posts a weekly summary"
-    provider = FakeProvider().reply("rescore", rescore_reply())
-    result, stats = rescore(provider, ctx, "posting", {"b10": accepted})
+    provider = FakeProvider().reply("rescore", {"base_ats_score": 58, "tailored_ats_score": 71})
+    result, stats = rescore(provider, ctx, "posting", {"b10": accepted, "b5": ""})
     assert provider.call_count("rescore") == 1, "one call, so both scores come from the same reading"
-    assert (result.base.overall, result.tailored.overall) == (58, 68)
+    assert (result.before, result.after) == (58, 71)
     user = provider.calls[0].user
     resume_a = user.split("<resume_a>\n", 1)[1].split("</resume_a>", 1)[0]
     resume_b = user.split("<resume_b>\n", 1)[1].split("</resume_b>", 1)[0]
-    assert accepted not in resume_a and f"- [b10] {accepted}" in resume_b
-    assert f"[b10]\n  before: {ctx.doc.text('b10')}\n  after: {accepted}" in user
-    assert result.scored == {"b10": accepted}
+    assert accepted not in resume_a and f"- {accepted}" in resume_b
+    assert "Worked with the team" in resume_a and "Worked with the team" not in resume_b, "a removed bullet is gone"
+    assert result.scored == {"b10": accepted, "b5": ""}
     assert stats.step == "rescore"
-
-
-def test_rescore_flags_changes_that_lower_the_score(ctx):
-    changes = [
-        {"bullet_id": "b10", "effect": -4, "reason": "Lost the weekly summary"},
-        {"bullet_id": "b2", "effect": 3, "reason": "Scale up front"},
-        {"bullet_id": "b7", "effect": -2, "reason": "Not a change at all"},
-    ]
-    replaced = {"b10": "Made a Discord bot for roommates", "b2": "Cut mapping API calls from 12,000 to 3,000 per day"}
-    result, _ = rescore(FakeProvider().reply("rescore", rescore_reply(changes=changes)), ctx, "p", replaced)
-    assert [(c.bullet_id, c.lowers_score) for c in result.changes] == [("b10", True), ("b2", False)]
-
-
-def test_rescore_lists_removed_bullets_as_changes(ctx):
-    provider = FakeProvider().reply("rescore", rescore_reply())
-    rescore(provider, ctx, "p", {"b5": ""})
-    user = provider.calls[0].user
-    assert "[b5]\n  before: Worked with the team" in user and "after: (removed)" in user
-    assert "[b5]" not in user.split("<resume_b>\n", 1)[1].split("</resume_b>", 1)[0]
 
 
 def test_skills_reorder_puts_matches_first_without_adding(ctx):
@@ -294,18 +295,16 @@ def test_clean_text():
 
 def test_demo_runs_the_whole_flow_on_the_fixture(ctx):
     demo = DemoProvider()
-    found, _ = diagnose(demo, ctx, "", POSTING, FactsBank())
+    found, _ = score(demo, ctx, "", POSTING)
     assert len(found.red_flags) == 3
-    out, _ = rewrite(demo, ctx, POSTING, found, FactsBank())
+    out, _ = rewrite(demo, ctx, POSTING, found.red_flags, [], FactsBank())
     changed = [r for r in out if r.status != UNCHANGED]
     assert len(changed) == 2, "only the two vague bullets change"
     for r in changed:
         assert r.status == OK, r.reasons
-        assert r.question
-    scored, _ = rescore(demo, ctx, POSTING, {r.bullet_id: r.new_text for r in changed})
-    assert scored.tailored.overall > scored.base.overall, "the vague openers were replaced"
-    assert scored.base.overall == found.score.overall, "the same count as Diagnose"
-    assert {c.bullet_id for c in scored.changes} == {r.bullet_id for r in changed}
+    final, _ = rescore(demo, ctx, POSTING, {r.bullet_id: r.new_text for r in changed})
+    assert final.after > final.before, "the vague openers were replaced"
+    assert final.before == found.ats, "the same count as Score"
     tex = ctx.doc.apply(export_edits(ctx.doc, {r.bullet_id: r.new_text for r in changed}, [],
                                      skills.extract_posting_skills(POSTING)))
     assert "Worked alongside the team" in tex
