@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import webview
@@ -69,8 +70,12 @@ PAGE_STATE_JS = """JSON.stringify({
 })"""
 
 
-def check_window(timeout: float = 90.0) -> dict:
+def check_window(result: dict, save: Callable[[], None], timeout: float = 60.0) -> None:
     """Open the real window, check that the interface loaded and can reach Python, then close it.
+
+    Fills in ``result`` as it goes and calls ``save`` after each stage, so the
+    report shows how far it got even if a webview call never returns. A watchdog
+    ends the process if the whole check takes too long.
 
     Uses a throwaway data folder and an in-memory key store, so it never touches
     the user's data or keychain.
@@ -82,27 +87,70 @@ def check_window(timeout: float = 90.0) -> dict:
 
     from app.core.secrets import MemoryStore
 
+    started = time.monotonic()
+    result.update(loaded=False, stage="", log=[], page=None, bridge_reply=None)
+
+    def stage(name: str) -> None:
+        result["stage"] = name
+        result["log"].append(f"{time.monotonic() - started:5.1f}s {name}")
+        save()
+
+    def give_up() -> None:
+        stage("gave up: the window check did not finish in time")
+        os._exit(1)
+
+    watchdog = threading.Timer(timeout * 2 + 30, give_up)
+    watchdog.daemon = True
+    watchdog.start()
+
     data_dir = Path(tempfile.mkdtemp(prefix="tailor-selftest-"))
     backend = Backend(data_dir, Db(data_dir / "tailor.db"), MemoryStore())
     window = open_window(backend)
-    result: dict = {"loaded": False, "page": None, "bridge_reply": None}
+
+    def run_js(script: str, wait: float = min(15.0, timeout)) -> object:
+        """evaluate_js with a time limit. On macOS it waits forever if the page never answers."""
+        answer: dict = {}
+
+        def call() -> None:
+            try:
+                answer["value"] = window.evaluate_js(script)
+            except Exception as e:  # noqa: BLE001  (reported, then retried by the caller)
+                answer["error"] = str(e)
+
+        worker = threading.Thread(target=call, daemon=True)
+        worker.start()
+        worker.join(wait)
+        if worker.is_alive():
+            raise TimeoutError(f"no answer from the page after {wait:.0f}s")
+        if "error" in answer:
+            raise RuntimeError(answer["error"])
+        return answer.get("value")
 
     def probe() -> None:
         try:
+            stage("waiting for the page to load")
+            if not window.events.loaded.wait(timeout):
+                stage("the page never finished loading")
+                return
+            stage("reading the page")
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
                 try:
-                    page = json.loads(window.evaluate_js(PAGE_STATE_JS) or "null")
-                except Exception as e:  # the page may still be loading
+                    page = json.loads(str(run_js(PAGE_STATE_JS)))
+                except Exception as e:  # noqa: BLE001  (the page may still be starting)
                     page = {"error": str(e)}
-                result["page"] = page
-                if page and page.get("backend") == "python" and page.get("rendered"):
+                if page != result["page"]:
+                    result["page"] = page
+                    stage("reading the page")
+                if page.get("backend") == "python" and page.get("rendered"):
                     break
                 time.sleep(0.5)
             else:
+                stage("the interface did not start")
                 return
 
             # One round trip through the bridge, the same way the interface calls Python.
+            stage("calling Python through the bridge")
             answered = threading.Event()
 
             def got(reply: object) -> None:
@@ -110,14 +158,19 @@ def check_window(timeout: float = 90.0) -> dict:
                 answered.set()
 
             window.evaluate_js('window.pywebview.api.call("app_info", {})', got)
-            answered.wait(30)
+            if not answered.wait(30):
+                stage("the bridge call got no answer")
+                return
             reply = result["bridge_reply"]
             result["loaded"] = isinstance(reply, dict) and reply.get("ok", {}).get("name") == APP_NAME
+            stage("bridge answered" if result["loaded"] else "the bridge answered with something unexpected")
         finally:
+            stage("closing the window")
             window.destroy()
 
     webview.start(probe)
-    return result
+    watchdog.cancel()
+    stage("window closed")
 
 
 def self_test(report: Path) -> int:
@@ -134,6 +187,10 @@ def self_test(report: Path) -> int:
     from app.core.skills import lexicon
 
     results: dict = {"ui": ui_file().is_file(), "lexicon_entries": len(lexicon().entries)}
+
+    def save() -> None:
+        report.write_text(json.dumps(results, indent=2), encoding="utf-8")
+
     results["keyring_backend"] = type(keyring.get_keyring()).__name__
     if sys.platform == "darwin":
         import webview.platforms.cocoa  # noqa: F401  (the Mac webview must load in the bundle)
@@ -143,11 +200,12 @@ def self_test(report: Path) -> int:
     tectonic = find_tectonic()
     results["tectonic"] = str(tectonic) if tectonic else None
     results["pages"] = compile_tex(SELF_TEST_TEX, tectonic).pages if tectonic else None
-    report.write_text(json.dumps(results, indent=2), encoding="utf-8")  # kept if the window hangs
-    results["window"] = check_window()
+    results["window"] = {}
+    save()
+    check_window(results["window"], save)
     ok = results["ui"] and results["lexicon_entries"] > 250 and results["pages"] == 1 and results["window"]["loaded"]
     results["ok"] = bool(ok)
-    report.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    save()
     return 0 if ok else 1
 
 

@@ -130,6 +130,9 @@ jobs:
         run: |
           dist/Tailor/Tailor.exe --self-test selftest.json || { cat selftest.json; exit 1; }
           cat selftest.json
+      - name: Show the self-test report
+        if: failure()
+        run: cat selftest.json || echo "No self-test report was written."
       - name: Make the installer
         if: runner.os == 'Windows'
         run: |
