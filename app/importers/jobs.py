@@ -1,14 +1,16 @@
-"""Internship listings from two GitHub repos, for the Jobs screen.
+"""Internship listings from three GitHub repos, for the Jobs screen.
 
-The two sources are fixed: SimplifyJobs/Summer2027-Internships and
-speedyapply/2027-SWE-College-Jobs. Simplify publishes its listings as a JSON
-file in the repo, which is read first. speedyapply publishes only Markdown
-tables in its README files, so those are parsed. If Simplify's JSON can't be
-read, its README table is parsed the same way.
+The sources are fixed: SimplifyJobs/Summer2027-Internships,
+vanshb03/Summer2027-Internships and speedyapply/2027-SWE-College-Jobs.
+Simplify and vanshb03 publish their listings as a JSON file in the repo (the
+same format), which is read first. speedyapply publishes only Markdown tables
+in its README files, so those are parsed. If a JSON file can't be read, that
+repo's README table is parsed the same way. Only internship lists are read.
 
-Closed listings are dropped. A posting that appears in both repos is shown
-once, with both sources. The last good fetch is kept in the data folder, so
-the list still opens offline.
+Closed listings are dropped. A posting that appears in more than one repo is
+shown once, with every source. Each listing says whether it is in the US and
+whether it needs a Master's or PhD. The last good fetch is kept in the data
+folder, so the list still opens offline.
 """
 
 from __future__ import annotations
@@ -23,6 +25,8 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 import httpx2
 from bs4 import BeautifulSoup
 from pydantic import BaseModel
+
+from app.importers import places
 
 # The JSON file is about 13 MB, larger than anything the facts import reads.
 MAX_BYTES = 40 * 1024 * 1024
@@ -60,7 +64,14 @@ SPEEDYAPPLY = JobSource(
         f"{RAW}/speedyapply/2027-SWE-College-Jobs/main/INTERN_INTL.md",
     ),
 )
-SOURCES = (SIMPLIFY, SPEEDYAPPLY)
+VANSH = JobSource(
+    id="vanshb03",
+    name="vanshb03",
+    repo="vanshb03/Summer2027-Internships",
+    data_url=f"{RAW}/vanshb03/Summer2027-Internships/dev/.github/scripts/listings.json",
+    readme_urls=(f"{RAW}/vanshb03/Summer2027-Internships/dev/README.md",),
+)
+SOURCES = (SIMPLIFY, VANSH, SPEEDYAPPLY)
 
 
 class Listing(BaseModel):
@@ -75,6 +86,10 @@ class Listing(BaseModel):
     sources: list[str]
     # When this app first saw it, for the "New" badge.
     first_seen_at: str = ""
+    # Only open to Master's or PhD students: hidden unless the user asks to see them.
+    advanced_degree: bool = False
+    # At least one of its locations is in the US (see places.py).
+    us: bool = False
 
 
 class JobsError(Exception):
@@ -105,7 +120,7 @@ def fetch_source(source: JobSource, today: date) -> list[Listing]:
     """One source's open listings: from its data file if it has one, otherwise its README tables."""
     if source.data_url:
         try:
-            return parse_simplify_json(json.loads(fetch_text(source.data_url)), source.name)
+            return parse_listings_json(json.loads(fetch_text(source.data_url)), source.name)
         except (JobsError, ValueError, KeyError, TypeError):
             pass  # fall back to the README below
     listings: list[Listing] = []
@@ -129,29 +144,55 @@ def canonical_url(url: str) -> str:
     return urlunparse((parts.scheme.lower(), parts.netloc.lower(), path, "", urlencode(query), ""))
 
 
-def _listing(company: str, role: str, locations: list[str], posted: date, url: str, source: str) -> Listing | None:
+# "PhD", "Ph.D.", "Master's", "Masters", "MBA" or "doctoral" in a title.
+_ADVANCED_TITLE = re.compile(r"\b(ph\.?\s?d\.?|master'?s|mba|doctoral)\b", re.IGNORECASE)
+_BACHELORS = {"Bachelor's", "Associate's"}
+
+
+def needs_advanced_degree(title: str, degrees: list[str] | None = None, marked: bool = False) -> bool:
+    """True for a role open only to Master's or PhD students.
+
+    Each list marks it its own way: Simplify's JSON lists the degrees a role
+    accepts, and its README puts 🎓 on the role. A list with no marker, or a
+    role with no degrees given, falls back to the title. A role that also
+    accepts a Bachelor's isn't advanced, whatever its title says.
+    """
+    if degrees:
+        return not (_BACHELORS & set(degrees))
+    return marked or bool(_ADVANCED_TITLE.search(title))
+
+
+def _listing(
+    company: str, role: str, locations: list[str], posted: date, url: str, source: str, advanced: bool = False
+) -> Listing | None:
     company, role, url = " ".join(company.split()), " ".join(role.split()), url.strip()
     if not company or not role or not url.startswith(("http://", "https://")):
         return None
+    places_ = [" ".join(loc.split()) for loc in locations if loc.strip()]
     return Listing(
         id=canonical_url(url),
         company=company,
         role=role,
-        locations=[" ".join(loc.split()) for loc in locations if loc.strip()],
+        locations=places_,
         date_posted=posted.isoformat(),
         url=url,
         sources=[source],
+        advanced_degree=advanced,
+        us=any(places.is_us(loc) for loc in places_),
     )
 
 
-def parse_simplify_json(data: list[dict], source: str) -> list[Listing]:
-    """Simplify's listings.json: every listing ever posted, with an ``active`` flag."""
+def parse_listings_json(data: list[dict], source: str) -> list[Listing]:
+    """A listings.json in Simplify's format (Simplify and vanshb03): every listing ever posted, with ``active``."""
     out = []
     for item in data:
         if not item.get("active") or not item.get("is_visible", True):
             continue
         posted = datetime.fromtimestamp(int(item["date_posted"]), tz=UTC).date()
-        listing = _listing(item["company_name"], item["title"], item.get("locations") or [], posted, item["url"], source)
+        advanced = needs_advanced_degree(item["title"], item.get("degrees"))
+        listing = _listing(
+            item["company_name"], item["title"], item.get("locations") or [], posted, item["url"], source, advanced
+        )
         if listing:
             out.append(listing)
     return out
@@ -234,7 +275,8 @@ def _row(cells: list, columns: dict[str, int], source: str, today: date, previou
         return cells[i] if i is not None and i < len(cells) else None
 
     company_cell, role_cell = cell("company"), cell("role") or cell("position")
-    link_cell, age_cell, location_cell = cell("application") or cell("posting"), cell("age"), cell("location")
+    link_cell = cell("application") or cell("posting") or cell("application/link")
+    location_cell = cell("location")
     if company_cell is None or role_cell is None or link_cell is None:
         return None
     if "🔒" in link_cell.get_text() or "🔒" in role_cell.get_text():
@@ -243,28 +285,84 @@ def _row(cells: list, columns: dict[str, int], source: str, today: date, previou
     if company == "↳":
         company = previous
     link = link_cell.find("a")
-    posted = age_to_date(age_cell.get_text(strip=True), today) if age_cell is not None else None
+    # An age ("3d") in Simplify and SpeedyApply, a date ("Nov 14") in vanshb03.
+    age_cell, date_cell = cell("age"), cell("date posted")
+    if age_cell is not None:
+        posted = age_to_date(age_cell.get_text(strip=True), today)
+    else:
+        posted = month_day_to_date(date_cell.get_text(strip=True), today) if date_cell is not None else None
     if link is None or posted is None:
         return None
     locations = _locations(location_cell) if location_cell is not None else []
-    role = role_cell.get_text(" ", strip=True).replace("🎓", "").replace("🛂", "").replace("🇺🇸", "").strip()
-    return _listing(company, role, locations, posted, link.get("href", ""), source)
+    raw_role = role_cell.get_text(" ", strip=True)
+    role = raw_role.replace("🎓", "").replace("🛂", "").replace("🇺🇸", "").strip()
+    advanced = needs_advanced_degree(role, marked="🎓" in raw_role)
+    return _listing(company, role, locations, posted, link.get("href", ""), source, advanced)
+
+
+def month_day_to_date(text: str, today: date) -> date | None:
+    """ "Nov 14" is the latest Nov 14 that isn't after ``today``."""
+    try:
+        day = datetime.strptime(f"{text.strip()} {today.year}", "%b %d %Y").replace(tzinfo=UTC).date()
+    except ValueError:
+        return None
+    return day if day <= today else day.replace(year=today.year - 1)
+
+
+def _squash(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def _same_job_key(listing: Listing) -> tuple[str, str]:
+    """Company and title with case, punctuation and spacing ignored."""
+    return _squash(listing.company), _squash(listing.role)
+
+
+def _same_place(a: Listing, b: Listing) -> bool:
+    """Locations that overlap, or one side that doesn't say."""
+    if not a.locations or not b.locations:
+        return True
+    return bool({x.lower() for x in a.locations} & {x.lower() for x in b.locations})
+
+
+def _absorb(into: Listing, other: Listing) -> None:
+    for s in other.sources:
+        if s not in into.sources:
+            into.sources.append(s)
+    # The earlier date is when it was really posted.
+    into.date_posted = min(into.date_posted, other.date_posted)
+    into.advanced_degree = into.advanced_degree or other.advanced_degree
+    into.us = into.us or other.us
 
 
 def merge(groups: list[list[Listing]]) -> list[Listing]:
-    """One entry per posting across all sources, newest first."""
+    """One entry per posting across all sources, newest first.
+
+    The same address is the same posting. Across different sources, the same
+    company and title in an overlapping place is too: vanshb03 links through
+    its own short links, so its addresses never match the other lists'.
+    """
     by_id: dict[str, Listing] = {}
+    by_job: dict[tuple[str, str], list[Listing]] = {}
     for listings in groups:
         for listing in listings:
             seen = by_id.get(listing.id)
             if seen is None:
-                by_id[listing.id] = listing.model_copy(deep=True)
+                key = _same_job_key(listing)
+                seen = next(
+                    (
+                        x
+                        for x in by_job.get(key, [])
+                        if not set(x.sources) & set(listing.sources) and _same_place(x, listing)
+                    ),
+                    None,
+                )
+            if seen is None:
+                kept = listing.model_copy(deep=True)
+                by_id[listing.id] = kept
+                by_job.setdefault(_same_job_key(listing), []).append(kept)
             else:
-                for s in listing.sources:
-                    if s not in seen.sources:
-                        seen.sources.append(s)
-                # The earlier date is when it was really posted.
-                seen.date_posted = min(seen.date_posted, listing.date_posted)
+                _absorb(seen, listing)
     return sorted(by_id.values(), key=lambda x: (x.date_posted, x.company.lower()), reverse=True)
 
 

@@ -1,8 +1,8 @@
-"""Tests for the Jobs listings: parsing both repos from saved samples, the cache and the "New" badge.
+"""Tests for the Jobs listings: parsing the three repos from saved samples, the cache and the "New" badge.
 
 No test touches the network. The samples in tests/fixtures/jobs are short cuts of
-the real files from SimplifyJobs/Summer2027-Internships and
-speedyapply/2027-SWE-College-Jobs.
+the real files from SimplifyJobs/Summer2027-Internships,
+vanshb03/Summer2027-Internships and speedyapply/2027-SWE-College-Jobs.
 """
 
 import json
@@ -18,6 +18,7 @@ from app.importers import jobs
 from app.importers.jobs import (
     SIMPLIFY,
     SPEEDYAPPLY,
+    VANSH,
     JobsCache,
     JobsError,
     age_to_date,
@@ -25,8 +26,10 @@ from app.importers.jobs import (
     fetch_source,
     is_new,
     merge,
+    month_day_to_date,
+    needs_advanced_degree,
+    parse_listings_json,
     parse_readme,
-    parse_simplify_json,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "jobs"
@@ -38,9 +41,12 @@ def sample(name: str) -> str:
 
 
 SIMPLIFY_JSON = json.loads(sample("simplify_listings.json"))
+VANSH_JSON = json.loads(sample("vanshb03_listings.json"))
 FILES = {
     SIMPLIFY.data_url: sample("simplify_listings.json"),
     SIMPLIFY.readme_urls[0]: sample("simplify_README.md"),
+    VANSH.data_url: sample("vanshb03_listings.json"),
+    VANSH.readme_urls[0]: sample("vanshb03_README.md"),
     SPEEDYAPPLY.readme_urls[0]: sample("speedyapply_README.md"),
     SPEEDYAPPLY.readme_urls[1]: sample("speedyapply_INTERN_INTL.md"),
 }
@@ -64,15 +70,97 @@ def saved_files(monkeypatch):
 
 
 def test_simplify_json_keeps_only_open_visible_listings():
-    listings = parse_simplify_json(SIMPLIFY_JSON, "Simplify")
+    listings = parse_listings_json(SIMPLIFY_JSON, "Simplify")
     open_ones = [x for x in SIMPLIFY_JSON if x["active"] and x["is_visible"]]
-    assert len(listings) == len(open_ones) == 5
+    assert len(listings) == len(open_ones) == 8
     assert {x.company for x in listings} == {x["company_name"] for x in open_ones}
     first = listings[0]
     assert first.role == open_ones[0]["title"]
     assert first.locations == open_ones[0]["locations"]
     assert first.sources == ["Simplify"]
     assert len(first.date_posted) == 10 and first.date_posted.startswith("20")
+
+
+# -- vanshb03 -------------------------------------------------------------------
+
+
+def test_vanshb03_json_has_the_same_format_and_its_phd_roles_are_flagged_by_title():
+    listings = parse_listings_json(VANSH_JSON, "vanshb03")
+    assert len(listings) == 4, "the closed one is dropped"
+    phd = next(x for x in listings if "PhD" in x.role)
+    assert phd.advanced_degree
+    assert sum(x.advanced_degree for x in listings) == 1
+    assert all(x.url.startswith("https://go.vansh.nyc/") for x in listings)
+
+
+def test_vanshb03_readme_dates_and_closed_rows():
+    listings = parse_readme(sample("vanshb03_README.md"), "vanshb03", TODAY)
+    assert len(listings) == 3, "the closed (🔒) row is dropped"
+    assert all(x.date_posted <= TODAY.isoformat() for x in listings)
+    assert listings[0].company == "Ericsson" and listings[0].locations == ["Plano, TX"] and listings[0].us
+    assert "🛂" not in listings[0].role
+
+
+def test_month_day_dates_never_land_in_the_future():
+    assert month_day_to_date("Nov 14", TODAY) == date(2026, 11, 14)
+    assert month_day_to_date("Dec 30", TODAY) == date(2025, 12, 30)
+    assert month_day_to_date("soon", TODAY) is None
+
+
+def test_the_same_job_in_two_lists_is_merged_by_company_and_title():
+    simplify = parse_listings_json(SIMPLIFY_JSON, "Simplify")
+    vansh = parse_listings_json(VANSH_JSON, "vanshb03")
+    merged = merge([simplify, vansh])
+    tmg = [x for x in merged if x.company == "TransMarket Group"]
+    assert len(tmg) == 1 and tmg[0].sources == ["Simplify", "vanshb03"]
+    assert not tmg[0].url.startswith("https://go.vansh.nyc"), "the first list's direct link is kept"
+    assert len(merged) == len(simplify) + len(vansh) - 1
+
+
+def test_within_one_list_same_title_elsewhere_is_a_different_job():
+    a = parse_listings_json(SIMPLIFY_JSON[:1], "Simplify")[0]
+    other_city = a.model_copy(update={"id": "https://jobs.example.com/2", "url": "https://jobs.example.com/2", "locations": ["Reading, UK"]})
+    assert len(merge([[a, other_city]])) == 2
+    elsewhere = other_city.model_copy(update={"sources": ["vanshb03"]})
+    assert len(merge([[a], [elsewhere]])) == 2, "different places, so not the same posting"
+
+
+# -- degrees ----------------------------------------------------------------------
+
+
+def test_advanced_degree_rules():
+    # Simplify's JSON lists the degrees a role accepts.
+    assert needs_advanced_degree("Intern - Physics & AI modeling Engineering", ["Master's", "PhD"])
+    assert not needs_advanced_degree("Quantitative Researcher Intern", ["Bachelor's", "Master's", "PhD"])
+    assert not needs_advanced_degree("PhD Research Intern", ["Bachelor's", "PhD"]), "it also takes a Bachelor's"
+    # Without degrees, the README marker or the title decides.
+    assert needs_advanced_degree("Software Engineer Intern", marked=True)
+    for title in ("Machine Learning Intern, PhD", "Ph.D. Research Intern", "Master's Intern - Data", "MBA Intern",
+                  "Doctoral Researcher Intern"):
+        assert needs_advanced_degree(title), title
+    for title in ("Software Engineer Intern", "Mastercard Data Intern", "Photonics Intern"):
+        assert not needs_advanced_degree(title), title
+
+
+def test_simplify_flags_master_and_phd_only_roles_from_its_degrees():
+    listings = parse_listings_json(SIMPLIFY_JSON, "Simplify")
+    flagged = [x.role for x in listings if x.advanced_degree]
+    assert flagged == ["Intern - Physics & AI modeling Engineering"]
+
+
+def test_simplify_readme_marks_advanced_roles_with_a_cap():
+    first_role = parse_readme(sample("simplify_README.md"), "Simplify", TODAY)[0].role
+    html = sample("simplify_README.md").replace(f"<td>{first_role}</td>", f"<td>{first_role} 🎓</td>", 1)
+    listings = parse_readme(html, "Simplify", TODAY)
+    assert listings[0].advanced_degree and "🎓" not in listings[0].role
+    assert not any(x.advanced_degree for x in listings[1:])
+
+
+def test_every_listing_says_whether_it_is_in_the_us():
+    listings = parse_readme(sample("speedyapply_README.md"), "SpeedyApply", TODAY)
+    assert all(x.us for x in listings), [x.locations for x in listings if not x.us]
+    intl = parse_readme(sample("speedyapply_INTERN_INTL.md"), "SpeedyApply", TODAY)
+    assert not any(x.us for x in intl), [x.locations for x in intl if x.us]
 
 
 # -- README tables ------------------------------------------------------------
@@ -128,7 +216,7 @@ def test_canonical_url_drops_tracking_only():
 
 
 def test_a_posting_in_both_repos_is_listed_once_with_both_sources():
-    simplify = parse_simplify_json(SIMPLIFY_JSON, "Simplify")
+    simplify = parse_listings_json(SIMPLIFY_JSON, "Simplify")
     speedy = parse_readme(sample("speedyapply_README.md"), "SpeedyApply", TODAY)
     merged = merge([simplify, speedy])
     both = [x for x in merged if len(x.sources) == 2]
@@ -140,11 +228,17 @@ def test_a_posting_in_both_repos_is_listed_once_with_both_sources():
 
 def test_simplify_prefers_its_json_and_falls_back_to_its_readme(saved_files):
     from_json = fetch_source(SIMPLIFY, TODAY)
-    assert len(from_json) == 5
+    assert len(from_json) == 8
     del saved_files[SIMPLIFY.data_url]
     from_readme = fetch_source(SIMPLIFY, TODAY)
     assert len(from_readme) == 5
     assert {x.url for x in from_readme} == {x.url for x in parse_readme(sample("simplify_README.md"), "Simplify", TODAY)}
+
+
+def test_vanshb03_prefers_its_json(saved_files):
+    assert len(fetch_source(VANSH, TODAY)) == 4
+    del saved_files[VANSH.data_url]
+    assert len(fetch_source(VANSH, TODAY)) == 3
 
 
 def test_speedyapply_reads_both_internship_files(saved_files):
@@ -158,10 +252,11 @@ def test_refresh_saves_listings_for_offline_use(tmp_path, saved_files):
     cache = JobsCache(tmp_path / "jobs.json")
     state = cache.refresh(today=TODAY)
     assert state.fetched_at and not state.errors
-    assert len(state.listings) == 5 + 8 - 1
+    # 8 from Simplify, 4 from vanshb03, 8 from SpeedyApply; two are listed twice.
+    assert len(state.listings) == 8 + 4 + 8 - 2
     saved_files.clear()  # offline from here on
     again = JobsCache(tmp_path / "jobs.json").refresh(today=TODAY)
-    assert len(again.errors) == 2
+    assert len(again.errors) == 3
     assert again.fetched_at == state.fetched_at, "the last good fetch is kept"
     assert [x.id for x in again.listings] == [x.id for x in state.listings]
 
@@ -211,7 +306,7 @@ def test_jobs_commands(bridge, saved_files):
     opened = bridge.call("jobs_open", {})["ok"]
     assert opened["listings"] == [] and opened["fetched_at"] is None
     refreshed = bridge.call("jobs_refresh", {})["ok"]
-    assert len(refreshed["listings"]) == 12 and refreshed["new_ids"] == []
+    assert len(refreshed["listings"]) == 18 and refreshed["new_ids"] == []
     listing = refreshed["listings"][0]
     assert set(listing) >= {"company", "role", "locations", "date_posted", "url", "sources"}
 

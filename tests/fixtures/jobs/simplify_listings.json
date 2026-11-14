@@ -162,5 +162,82 @@
   "date_posted": 1774263048,
   "company_url": "",
   "is_visible": false
+ },
+ {
+  "source": "Simplify",
+  "category": "Quant",
+  "company_name": "TransMarket Group",
+  "id": "152398c0-8915-4c84-b415-a84c821e1a62",
+  "title": "Quantitative Trader Intern",
+  "active": true,
+  "terms": [
+   "Winter 2026",
+   "Spring 2027",
+   "Summer 2027"
+  ],
+  "date_updated": 1780439406,
+  "date_posted": 1780438196,
+  "url": "https://job-boards.greenhouse.io/transmarketgroup/jobs/5151569007?gh_jid=5151569007",
+  "locations": [
+   "Chicago, IL"
+  ],
+  "company_url": "https://simplify.jobs/c/TransMarket-Group",
+  "is_visible": true,
+  "sponsorship": "Other",
+  "degrees": [
+   "Bachelor's",
+   "Master's",
+   "PhD"
+  ]
+ },
+ {
+  "source": "Simplify",
+  "category": "AI/ML/Data",
+  "company_name": "Applied Materials",
+  "id": "5e4572a4-e876-4056-a421-eab41b69f824",
+  "title": "Intern - Physics & AI modeling Engineering",
+  "active": true,
+  "terms": [
+   "Summer 2026"
+  ],
+  "date_updated": 1774509441,
+  "date_posted": 1774509441,
+  "url": "https://amat.wd1.myworkdayjobs.com/External/job/Santa-ClaraCA/XMLNAME-2026-Summer-Intern---Physics---AI-modeling-Engineering_R2616095",
+  "locations": [
+   "Santa Clara, CA"
+  ],
+  "company_url": "https://simplify.jobs/c/Applied-Materials",
+  "is_visible": true,
+  "sponsorship": "Other",
+  "degrees": [
+   "Master's",
+   "PhD"
+  ]
+ },
+ {
+  "source": "Simplify",
+  "category": "Quant",
+  "company_name": "Aquatic Capital Management",
+  "id": "76c586e3-eb16-454a-a7d8-5431a785b342",
+  "title": "Quantitative Researcher – Intern",
+  "active": true,
+  "terms": [
+   "Summer 2027"
+  ],
+  "date_updated": 1775085661,
+  "date_posted": 1775081547,
+  "url": "https://job-boards.greenhouse.io/aquaticcapitalmanagement/jobs/8489186002",
+  "locations": [
+   "London, UK",
+   "Chicago, IL"
+  ],
+  "company_url": "https://simplify.jobs/c/Aquatic-Capital-Management",
+  "is_visible": true,
+  "sponsorship": "Other",
+  "degrees": [
+   "Bachelor's",
+   "Master's",
+   "PhD"
+  ]
  }
 ]
