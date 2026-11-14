@@ -1,6 +1,6 @@
 # Tailor
 
-A desktop app for Mac and Windows that tailors a LaTeX resume to a job posting. Paste a posting and Tailor finds the red flags a recruiter would spot, rewrites your bullets for the role, scores the result, and exports a one-page PDF in your own template.
+A desktop app for Mac and Windows that tailors a LaTeX resume to a job posting. Paste a posting and Tailor scores your resume and finds what a recruiter would flag, rewrites your bullets to fix it, scores the old and new versions side by side, and exports a one-page PDF in your own template.
 
 It doesn't invent anything. Every number, name and skill in a rewrite is checked in code against your resume and your facts bank, and a rewrite that adds something it can't back up is blocked, with the reason shown. Only the text of your bullets, headings and skills lines ever changes. Fonts, margins and sections stay exactly as you wrote them.
 
@@ -53,9 +53,9 @@ Tailor removes `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` when it starts `cl
 ## Using it
 
 1. **Paste a posting** and press Tailor (Cmd+Enter on a Mac, Ctrl+Enter on Windows). The company is filled in for you, and you can change it.
-2. **Red flags.** The top three reasons a hiring manager would pass, for this job.
-3. **Rewrite.** Each bullet shows the old and new text side by side, with changed words highlighted, and which bullet or fact it came from. Accept with →, keep the original with ←, edit with E, or copy it. A blocked rewrite says why and can't be accepted until it's fixed. If a rewrite asks a question such as "How many users did it have?", your answer goes into the facts bank and the bullet is rewritten with it.
-4. **Review.** A match score before and after your changes, and keyword coverage counted in code: how many of the required skills you have are on the page.
+2. **Diagnose.** Scores out of 100 as an ATS filter and as a hiring manager, the top three red flags a recruiter for this company spots in ten seconds, the sections a reader would skip, and the posting's keywords you can back up but don't show.
+3. **Rewrite.** Your Experience and Projects bullets, rewritten to fix what Diagnose found. Each bullet shows the old and new text side by side, with changed words highlighted, and which bullet or fact it came from. Accept with →, keep the original with ←, edit with E, or copy it. A blocked rewrite says why and can't be accepted until it's fixed. If a rewrite asks a question such as "How many users did it have?", your answer goes into the facts bank and the bullet is rewritten with it.
+4. **Re-score.** Your base resume and the tailored one scored side by side in one call, so the difference is your changes and not noise between runs. Any change that lowers the score is flagged with an Undo button. Keyword coverage is counted in code: how many of the required skills you have are on the page.
 5. **Export.** Save the PDF. It's named after you and the company, such as `Jordan_Sample_Resume_Larkspur_Freight.pdf`. A result longer than one page isn't exported; Tailor suggests which bullets to trim instead.
 
 The preview on the right updates as you decide. Cmd+K or Ctrl+K opens the command bar to search history and switch screens. The sidebar has your history, an application tracker and the facts bank. In the facts bank you can drop a PDF, Word, text or Markdown file, or paste a link to your site, and Tailor suggests facts from it; nothing is saved until you accept it.

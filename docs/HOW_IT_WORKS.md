@@ -4,7 +4,7 @@ This is a tour of the backend, one part at a time, in the order a run touches th
 
 ## The whole run in one paragraph
 
-You paste a job posting. The app reads your LaTeX resume into editable pieces called slots and sends the resume and posting to a model three times: once for red flags, once for rewrites of your bullets, and once for a review score. Every rewrite the model proposes is checked in code before you can accept it: its numbers, names and skills must come from your own resume or facts bank, and it must follow a set of style rules. When you accept a rewrite, only that bullet's text changes in the file. The app compiles the result with Tectonic and shows the PDF. Export refuses anything longer than one page.
+You paste a job posting. The app reads your LaTeX resume into editable pieces called slots and sends the resume and posting to a model three times. Diagnose scores your base resume and says what's wrong with it. Rewrite fixes those findings in your bullets. Re-score scores the old and new versions side by side. Every rewrite the model proposes is checked in code before you can accept it: its numbers, names and skills must come from your own resume or facts bank, and it must follow a set of style rules. When you accept a rewrite, only that bullet's text changes in the file. The app compiles the result with Tectonic and shows the PDF. Export refuses anything longer than one page.
 
 ## Map of the code
 
@@ -97,9 +97,11 @@ A request has a fixed system prompt, a large context that repeats across steps (
 
 `Context` holds what doesn't change during a run: the parsed resume and its plain-text view, with bullet ids like `[b2]`. Each step builds a request around that.
 
-1. **Red flags.** "Act as a senior recruiter…": the top three reasons a hiring manager would say no. A flag that suggests adding a summary section is dropped in code.
-2. **Rewrite.** Every Experience and Projects bullet goes to the model with the red flags, the facts bank and the posting. Each proposal comes back with its sources, an optional question and a reason. `Context.check` runs grounding and style on each one and marks it `ok`, `blocked` or `unchanged`. Blocked ones go back to the model **once**, with the checker's reasons, and a second failure stays blocked so you can see why.
-3. **Review.** The model scores the resume before and after your accepted changes, as an ATS and as a hiring manager would, and lists sections a reader would skip, with suggested rewrites. Those suggestions go through the same checks.
+1. **Diagnose.** One call reads the base resume as an ATS filter and as a hiring manager going through 200 resumes. It returns a score out of 100 from each, the top three red flags a recruiter for this company spots in ten seconds, the sections a reader would skip and why, and the posting's keywords the resume doesn't show. The headline score is the mean of the two, worked out in code. A keyword is kept only if a bullet or fact it cites really mentions it (`_backed_keywords`), using the skills lexicon so "Postgres" counts for "PostgreSQL". A red flag or skipped section about a summary is dropped.
+2. **Rewrite.** Every Experience and Projects bullet goes to the model with the whole diagnosis, the facts bank and the posting, so the rewrite aims at what Diagnose found: kill the red flags, fix the skipped sections, and work in the missing keywords where the sources back them up. Each line leads with measurable impact in the Google XYZ form (accomplished X, as measured by Y, by doing Z). Each proposal comes back with its sources, an optional question and a reason. `Context.check` runs grounding and style on each one and marks it `ok`, `blocked` or `unchanged`. Blocked ones go back to the model **once**, with the checker's reasons, and a second failure stays blocked so you can see why.
+3. **Re-score.** One call scores the base resume and the tailored one (your accepted changes in place) with the same rubric as Diagnose. Scoring them in separate calls let run-to-run noise decide the result: a resume could drop from 58 to 54 after changes that helped. In one call both scores come from the same reading. The same call says how many points each change gains or loses on its own. A change that loses points is flagged and can be undone with one click, which keeps the original bullet. `Rescore.scored` records the texts that were scored, so the interface can tell when a later decision has made the numbers stale and offer to score again.
+
+Diagnose and Re-score share one rubric (`RUBRIC`), so their numbers mean the same thing.
 
 Three more things are worked out in code, not by a model:
 
@@ -113,11 +115,11 @@ Three more things are worked out in code, not by a model:
 
 **One entry point.** The page reaches Python through a single method, `Bridge.call(command, args)`. It looks the command up in the `COMMANDS` list, converts the argument names from the page's `camelCase` to Python's `snake_case`, runs the method on `Backend`, and returns `{"ok": result}` or `{"error": {"kind", "message"}}`. Unknown commands are refused. Keeping one door means error handling and the list of allowed commands live in one place.
 
-**Threads.** pywebview runs each call on its own thread, so a 30-second model step doesn't freeze the window. Two calls can touch the same run at once, for example if you accept a bullet while the review runs. So every change goes through `_change_run`, which takes a lock, loads the latest saved state, applies the change, and saves. A slow step that finishes later doesn't overwrite a decision you made while it ran.
+**Threads.** pywebview runs each call on its own thread, so a 30-second model step doesn't freeze the window. Two calls can touch the same run at once, for example if you accept a bullet while Re-score runs. So every change goes through `_change_run`, which takes a lock, loads the latest saved state, applies the change, and saves. A slow step that finishes later doesn't overwrite a decision you made while it ran.
 
 **Streaming.** A streaming step gets a channel id from the page. Python sends each piece of text with `window.run_js("window.__tailorEmit(id, event)")`, and the page shows it as it arrives. `json.dumps` escapes the text, so a posting can't break out of the script.
 
-**Run state.** `RunState` holds everything about one run: the posting, the red flags, each rewrite and your decision on it, the reviews, coverage, step costs, page count and export path. It's saved to SQLite after every change, so you can close the app and reopen any run from the history list. Each run also keeps a copy of the base resume it started from, so replacing your resume later doesn't break an old run.
+**Run state.** `RunState` holds everything about one run: the posting, the diagnosis, each rewrite and your decision on it, the re-score, coverage, step costs, page count and export path. It's saved to SQLite after every change, so you can close the app and reopen any run from the history list. Runs saved before Diagnose and Re-score existed still open: their red flags become a diagnosis and their two review scores become a re-score. Each run also keeps a copy of the base resume it started from, so replacing your resume later doesn't break an old run.
 
 ## 7. Storage: `db.py`, `secrets.py`
 
