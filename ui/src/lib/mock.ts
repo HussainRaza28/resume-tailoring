@@ -6,7 +6,7 @@
  */
 import { emit as emitTo, installMockBackend } from "./ipc";
 import samplePosting from "../../../tests/fixtures/sample_posting.txt?raw";
-import type { Application, BaselineEntry, CheckedRewrite, Coverage, Diagnosis, Fact, JobsView, Listing, Rescore, RunRecord, RunState, StepEvent } from "./api";
+import type { Application, BaselineEntry, CheckedRewrite, Coverage, Fact, FinalScore, JobsView, Listing, RunRecord, RunState, ScoreResult, StepEvent } from "./api";
 
 const SAMPLE_POSTING = samplePosting.trim();
 
@@ -20,12 +20,12 @@ function rw(id: string, entry: string, section: string, old: string, next: strin
     old_text: old,
     new_text: next,
     sources: [id],
-    question: null,
     why: "",
     status,
     grounding: { claims: [], citation_errors: [] },
     style: [],
     reasons: [],
+    dropped: [],
     ...extra,
   };
 }
@@ -42,11 +42,10 @@ function rewrites(): CheckedRewrite[] {
     rw("b4", NW, "Experience", "Wrote 45 unit tests with pytest for the route validation module and set them to run in GitHub Actions on every pull request", "Wrote 45 unit tests with pytest for the route validation module and set them to run in GitHub Actions on every pull request", "unchanged"),
     rw("b5", NW, "Experience", "Worked with the team on various backend tasks and helped with code reviews", "Reviewed 40+ pull requests and shipped backend features with the routing team", "blocked", {
       why: "Replaces a vague teamwork line",
-      question: "How many pull requests did you review that summer?",
       grounding: { claims: [{ text: "40+", kind: "number", supported: false }], citation_errors: [] },
       reasons: ['Number "40+" is not in the cited sources.'],
     }),
-    rw("b6", LIB, "Experience", "Helped patrons with computer and printer problems at the help desk", "Resolved computer and printer problems for library patrons at the help desk", "ok", { why: "Swaps a soft verb for the outcome", question: "About how many patrons did you help in a typical week?" }),
+    rw("b6", LIB, "Experience", "Helped patrons with computer and printer problems at the help desk", "Resolved computer and printer problems for library patrons at the help desk", "ok", { why: "Swaps a soft verb for the outcome" }),
     rw("b7", LIB, "Experience", "Set up 20 laptops for a weekly coding club for middle school students", "Set up 20 laptops for a weekly coding club for middle school students", "unchanged"),
     rw("b8", TM, "Projects", "Built a web app for logging hikes on an interactive map, used by 140 members of the university hiking club", "Built a web app for logging hikes on an interactive map, used by 140 members of the university hiking club", "unchanged"),
     rw("b9", TM, "Projects", "Designed a REST API in Node.js with JWT login and rate limiting", "Designed the Node.js REST API behind TrailMap, with JWT login and rate limiting", "ok", { why: "Names the API's job for a REST-heavy role" }),
@@ -187,8 +186,8 @@ function record(r: RunState): RunRecord {
     pasted_at_ms: r.pasted_at_ms,
     exported_at_ms: r.exported_at_ms,
     cost_usd: 0,
-    score_before: r.rescore?.base.overall ?? r.diagnosis?.score.overall ?? null,
-    score_after: r.rescore?.tailored.overall ?? null,
+    score_before: r.final?.before ?? r.score?.ats ?? null,
+    score_after: r.final?.after ?? null,
   };
 }
 
@@ -205,11 +204,13 @@ function seedHistory() {
       model: "demo",
       pasted_at_ms: created.getTime(),
       exported_at_ms: exported ? created.getTime() + 412_000 : null,
-      diagnosis: null,
+      posting_url: "",
+      score: null,
       rewrites: [],
       decisions: {},
       removed: [],
-      rescore: null,
+      final: null,
+      note_fact_ids: [],
       posting_skills: { required: [], preferred: [], mentioned: [] },
       coverage_before: null,
       coverage_after: null,
@@ -224,53 +225,26 @@ function seedHistory() {
   for (const r of [mk("h1", "Harbor Analytics", "Data Engineering Intern", 11, true), mk("h2", "Kestrel Robotics", "Software Intern, Autonomy", 17, true), mk("h3", "Morrow Health", "Backend Engineering Intern", 25, true)]) db.runs.set(r.id, r);
 }
 
-const card = (ats: number, hiring_manager: number) => ({ ats, hiring_manager, overall: Math.round((ats + hiring_manager) / 2) });
-
-function sampleDiagnosis(company: string, role: string): Diagnosis {
+function sampleScore(company: string, role: string): ScoreResult {
   return {
     company,
     role,
-    score: card(62, 54),
-    verdict: "Solid Python and PostgreSQL work for an intern, but the platform fit takes too long to see. The REST experience hides in a side project and one Northwind bullet says nothing.",
+    ats: 58,
     red_flags: [
-      { flag: "A teamwork bullet with no outcome", why: "“Worked with the team on various backend tasks” is the one line a platform lead reads as filler. It hides the code reviews that are this role's daily work.", section: "Experience" },
-      { flag: "REST work is buried in a side project", why: "The posting asks for REST API design twice. The only API bullet sits last under TrailMap and never says what the API served.", section: "Projects" },
-      { flag: "The posting's stack is not first in Skills", why: "PostgreSQL and Docker are required, but a ten-second skim of the Tools line reads Git and SQLite first.", section: "Technical Skills" },
-    ],
-    skipped_sections: [{ section: "Projects", reason: "Budget Bot reads as a hobby script, so a busy reader skips to Skills." }],
-    missing_keywords: [
-      { keyword: "REST", evidence: ["b9"] },
-      { keyword: "Redis", evidence: ["f1"] },
+      { flag: "A teamwork bullet with no outcome", why: "“Worked with the team on various backend tasks” reads as filler for a platform role.", section: "Experience" },
+      { flag: "REST work is buried in a side project", why: "The posting asks for REST APIs twice; yours sits last under TrailMap.", section: "Projects" },
+      { flag: "The posting's stack isn't first in Skills", why: "PostgreSQL and Docker are required but come after Git and SQLite.", section: "Technical Skills" },
     ],
   };
 }
 
-/** What each accepted change did in the mock re-score. b3's rewrite moves PostgreSQL to the end, so it costs points. */
-const MOCK_EFFECTS: Record<string, [number, string]> = {
-  b2: [6, "Leads with the 12,000 to 3,000 cut a platform team cares about."],
-  b3: [-2, "Pushes PostgreSQL, a required skill, to the end of the line where a skim misses it."],
-  b5: [5, "Replaces filler with code reviews, which this role does every day."],
-  b6: [1, "Plainer, but the library role still reads as unrelated."],
-};
-
-function sampleRescore(r: RunState): Rescore {
+/** The mock's before and after: four points for each accepted change. */
+function sampleFinal(r: RunState): FinalScore {
   const current: Record<string, string> = {};
   for (const x of r.rewrites) if (r.decisions[x.bullet_id]?.state === "accepted") current[x.bullet_id] = x.new_text;
   for (const id of r.removed) current[id] = "";
-  const changes = Object.keys(current)
-    .sort()
-    .map((id) => {
-      const [effect, reason] = MOCK_EFFECTS[id] ?? [2, "Clearer outcome."];
-      return { bullet_id: id, effect, reason };
-    });
-  const gain = changes.reduce((t, c) => t + c.effect, 0);
-  return {
-    base: card(60, 56),
-    tailored: card(Math.min(95, 60 + gain + 2), Math.min(95, 56 + gain)),
-    verdict: "The Northwind bullets now lead with scale a platform team can picture. The library role still reads as unrelated, and the Budget Bot project adds little for a backend internship.",
-    changes,
-    scored: current,
-  };
+  const accepted = Object.keys(current).length;
+  return { before: 57, after: Math.min(95, 57 + accepted * 4), scored: current };
 }
 
 /** A finished sample run, so each step can be opened straight from a URL. */
@@ -285,24 +259,26 @@ function seedSampleRun(stage: string) {
     model: "demo",
     pasted_at_ms: Date.now() - 95_000,
     exported_at_ms: null,
-    diagnosis: sampleDiagnosis("Larkspur Freight", "Software Engineer Intern, Platform"),
+    posting_url: "https://jobs.larkspur.example/platform-intern",
+    score: sampleScore("Larkspur Freight", "Software Engineer Intern, Platform"),
     rewrites: rewrites(),
     decisions: { b2: { state: "accepted", origin: "rewrite" }, b3: { state: "accepted", origin: "rewrite" } },
     removed: [],
-    rescore: null,
+    final: null,
+    note_fact_ids: [],
     posting_skills: { required: ["Python", "SQL", "PostgreSQL", "Docker", "Git", "REST"], preferred: ["TypeScript", "Node.js", "Kubernetes", "AWS", "Redis"], mentioned: [] },
     coverage_before: coverage(false),
     coverage_after: coverage(true),
-    steps: [step("diagnose", 2410, 512, 7400), step("rewrite", 3120, 1240, 14800), step("rewrite_retry", 1410, 220, 3900)],
+    steps: [step("score", 1210, 260, 3100), step("rewrite", 3120, 1240, 14800), step("rewrite_retry", 1410, 220, 3900)],
     pages: 1,
     trim_hints: [],
     exported_path: null,
     export_name: "",
     error: null,
   };
-  if (stage === "rescore" || stage === "export") {
-    r.rescore = sampleRescore(r);
-    r.steps.push(step("rescore", 4410, 620, 9100));
+  if (stage === "done") {
+    r.final = sampleFinal(r);
+    r.steps.push(step("rescore", 3410, 60, 4100));
   }
   db.runs.set(r.id, r);
 }
@@ -376,11 +352,13 @@ export async function installMock() {
           model: String(a.model || "demo"),
           pasted_at_ms: (a.pastedAtMs as number) ?? Date.now(),
           exported_at_ms: null,
-          diagnosis: null,
+          posting_url: String(a.postingUrl ?? ""),
+          score: null,
           rewrites: [],
           decisions: {},
           removed: [],
-          rescore: null,
+          final: null,
+          note_fact_ids: [],
           posting_skills: { required: ["Python", "SQL", "PostgreSQL", "Docker", "Git", "REST"], preferred: ["TypeScript", "Node.js", "Kubernetes", "AWS", "Redis"], mentioned: [] },
           coverage_before: coverage(false),
           coverage_after: coverage(false),
@@ -397,7 +375,7 @@ export async function installMock() {
       case "run_step": {
         const r = run(a.runId);
         const s = String(a.step);
-        if (failStep && s === "diagnose") {
+        if (failStep && s === "score") {
           await sleep(500);
           const msgs: Record<string, string> = {
             bad_key: "The API key was rejected. Check it in Settings.",
@@ -407,24 +385,31 @@ export async function installMock() {
           r.error = { kind: failStep, message: msgs[failStep] ?? "Failed" };
           throw r.error;
         }
-        if (s === "diagnose") {
-          await streamText(a.onEvent, s, JSON.stringify({ company: "Larkspur Freight", role: "Software Engineer Intern, Platform", ats_score: 62 }, null, 1).repeat(4));
+        if (s === "score") {
+          await streamText(a.onEvent, s, JSON.stringify({ company: "Larkspur Freight", role: "Software Engineer Intern, Platform", ats_score: 58 }, null, 1).repeat(2));
           r.company = r.company || "Larkspur Freight";
-          r.role = "Software Engineer Intern, Platform";
-          r.diagnosis = sampleDiagnosis(r.company, r.role);
-          r.steps.push(step("diagnose", 2410, 512, 7400));
+          r.role = r.role || "Software Engineer Intern, Platform";
+          r.score = sampleScore(r.company, r.role);
+          r.steps.push(step("score", 1210, 260, 3100));
         } else if (s === "rewrite") {
           await streamText(a.onEvent, s, JSON.stringify(rewrites().map((x) => ({ bullet_id: x.bullet_id, new_text: x.new_text })), null, 1));
           r.rewrites = rewrites();
+          // A note that says how many pull requests unblocks b5, the way a fact does in the real checker.
+          const prs = db.facts.find((f) => r.note_fact_ids.includes(f.id) && /\d+ pull requests/.test(f.text));
+          if (prs) {
+            const n = prs.text.match(/(\d+) pull requests/)![1];
+            r.rewrites = r.rewrites.map((x) =>
+              x.bullet_id === "b5" ? { ...x, new_text: `Reviewed ${n} pull requests and shipped backend features with the routing team`, status: "ok", reasons: [], sources: ["b5", prs.id], grounding: { claims: [{ text: n, kind: "number", supported: true }], citation_errors: [] } } : x,
+            );
+          }
           r.decisions = {};
-          r.rescore = null;
+          r.final = null;
           r.steps.push(step("rewrite", 3120, 1240, 14800), step("rewrite_retry", 1410, 220, 3900));
         } else if (s === "rescore") {
-          await streamText(a.onEvent, s, JSON.stringify({ base_ats_score: 60, tailored_ats_score: 70, verdict: "…" }).repeat(8));
-          const accepted = Object.values(r.decisions).some((d) => d.state === "accepted");
-          r.rescore = sampleRescore(r);
-          r.coverage_after = coverage(accepted);
-          r.steps.push(step("rescore", 4410, 620, 9100));
+          await streamText(a.onEvent, s, JSON.stringify({ base_ats_score: 57, tailored_ats_score: 69 }).repeat(3));
+          r.final = sampleFinal(r);
+          r.coverage_after = coverage(Object.values(r.decisions).some((d) => d.state === "accepted"));
+          r.steps.push(step("rescore", 3410, 60, 4100));
         }
         return structuredClone(r);
       }
@@ -449,23 +434,24 @@ export async function installMock() {
         r.coverage_after = coverage(Object.values(r.decisions).some((d) => d.state === "accepted"));
         return structuredClone(r);
       }
-      case "answer_question": {
+      case "add_note": {
         const r = run(a.runId);
-        const x = r.rewrites.find((y) => y.bullet_id === a.bulletId)!;
-        const ans = String(a.answer).trim();
-        if (ans) {
-          const fid = `f${db.facts.length + 1}`;
-          db.facts.push({ id: fid, text: `${x.question} ${ans}`, question: x.question, bullet_text: x.old_text, created_at: now() });
-          await streamText(a.onEvent, "rewrite_one", "{}");
-          if (x.bullet_id === "b5") {
-            x.new_text = `Reviewed ${ans} pull requests and shipped backend fixes with the routing team`;
-            x.status = "ok";
-            x.reasons = [];
-            x.grounding = { claims: [{ text: ans, kind: "number", supported: true }], citation_errors: [] };
-            x.sources = ["b5", fid];
-          }
+        const pieces = String(a.note)
+          .split(/\n|(?<=[.!?])\s+/)
+          .map((x) => x.replace(/^[-*•\s]+/, "").trim().replace(/\.$/, ""))
+          .filter((x) => x.split(/\s+/).length >= 3);
+        for (const text of pieces) {
+          if (db.facts.some((f) => f.text.toLowerCase() === text.toLowerCase())) continue;
+          const id = `f${db.facts.length + 1}`;
+          db.facts.push({ id, text, question: null, bullet_text: null, created_at: now() });
+          r.note_fact_ids.push(id);
         }
-        x.question = null;
+        return structuredClone(r);
+      }
+      case "undo_note": {
+        const r = run(a.runId);
+        db.facts = db.facts.filter((f) => !r.note_fact_ids.includes(f.id));
+        r.note_fact_ids = [];
         return structuredClone(r);
       }
       case "toggle_remove": {

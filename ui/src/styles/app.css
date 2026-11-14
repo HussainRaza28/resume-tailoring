@@ -541,6 +541,82 @@ button.chip:hover {
   display: grid;
   gap: 14px;
 }
+/* Company · Role · View posting */
+.run-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+.run-title h1 {
+  font-size: var(--fs-title);
+}
+.link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--border);
+}
+.link-button:hover {
+  color: var(--text);
+}
+.score-overview {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 24px;
+  align-items: center;
+}
+.score-overview-ring {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+}
+.flag-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+.flag-list li {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 8px;
+}
+.flag-list .flag-n {
+  padding-top: 3px;
+}
+.flag-list p {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 2px;
+}
+.flag-list .pill {
+  margin-left: 4px;
+  vertical-align: 1px;
+}
+.note-card {
+  display: grid;
+  gap: 10px;
+}
+.note-card label {
+  font-weight: 600;
+}
+.note-card .textarea {
+  min-height: 72px;
+}
+.export-card {
+  display: grid;
+  gap: 14px;
+}
 .title-row .grow {
   flex: 1;
   min-width: 0;

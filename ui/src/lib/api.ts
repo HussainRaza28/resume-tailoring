@@ -40,54 +40,32 @@ export interface CheckedRewrite {
   old_text: string;
   new_text: string;
   sources: string[];
-  question: string | null;
   why: string;
   status: CheckStatus;
   grounding: { claims: Claim[]; citation_errors: string[] };
   style: Violation[];
   reasons: string[];
+  /** Numbers, names and skills in the original that the rewrite left out. */
+  dropped: string[];
 }
 
-export interface SkippedSection {
-  section: string;
-  reason: string;
-}
-
-/** Scores out of 100. `overall` is the mean of the two, worked out in code. */
-export interface ScoreCard {
-  ats: number;
-  hiring_manager: number;
-  overall: number;
-}
-
-export interface Diagnosis {
+/** The first step: the base resume's ATS score and its top red flags. */
+export interface ScoreResult {
   company: string;
   role: string;
-  score: ScoreCard;
-  verdict: string;
+  ats: number;
   red_flags: RedFlag[];
-  skipped_sections: SkippedSection[];
-  /** Posting keywords the resume doesn't show, each backed by bullet or fact ids. */
-  missing_keywords: { keyword: string; evidence: string[] }[];
 }
 
-export interface ChangeResult {
-  bullet_id: string;
-  /** Points this change alone adds (positive) or costs (negative). */
-  effect: number;
-  reason: string;
-}
-
-export interface Rescore {
-  base: ScoreCard;
-  tailored: ScoreCard;
-  verdict: string;
-  changes: ChangeResult[];
+/** The base and tailored resume, scored in one reply. */
+export interface FinalScore {
+  before: number;
+  after: number;
   /** The bullet texts that were scored, to tell when later decisions made it stale. */
   scored: Record<string, string>;
 }
 
-export type ModelStep = "diagnose" | "rewrite" | "rescore";
+export type ModelStep = "score" | "rewrite" | "rescore";
 
 export interface SkillStatus {
   skill: string;
@@ -135,11 +113,15 @@ export interface RunState {
   model: string;
   pasted_at_ms: number | null;
   exported_at_ms: number | null;
-  diagnosis: Diagnosis | null;
+  /** The posting's link, when the run started from Jobs. */
+  posting_url: string;
+  score: ScoreResult | null;
   rewrites: CheckedRewrite[];
   decisions: Record<string, { state: DecisionState; origin: string }>;
   removed: string[];
-  rescore: Rescore | null;
+  final: FinalScore | null;
+  /** Facts saved from this run's "Anything to add?" note. */
+  note_fact_ids: string[];
   posting_skills: { required: string[]; preferred: string[]; mentioned: string[] };
   coverage_before: Coverage | null;
   coverage_after: Coverage | null;
@@ -331,8 +313,8 @@ export const api = {
   geminiModels: () => call<string[]>("gemini_models"),
   claudeCodeStatus: () => call<ClaudeCodeStatus>("claude_code_status"),
 
-  startRun: (posting: string, company: string, provider: string | null, model: string | null, pastedAtMs: number | null, role = "") =>
-    call<RunState>("start_run", { posting, company, provider, model, pastedAtMs, role }),
+  startRun: (posting: string, company: string, provider: string | null, model: string | null, pastedAtMs: number | null, role = "", postingUrl = "") =>
+    call<RunState>("start_run", { posting, company, provider, model, pastedAtMs, role, postingUrl }),
   getRun: (runId: string) => call<RunState>("get_run_state", { runId }),
   updateRunMeta: (runId: string, company: string, role: string) => call<RunState>("update_run_meta", { runId, company, role }),
   runStep: (runId: string, step: ModelStep, onEvent?: (e: StepEvent) => void) =>
@@ -340,8 +322,8 @@ export const api = {
   decide: (runId: string, bulletId: string, action: "accept" | "reject" | "reset" | "edit", text?: string) =>
     call<RunState>("decide", { runId, bulletId, action, text: text ?? null }),
   toggleRemove: (runId: string, bulletId: string) => call<RunState>("toggle_remove", { runId, bulletId }),
-  answerQuestion: (runId: string, bulletId: string, answer: string, onEvent?: (e: StepEvent) => void) =>
-    streaming<RunState>("answer_question", { runId, bulletId, answer }, onEvent),
+  addNote: (runId: string, note: string) => call<RunState>("add_note", { runId, note }),
+  undoNote: (runId: string) => call<RunState>("undo_note", { runId }),
   compileRun: async (runId: string) => toBytes(await call<unknown>("compile_run", { runId })),
   exportRun: (runId: string, dir: string) => call<RunState>("export_run", { runId, dir }),
   tailoredSource: (runId: string) => call<string>("tailored_source", { runId }),
@@ -419,11 +401,11 @@ export function currentTexts(run: RunState): Record<string, string> {
   return out;
 }
 
-/** True when decisions made since the last Re-score mean its numbers no longer describe the resume. */
-export function rescoreIsStale(run: RunState): boolean {
-  if (!run.rescore) return false;
+/** True when decisions made since the final score mean its numbers no longer describe the resume. */
+export function finalIsStale(run: RunState): boolean {
+  if (!run.final) return false;
   const now = currentTexts(run);
-  const then = run.rescore.scored;
+  const then = run.final.scored;
   const keys = new Set([...Object.keys(now), ...Object.keys(then)]);
   for (const k of keys) if (now[k] !== then[k]) return true;
   return false;

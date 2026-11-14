@@ -5,10 +5,11 @@ import { useToast } from "../blocks/ToastStack";
 import { Notice, explainError } from "../components/Notice";
 import PdfPreview from "../components/PdfPreview";
 import Stepper, { type StepId } from "../components/Stepper";
-import { CostFooter, DiagnoseStep, ExportStep, RescoreStep, RewriteStep, SkeletonList, StreamPanel } from "../components/Steps";
-import { api, type Application, type Fact, type ModelStep, type RunState, type Settings } from "../lib/api";
+import { CostFooter, DoneStep, RewriteStep, ScoreStep, SkeletonList, StreamPanel } from "../components/Steps";
+import { IconExternal } from "../components/icons";
+import { api, finalIsStale, type Fact, type ModelStep, type RunState, type Settings } from "../lib/api";
 import { type CmdError, isCmdError } from "../lib/ipc";
-import { modKey, pickFolder, reveal, writeClipboard } from "../lib/platform";
+import { modKey, pickFolder, reveal } from "../lib/platform";
 import type { TailorRequest } from "./JobsScreen";
 
 type Props = {
@@ -28,10 +29,9 @@ type Props = {
 type Pending = { step: string; text: string } | null;
 
 const STEP_TITLES: Record<string, string> = {
-  diagnose: "Scoring and skimming like a recruiter",
-  rewrite: "Rewriting bullets to fix what Diagnose found",
-  rewrite_one: "Rewriting with your answer",
-  rescore: "Scoring both versions side by side",
+  score: "Scoring",
+  rewrite: "Rewriting",
+  rescore: "Scoring before and after",
 };
 
 export default function TailorScreen(p: Props) {
@@ -41,7 +41,7 @@ export default function TailorScreen(p: Props) {
   const [company, setCompany] = useState("");
   const [role, setRole] = useState("");
   const [pastedAt, setPastedAt] = useState<number | null>(null);
-  const [view, setView] = useState<StepId>("diagnose");
+  const [view, setView] = useState<StepId>("score");
   const [pending, setPending] = useState<Pending>(null);
   const [error, setError] = useState<(CmdError & { retry?: () => void }) | null>(null);
   const [facts, setFacts] = useState<Fact[]>([]);
@@ -50,10 +50,8 @@ export default function TailorScreen(p: Props) {
   const [compiling, setCompiling] = useState(false);
   const [compileError, setCompileError] = useState<CmdError | null>(null);
   const [focus, setFocus] = useState(0);
-  const [editRequest, setEditRequest] = useState(0);
-  const [busyBullet, setBusyBullet] = useState<string | null>(null);
+  const [note, setNote] = useState("");
   const [exporting, setExporting] = useState(false);
-  const [application, setApplication] = useState<Application | null>(null);
   const compileSeq = useRef(0);
 
   const update = useCallback(
@@ -77,8 +75,9 @@ export default function TailorScreen(p: Props) {
       setPosting("");
       setCompany("");
       setRole("");
+      setNote("");
       setPastedAt(null);
-      setView("diagnose");
+      setView("score");
       return;
     }
     if (run?.id === p.runId) return;
@@ -89,7 +88,7 @@ export default function TailorScreen(p: Props) {
         setPosting(r.posting);
         setCompany(r.company);
         const want = new URLSearchParams(window.location.search).get("step") as StepId | null;
-        setView(want && ["diagnose", "rewrite", "rescore", "export"].includes(want) ? want : r.exported_at_ms ? "export" : r.rescore ? "rescore" : r.rewrites.length ? "rewrite" : "diagnose");
+        setView(want && ["score", "rewrite", "done"].includes(want) ? want : r.exported_at_ms || r.final ? "done" : r.rewrites.length ? "rewrite" : "score");
       })
       .catch((e) => fail(e));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -138,17 +137,6 @@ export default function TailorScreen(p: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [decisionsKey, run?.id, p.hasBase]);
 
-  useEffect(() => {
-    if (!run?.exported_at_ms) {
-      setApplication(null);
-      return;
-    }
-    api
-      .listApplications()
-      .then((apps) => setApplication(apps.find((a) => a.run_id === run.id) ?? null))
-      .catch(() => setApplication(null));
-  }, [run?.id, run?.exported_at_ms]);
-
   /* ---------- steps ---------- */
   const stream = (step: string) => (e: { type: string; text?: string }) => {
     if (e.type === "started") setPending({ step, text: "" });
@@ -164,11 +152,7 @@ export default function TailorScreen(p: Props) {
         update(next);
         return next;
       } catch (e) {
-        fail(e, () => {
-          runStep(r, step).then((n) => {
-            if (n && step === "diagnose") runStep(n, "rewrite");
-          });
-        });
+        fail(e, () => runStep(r, step));
         try {
           update(await api.getRun(r.id));
         } catch {
@@ -195,74 +179,60 @@ export default function TailorScreen(p: Props) {
     }
     setError(null);
     try {
-      const r = await api.startRun(posting, company, p.provider, p.model, pastedAt, role);
+      const r = await api.startRun(posting, company, p.provider, p.model, pastedAt, role, p.prefill?.url ?? "");
       update(r);
-      setView("diagnose");
-      const diagnosed = await runStep(r, "diagnose");
-      if (!diagnosed) return;
-      setCompany(diagnosed.company);
-      setView("rewrite");
-      setFocus(0);
-      await runStep(diagnosed, "rewrite");
+      setView("score");
+      const scored = await runStep(r, "score");
+      if (scored) setCompany(scored.company);
     } catch (e) {
       fail(e, tailor);
     }
   }, [pending, p, posting, company, pastedAt, update, runStep, fail]);
 
-  const toRescore = useCallback(async () => {
+  /* The note's facts are saved first, so the rewrite and the checker can use them. */
+  const toRewrite = useCallback(async () => {
     if (!run || pending) return;
-    setView("rescore");
-    await runStep(run, "rescore");
+    let current = run;
+    if (note.trim()) {
+      try {
+        current = await api.addNote(run.id, note);
+        update(current);
+        setNote("");
+        api.listFacts().then(setFacts).catch(() => {});
+      } catch (e) {
+        fail(e);
+        return;
+      }
+    }
+    setView("rewrite");
+    setFocus(0);
+    await runStep(current, "rewrite");
+  }, [run, pending, note, update, runStep, fail]);
+
+  const undoNote = useCallback(async () => {
+    if (!run) return;
+    update(await api.undoNote(run.id));
+    api.listFacts().then(setFacts).catch(() => {});
+  }, [run, update]);
+
+  /* Done scores before and after once, and again only when decisions have moved on. */
+  const toDone = useCallback(async () => {
+    if (!run || pending) return;
+    setView("done");
+    if (!run.final || finalIsStale(run)) await runStep(run, "rescore");
   }, [run, pending, runStep]);
 
   const decide = useCallback(
-    async (bulletId: string, action: "accept" | "reject" | "reset" | "edit", text?: string) => {
+    async (bulletId: string, action: "accept" | "reject" | "reset") => {
       if (!run) return;
       try {
-        const next = await api.decide(run.id, bulletId, action, text);
-        update(next);
-        if (action === "edit") {
-          const r = next.rewrites.find((x) => x.bullet_id === bulletId);
-          if (r?.status === "blocked") toast.push({ tone: "error", title: "Your edit was blocked", body: r.reasons[0] });
-        }
+        update(await api.decide(run.id, bulletId, action));
       } catch (e) {
         const err = isCmdError(e) ? e : { kind: "unknown", message: String(e) };
         toast.push({ tone: "error", title: err.kind === "blocked" ? "Blocked rewrites cannot be accepted" : "Could not save that", body: err.message });
       }
     },
     [run, update, toast],
-  );
-
-  const answer = useCallback(
-    async (bulletId: string, text: string) => {
-      if (!run) return;
-      setBusyBullet(bulletId);
-      try {
-        const next = await api.answerQuestion(run.id, bulletId, text, stream("rewrite_one"));
-        update(next);
-        if (text.trim()) toast.push({ tone: "success", title: "Saved to your facts bank", body: "It will be reused on future runs." });
-        api.listFacts().then(setFacts).catch(() => {});
-      } catch (e) {
-        fail(e);
-      } finally {
-        setBusyBullet(null);
-        setPending(null);
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [run, update, toast, fail],
-  );
-
-  const copy = useCallback(
-    async (text: string) => {
-      try {
-        await writeClipboard(text);
-        toast.push({ tone: "success", title: "Copied", body: text.length > 70 ? `${text.slice(0, 70)}…` : text });
-      } catch {
-        toast.push({ tone: "error", title: "Could not copy to the clipboard" });
-      }
-    },
-    [toast],
   );
 
   const chooseDir = useCallback(async () => {
@@ -304,17 +274,6 @@ export default function TailorScreen(p: Props) {
     [run, update],
   );
 
-  const setStatus = useCallback(
-    async (status: string) => {
-      if (!application) return;
-      const next = { ...application, status: status as Application["status"] };
-      await api.updateApplication(next);
-      setApplication(next);
-      toast.push({ tone: "success", title: `Marked as ${status}` });
-    },
-    [application, toast],
-  );
-
   /* ---------- keyboard ---------- */
   const changed = run ? run.rewrites.filter((r) => r.status !== "unchanged") : [];
   useEffect(() => {
@@ -323,9 +282,9 @@ export default function TailorScreen(p: Props) {
       if (mod && e.key === "Enter") {
         e.preventDefault();
         if (!run) tailor();
-        else if (view === "rewrite") toRescore();
-        else if (view === "rescore") setView("export");
-        else if (view === "export") exportPdf();
+        else if (view === "score") toRewrite();
+        else if (view === "rewrite") toDone();
+        else if (view === "done") exportPdf();
         return;
       }
       const target = e.target as HTMLElement;
@@ -340,43 +299,39 @@ export default function TailorScreen(p: Props) {
       } else if (e.key === "ArrowLeft") {
         decide(r.bullet_id, "reject");
         setFocus((f) => Math.min(changed.length - 1, f + 1));
-      } else if (e.key === "e") setEditRequest((n) => n + 1);
-      else if (e.key === "u") decide(r.bullet_id, "reset");
-      else if (e.key === "c") copy(r.new_text);
+      } else if (e.key === "u") decide(r.bullet_id, "reset");
       else return;
       e.preventDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [run, view, changed, focus, pending, tailor, toRescore, exportPdf, decide, copy]);
+  }, [run, view, changed, focus, pending, tailor, toRewrite, toDone, exportPdf, decide]);
 
   /* commands from the command bar */
   useEffect(() => {
     const onCmd = (e: Event) => {
       const cmd = (e as CustomEvent<string>).detail;
       if (cmd === "run") tailor();
-      else if (cmd === "rescore") toRescore();
-      else if (cmd === "export") run && setView("export");
+      else if (cmd === "rewrite") toRewrite();
+      else if (cmd === "done") toDone();
       else if (cmd === "accept-all" && run) changed.filter((r) => r.status === "ok").forEach((r) => decide(r.bullet_id, "accept"));
     };
     window.addEventListener("tailor:cmd", onCmd);
     return () => window.removeEventListener("tailor:cmd", onCmd);
-  }, [tailor, toRescore, run, changed, decide]);
+  }, [tailor, toRewrite, toDone, run, changed, decide]);
 
   /* ---------- derived ---------- */
   const done = useMemo(() => {
     const s = new Set<StepId>();
-    if (run?.diagnosis) s.add("diagnose");
+    if (run?.score) s.add("score");
     if (run?.rewrites.length) s.add("rewrite");
-    if (run?.rescore) s.add("rescore");
-    if (run?.exported_at_ms) s.add("export");
+    if (run?.exported_at_ms) s.add("done");
     return s;
   }, [run]);
   const enabled = useMemo(() => {
-    const s = new Set<StepId>(["diagnose"]);
-    if (run?.diagnosis) s.add("rewrite");
-    if (run?.rewrites.length) s.add("rescore");
-    if (run?.rewrites.length) s.add("export");
+    const s = new Set<StepId>(["score"]);
+    if (run?.rewrites.length) s.add("rewrite");
+    if (run?.rewrites.length) s.add("done");
     return s;
   }, [run]);
 
@@ -426,62 +381,38 @@ export default function TailorScreen(p: Props) {
           ) : (
             <>
               <div className="run-head">
-                <div>
-                  <h1>{run.company || "Untitled posting"}</h1>
-                  <p className="muted" style={{ marginTop: 2 }}>{run.role || "Role not found in the posting"}</p>
-                </div>
-                <Stepper current={view} done={done} enabled={enabled} onSelect={setView} />
+                <RunTitle run={run} />
+                <Stepper current={view} done={done} enabled={enabled} onSelect={(s) => (s === "done" ? toDone() : setView(s))} />
               </div>
               {errInfo && (
                 <Notice tone="error" title={errInfo.title} action={errAction}>
                   {errInfo.body}
                 </Notice>
               )}
-              {pending && pending.step !== "rewrite_one" ? (
+              {pending ? (
                 <>
                   <StreamPanel title={STEP_TITLES[pending.step] ?? "Working"} text={pending.text} />
                   {pending.step === "rewrite" && <SkeletonList />}
                 </>
-              ) : (
+              ) : null}
+              {(!pending || pending.step === "rescore") && (
                 <>
-                  {view === "diagnose" && run.diagnosis && (
-                    <DiagnoseStep run={run} onRewrite={run.rewrites.length > 0 ? () => setView("rewrite") : undefined} />
+                  {view === "score" && run.score && !pending && (
+                    <ScoreStep run={run} note={note} setNote={setNote} onRewrite={toRewrite} undoNote={undoNote} busy={!!pending} />
                   )}
-                  {view === "rewrite" && (
-                    <RewriteStep
-                      run={run}
-                      facts={facts}
-                      focus={focus}
-                      setFocus={setFocus}
-                      busyBullet={busyBullet}
-                      editRequest={editRequest}
-                      decide={decide}
-                      answer={answer}
-                      copy={copy}
-                    />
-                  )}
-                  {view === "rescore" && run.rescore && <RescoreStep run={run} undo={(id) => decide(id, "reject")} scoreAgain={toRescore} />}
-                  {view === "rescore" && !run.rescore && (
-                    <div className="card" style={{ display: "grid", gap: 12, justifyItems: "start" }}>
-                      <h2>Score both versions</h2>
-                      <p className="muted">Scores your base resume and the version with your accepted rewrites side by side, in one reading, and shows what each change did.</p>
-                      <button className="btn btn-primary" onClick={toRescore}>
-                        Re-score <span className="kbd">{modKey}↵</span>
-                      </button>
-                    </div>
-                  )}
-                  {view === "export" && (
-                    <ExportStep
+                  {view === "rewrite" && !pending && <RewriteStep run={run} facts={facts} focus={focus} setFocus={setFocus} decide={decide} />}
+                  {view === "done" && (
+                    <DoneStep
                       run={run}
                       fileName={run.export_name}
                       dir={p.settings.export_dir ?? null}
                       exporting={exporting}
+                      scoring={pending?.step === "rescore"}
                       chooseDir={chooseDir}
                       exportPdf={exportPdf}
+                      scoreAgain={() => runStep(run, "rescore")}
                       removeBullet={removeBullet}
                       reveal={() => run.exported_path && reveal(run.exported_path)}
-                      status={application?.status ?? null}
-                      setStatus={setStatus}
                     />
                   )}
                 </>
@@ -498,12 +429,11 @@ export default function TailorScreen(p: Props) {
           <div className="summary-bar num">
             <span>
               <b>{counts.accepted}</b> accepted · <b>{counts.rejected}</b> kept · <b>{counts.pending}</b> to decide
-              {counts.blocked > 0 && <span style={{ color: "var(--negative)" }}> · {counts.blocked} blocked</span>}
             </span>
             <span className="grow" />
-            <span className="small faint hint">↑↓ move · → accept · ← keep · E edit</span>
-            <button className="btn btn-primary btn-sm" onClick={toRescore}>
-              Continue to re-score <span className="kbd">{modKey}↵</span>
+            <span className="small faint hint">→ accept · ← keep</span>
+            <button className="btn btn-primary btn-sm" onClick={toDone}>
+              Done <span className="kbd">{modKey}↵</span>
             </button>
           </div>
         )}
@@ -565,7 +495,7 @@ function EmptyState(p: {
       <div className="hero enter">
         <AsciiWake />
         <h1>{p.prefill ? `${p.prefill.company}: ${p.prefill.role}` : "Paste a job posting"}</h1>
-        <p>A diagnosis, rewrites aimed at what it found and a fair re-score, then a one-page PDF in your own template. Nothing is invented: every claim is checked against your resume.</p>
+        <p>Score it, fix the red flags, export a one-page PDF.</p>
       </div>
       {p.prefill && <ListingNotice prefill={p.prefill} />}
       <div className="paste enter">
@@ -614,12 +544,28 @@ function ListingNotice({ prefill }: { prefill: TailorRequest }) {
     /* keep the link as given */
   }
   return prefill.posting ? (
-    <Notice tone="info" title={`Posting read from ${host}`} action={{ label: "Open posting", run: open }}>
-      Check that it's the whole posting, with the requirements, before you tailor.
+    <Notice tone="info" title={`Posting read from ${host}`} action={{ label: "View posting", run: open }}>
+      Check it's complete.
     </Notice>
   ) : (
-    <Notice tone="warning" title="Paste the posting to continue" action={{ label: "Open posting", run: open }}>
-      {prefill.reason ? `${prefill.reason} ` : ""}Many job sites, Workday among them, only show the posting in a browser. Open it, copy the full text and paste it below.
+    <Notice tone="warning" title="Paste the posting to continue" action={{ label: "View posting", run: open }}>
+      This site won't share it with the app. Open it, copy the text and paste it below.
     </Notice>
+  );
+}
+
+/** Company · Role · ↗ View posting, at the top of every step. */
+function RunTitle({ run }: { run: RunState }) {
+  const open = () => api.openUrl(run.posting_url).catch(() => window.open(run.posting_url, "_blank"));
+  return (
+    <div className="run-title">
+      <h1>{run.company || "Untitled posting"}</h1>
+      {run.role && <span className="muted">· {run.role}</span>}
+      {run.posting_url && (
+        <button className="link-button" onClick={open}>
+          · <IconExternal size={13} /> View posting
+        </button>
+      )}
+    </div>
   );
 }

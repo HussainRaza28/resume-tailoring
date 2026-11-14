@@ -43,7 +43,7 @@ function applyTheme(theme: string) {
 
 export default function App() {
   const toast = useToast();
-  // Browser-only deep links (mock mode): ?screen=settings, ?run=sample&step=rescore
+  // Browser-only deep links (mock mode): ?screen=settings, ?run=sample&step=done
   const params = new URLSearchParams(window.location.search);
   const [screen, setScreen] = useState<Screen>(() => (["jobs", "tracker", "facts", "settings"].includes(params.get("screen") ?? "") ? (params.get("screen") as Screen) : "tailor"));
   const [collapsed, setCollapsed] = useCollapsed();
@@ -174,9 +174,9 @@ export default function App() {
   const commands: Command[] = useMemo(() => {
     const base: Command[] = [
       { id: "new", group: "Tailor", label: "New tailoring run", hint: `${modKey}N`, icon: <IconPlus />, run: newRun },
-      { id: "run", group: "Tailor", label: current ? "Next step" : "Tailor the pasted posting", hint: `${modKey}↵`, keywords: "run start continue", icon: <IconTheme />, run: () => emit(current ? (current.rescore ? "export" : "rescore") : "run") },
+      { id: "run", group: "Tailor", label: current ? "Next step" : "Tailor the pasted posting", hint: `${modKey}↵`, keywords: "run start continue", icon: <IconTheme />, run: () => emit(current ? (current.rewrites.length ? "done" : "rewrite") : "run") },
       { id: "accept-all", group: "Tailor", label: "Accept every rewrite that passed the checks", icon: <IconPlus />, keywords: "approve all", run: () => emit("accept-all") },
-      { id: "export", group: "Tailor", label: "Go to export", keywords: "pdf save", icon: <IconPlus />, run: () => emit("export") },
+      { id: "done", group: "Tailor", label: "Go to Done", keywords: "pdf save export score", icon: <IconPlus />, run: () => emit("done") },
       { id: "jobs", group: "Go to", label: "Jobs", icon: <IconJobs />, keywords: "internships listings simplify speedyapply", run: () => setScreen("jobs") },
       { id: "tracker", group: "Go to", label: "Applications", icon: <IconBriefcase />, keywords: "tracker", run: () => setScreen("tracker") },
       { id: "facts", group: "Go to", label: "Facts bank", icon: <IconFacts />, run: () => setScreen("facts") },

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import AsciiWakeLoader from "../blocks/AsciiWakeLoader";
 import ArcRing from "../blocks/ArcRing";
-import type { Coverage, Fact, RunState, ScoreCard, SkillStatus } from "../lib/api";
-import { modelLabel, providerLabel, rescoreIsStale, runTotals } from "../lib/api";
+import type { Coverage, Fact, RunState, SkillStatus } from "../lib/api";
+import { finalIsStale, modelLabel, providerLabel, runTotals } from "../lib/api";
 import { duration, money, pct, tokens } from "../lib/format";
+import { modKey } from "../lib/platform";
 import BulletCard from "./BulletCard";
-import { IconCheck, IconDownload, IconFolder } from "./icons";
+import { IconCheck, IconDownload } from "./icons";
 
 /* ---------------- stream (loading) ---------------- */
 
@@ -47,89 +48,68 @@ export function SkeletonList({ n = 3 }: { n?: number }) {
   );
 }
 
-/* ---------------- 1. diagnose ---------------- */
+/* ---------------- 1. score ---------------- */
 
-/** The two readings behind a headline score. */
-function ScoreParts({ card }: { card: ScoreCard }) {
-  return (
-    <span className="score-parts num small muted">
-      ATS <b>{card.ats}</b> · Hiring manager <b>{card.hiring_manager}</b>
-    </span>
-  );
-}
+type ScoreProps = {
+  run: RunState;
+  note: string;
+  setNote: (v: string) => void;
+  onRewrite: () => void;
+  undoNote: () => void;
+  busy: boolean;
+};
 
-export function DiagnoseStep({ run, onRewrite }: { run: RunState; onRewrite?: () => void }) {
-  const d = run.diagnosis;
-  if (!d) return null;
+export function ScoreStep({ run, note, setNote, onRewrite, undoNote, busy }: ScoreProps) {
+  const s = run.score;
+  if (!s) return null;
+  const added = run.note_fact_ids.length;
   return (
     <div style={{ display: "grid", gap: "var(--gap)" }}>
-      <div className="card score-card enter">
-        <ArcRing value={d.score.overall} size={148} label="Base resume score" />
-        <div className="score-side">
-          <h2>Your base resume</h2>
-          <ScoreParts card={d.score} />
-          {d.verdict && <p className="muted selectable">{d.verdict}</p>}
+      <div className="card score-overview enter">
+        <div className="score-overview-ring">
+          <ArcRing value={s.ats} size={128} label="ATS score" />
+          <span className="small muted">ATS score</span>
         </div>
-      </div>
-      <div>
-        <h2 className="section-label">Red flags a recruiter spots in 10 seconds</h2>
-        <div className="flags">
-          {d.red_flags.map((f, i) => (
-            <article key={i} className="flag enter" style={{ animationDelay: `${i * 70}ms` }}>
+        <ol className="flag-list" aria-label="Red flags">
+          {s.red_flags.map((f, i) => (
+            <li key={i}>
               <span className="flag-n">0{i + 1}</span>
-              <h3>{f.flag}</h3>
-              <p>{f.why}</p>
               <div>
-                <span className="pill">{f.section}</span>
+                <strong>{f.flag}</strong> <span className="pill">{f.section}</span>
+                <p>{f.why}</p>
               </div>
-            </article>
+            </li>
           ))}
+        </ol>
+      </div>
+      <div className="card note-card enter">
+        <label htmlFor="note">Anything to add?</label>
+        <textarea
+          id="note"
+          className="textarea"
+          rows={3}
+          value={note}
+          placeholder="Numbers, tools or results that aren't on your resume yet."
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => e.stopPropagation()}
+        />
+        <div className="row">
+          {added > 0 ? (
+            <span className="small muted note-added">
+              Added {added} fact{added === 1 ? "" : "s"} ·{" "}
+              <button className="link-button" onClick={undoNote}>
+                Undo
+              </button>
+            </span>
+          ) : (
+            <span className="grow" />
+          )}
+          <span className="grow" />
+          <button className="btn btn-primary" onClick={onRewrite} disabled={busy}>
+            Rewrite <span className="kbd">{modKey}↵</span>
+          </button>
         </div>
       </div>
-      {d.skipped_sections.length > 0 && (
-        <div className="card enter">
-          <div className="card-head">
-            <h2>Sections that get skipped</h2>
-            <span className="meta">{d.skipped_sections.length} found</span>
-          </div>
-          <ul className="finding-list">
-            {d.skipped_sections.map((s, i) => (
-              <li key={i}>
-                <span className="pill">{s.section}</span>
-                <span className="muted">{s.reason}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      <div className="card enter">
-        <div className="card-head">
-          <h2>Missing keywords you can back up</h2>
-          <span className="meta">{d.missing_keywords.length} found</span>
-        </div>
-        {d.missing_keywords.length ? (
-          <ul className="finding-list">
-            {d.missing_keywords.map((k) => (
-              <li key={k.keyword}>
-                <span className="skill" data-state="addable">{k.keyword}</span>
-                <span className="small muted">
-                  shown by{" "}
-                  {k.evidence.map((id) => (
-                    <span key={id} className="chip">{id}</span>
-                  ))}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="small muted">None. Only keywords your resume or facts bank can back up are listed here.</p>
-        )}
-      </div>
-      {onRewrite && (
-        <button className="btn" style={{ justifySelf: "start" }} onClick={onRewrite}>
-          See the rewrites that fix these
-        </button>
-      )}
     </div>
   );
 }
@@ -140,26 +120,17 @@ type RewriteProps = {
   run: RunState;
   facts: Fact[];
   focus: number;
-  busyBullet: string | null;
-  editRequest: number;
   setFocus: (i: number) => void;
-  decide: (bulletId: string, action: "accept" | "reject" | "reset" | "edit", text?: string) => Promise<void>;
-  answer: (bulletId: string, answer: string) => Promise<void>;
-  copy: (text: string) => void;
+  decide: (bulletId: string, action: "accept" | "reject" | "reset") => Promise<void>;
 };
 
 export function RewriteStep(p: RewriteProps) {
   const changed = p.run.rewrites.filter((r) => r.status !== "unchanged");
-  const unchanged = p.run.rewrites.filter((r) => r.status === "unchanged");
-  const [showSame, setShowSame] = useState(false);
-  const visible = showSame ? [...changed, ...unchanged] : changed;
   let lastEntry = "";
   return (
     <div className="bullet-list">
-      {changed.length === 0 && (
-        <div className="card muted">Every bullet already holds up for this posting, so nothing was rewritten. You can go straight to Re-score.</div>
-      )}
-      {visible.map((r, i) => {
+      {changed.length === 0 && <div className="card muted">No changes needed.</div>}
+      {changed.map((r, i) => {
         const head = r.entry !== lastEntry ? r.entry : null;
         lastEntry = r.entry;
         return (
@@ -175,31 +146,114 @@ export function RewriteStep(p: RewriteProps) {
               decision={p.run.decisions[r.bullet_id]?.state ?? "pending"}
               focused={p.focus === i}
               facts={p.facts}
-              busy={p.busyBullet === r.bullet_id}
-              editRequest={p.editRequest}
               onFocus={() => p.setFocus(i)}
               onAccept={() => p.decide(r.bullet_id, "accept")}
               onReject={() => p.decide(r.bullet_id, "reject")}
               onReset={() => p.decide(r.bullet_id, "reset")}
-              onEdit={(t) => p.decide(r.bullet_id, "edit", t)}
-              onAnswer={(a) => p.answer(r.bullet_id, a)}
-              onCopy={p.copy}
             />
           </div>
         );
       })}
-      {unchanged.length > 0 && (
-        <button className="btn btn-ghost btn-sm" style={{ justifySelf: "start" }} onClick={() => setShowSame((s) => !s)}>
-          {showSame ? "Hide" : "Show"} {unchanged.length} bullet{unchanged.length === 1 ? "" : "s"} that need no change
-        </button>
+    </div>
+  );
+}
+
+/* ---------------- 3. done ---------------- */
+
+type DoneProps = {
+  run: RunState;
+  fileName: string;
+  dir: string | null;
+  exporting: boolean;
+  scoring: boolean;
+  chooseDir: () => void;
+  exportPdf: () => void;
+  scoreAgain: () => void;
+  removeBullet: (id: string) => void;
+  reveal: () => void;
+};
+
+export function DoneStep(p: DoneProps) {
+  const f = p.run.final;
+  const pagesOk = p.run.pages === 1;
+  const stale = finalIsStale(p.run);
+  return (
+    <div style={{ display: "grid", gap: "var(--gap)" }}>
+      <div className="review-top">
+        <div className="card score-card enter">
+          <ArcRing value={f?.after ?? null} before={f?.before ?? null} size={150} label="Match score" />
+          <div className="score-side">
+            <h2>ATS score</h2>
+            <div className="score-compare num">
+              {f ? (
+                <span>
+                  <strong>{f.before}</strong> → <strong>{f.after}</strong>
+                </span>
+              ) : (
+                <span className="faint">{p.scoring ? "Scoring…" : "Not scored yet"}</span>
+              )}
+            </div>
+            {stale && (
+              <button className="btn btn-sm" style={{ justifySelf: "start" }} onClick={p.scoreAgain} disabled={p.scoring}>
+                Score again
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+      <div className="card export-card enter">
+        <dl className="kv">
+          <dt>File</dt>
+          <dd className="mono selectable" style={{ fontSize: 12 }}>{p.fileName}</dd>
+          <dt>Folder</dt>
+          <dd title={p.dir ?? ""}>
+            {p.dir ?? <span className="faint">Not chosen</span>}{" "}
+            <button className="link-button" onClick={p.chooseDir}>
+              Change
+            </button>
+          </dd>
+          <dt>Pages</dt>
+          <dd className="num">{p.run.pages == null ? <span className="faint">…</span> : pagesOk ? "1" : <span style={{ color: "var(--negative)" }}>{p.run.pages}</span>}</dd>
+        </dl>
+        <div className="row">
+          {p.run.exported_path ? (
+            <button className="link-button small" onClick={p.reveal}>
+              Show in folder
+            </button>
+          ) : (
+            <span className="grow" />
+          )}
+          <span className="grow" />
+          <button className="btn btn-primary" onClick={p.exportPdf} disabled={p.exporting || !p.dir || p.run.pages !== 1}>
+            <IconDownload /> {p.exporting ? "Exporting" : "Export PDF"}
+          </button>
+        </div>
+      </div>
+      <CoveragePanel before={p.run.coverage_before} after={p.run.coverage_after} />
+      {p.run.pages != null && p.run.pages > 1 && (
+        <div className="card enter" style={{ display: "grid", gap: 12 }}>
+          <h2>Over one page</h2>
+          <div className="trim-list">
+            {p.run.trim_hints.slice(0, 5).map((h) => (
+              <div key={h.bullet_id} className="trim">
+                <span>
+                  <span className="chip">{h.bullet_id}</span> Cut <b className="num">{h.cut_chars}</b> characters to save a line. <span className="faint">{h.text.slice(0, 90)}…</span>
+                </span>
+                <button className="btn btn-sm" onClick={() => p.removeBullet(h.bullet_id)}>
+                  Drop bullet
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-/* ---------------- 3. re-score ---------------- */
+/* ---------------- keyword coverage ---------------- */
 
-type CoverageGroup = { id: "covered" | "addable" | "missing"; title: string; note: string; skills: SkillStatus[] };
+type CoverageGroup = { id: "covered" | "addable" | "missing"; title: string; skills: SkillStatus[] };
 
 /** Required first, then preferred; the posting's own order inside each. */
 function byTier(list: SkillStatus[]): SkillStatus[] {
@@ -217,14 +271,13 @@ export function CoveragePanel({ before, after }: { before: Coverage | null; afte
   const pctAfter = after && after.required_have ? after.required_covered / after.required_have : null;
   const pctBefore = before && before.required_have ? before.required_covered / before.required_have : null;
   const groups: CoverageGroup[] = [
-    { id: "covered", title: "On your resume", note: "The page names these, so an ATS finds them.", skills: byTier(listed.filter((s) => s.covered)) },
+    { id: "covered", title: "On your resume", skills: byTier(listed.filter((s) => s.covered)) },
     {
       id: "addable",
       title: "You have it, not shown",
-      note: "Your base resume or facts bank backs these up. Mention them in a bullet edit.",
       skills: byTier(listed.filter((s) => !s.covered && s.have)),
     },
-    { id: "missing", title: "Not in your experience", note: "Nothing you've written backs these up, so they can't be added.", skills: byTier(listed.filter((s) => !s.covered && !s.have)) },
+    { id: "missing", title: "Not in your experience", skills: byTier(listed.filter((s) => !s.covered && !s.have)) },
   ];
   return (
     <div className="card coverage-rows">
@@ -249,7 +302,6 @@ export function CoveragePanel({ before, after }: { before: Coverage | null; afte
               <h3>
                 {g.title} <span className="num">({g.skills.length})</span>
               </h3>
-              <span className="small faint">{g.note}</span>
             </div>
             {g.skills.length ? (
               <ul className="skills">
@@ -269,215 +321,6 @@ export function CoveragePanel({ before, after }: { before: Coverage | null; afte
           </section>
         ))}
       </div>
-    </div>
-  );
-}
-
-type RescoreProps = {
-  run: RunState;
-  undo: (bulletId: string) => void;
-  scoreAgain: () => void;
-};
-
-export function RescoreStep({ run, undo, scoreAgain }: RescoreProps) {
-  const r = run.rescore;
-  if (!r) return null;
-  const stale = rescoreIsStale(run);
-  const delta = r.tailored.overall - r.base.overall;
-  const lowering = r.changes.filter((c) => c.effect < 0);
-  const others = r.changes.filter((c) => c.effect >= 0);
-  const textOf = (id: string) => run.rewrites.find((x) => x.bullet_id === id);
-  const kept = (id: string) => run.decisions[id]?.state !== "accepted";
-  const ChangeRow = ({ id, effect, reason }: { id: string; effect: number; reason: string }) => {
-    const rw = textOf(id);
-    const undone = kept(id);
-    return (
-      <li className="change-row" data-lowers={effect < 0 || undefined} data-undone={undone || undefined}>
-        <span className="change-effect num" aria-label={`${effect > 0 ? "plus" : effect < 0 ? "minus" : ""} ${Math.abs(effect)} points`}>
-          {effect > 0 ? `+${effect}` : effect}
-        </span>
-        <div className="change-body">
-          <span className="small">
-            <span className="chip">{id}</span> {reason}
-          </span>
-          {rw && <span className="small faint selectable">{rw.new_text}</span>}
-        </div>
-        {effect < 0 &&
-          (undone ? (
-            <span className="small faint">Original kept</span>
-          ) : (
-            <button className="btn btn-sm" onClick={() => undo(id)} aria-label={`Undo change to ${id}`}>
-              Undo
-            </button>
-          ))}
-      </li>
-    );
-  };
-  return (
-    <div style={{ display: "grid", gap: "var(--gap)" }}>
-      <div className="review-top">
-        <div className="card score-card enter">
-          <ArcRing value={r.tailored.overall} before={r.base.overall} size={168} />
-          <div className="score-side">
-            <h2>Match score</h2>
-            <div className="score-compare num">
-              <span>
-                Base resume <strong>{r.base.overall}</strong>
-              </span>
-              <span>
-                With your changes <strong>{r.tailored.overall}</strong>
-              </span>
-            </div>
-            <div className="score-compare num small muted">
-              <span>
-                ATS {r.base.ats} → <b>{r.tailored.ats}</b>
-              </span>
-              <span>
-                Hiring manager {r.base.hiring_manager} → <b>{r.tailored.hiring_manager}</b>
-              </span>
-            </div>
-            <p className="small faint">Both versions are scored in one reading with the same rubric, so a change of {Math.abs(delta)} is the changes, not run-to-run noise. Keyword coverage is counted in code.</p>
-          </div>
-        </div>
-        <CoveragePanel before={run.coverage_before} after={run.coverage_after} />
-      </div>
-      {stale && (
-        <div className="notice" data-tone="info">
-          <div className="notice-body">
-            <span className="notice-title">Your changes have moved on since this score</span>
-            <span className="muted small">Score again to see where the resume stands now.</span>
-          </div>
-          <button className="btn btn-sm" onClick={scoreAgain}>
-            Score again
-          </button>
-        </div>
-      )}
-      {r.verdict && (
-        <div className="card enter">
-          <div className="card-head">
-            <h2>Hiring manager's read</h2>
-          </div>
-          <p className="muted selectable">{r.verdict}</p>
-        </div>
-      )}
-      {lowering.length > 0 && (
-        <div className="card enter" data-tone="warning">
-          <div className="card-head">
-            <h2>Changes that lower the score</h2>
-            <span className="meta">{lowering.length} found</span>
-          </div>
-          <ul className="change-list">
-            {lowering.map((c) => (
-              <ChangeRow key={c.bullet_id} id={c.bullet_id} effect={c.effect} reason={c.reason} />
-            ))}
-          </ul>
-        </div>
-      )}
-      {others.length > 0 && (
-        <div className="card enter">
-          <div className="card-head">
-            <h2>What each change did</h2>
-          </div>
-          <ul className="change-list">
-            {others.map((c) => (
-              <ChangeRow key={c.bullet_id} id={c.bullet_id} effect={c.effect} reason={c.reason} />
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ---------------- 4. export ---------------- */
-
-type ExportProps = {
-  run: RunState;
-  fileName: string;
-  dir: string | null;
-  exporting: boolean;
-  chooseDir: () => void;
-  exportPdf: () => void;
-  removeBullet: (id: string) => void;
-  reveal: () => void;
-  status: string | null;
-  setStatus: (s: string) => void;
-};
-
-export function ExportStep(p: ExportProps) {
-  const accepted = Object.values(p.run.decisions).filter((d) => d.state === "accepted").length;
-  const pagesOk = p.run.pages === 1;
-  return (
-    <div style={{ display: "grid", gap: "var(--gap)" }}>
-      <div className="export-grid">
-        <div className="card enter" style={{ display: "grid", gap: 14, alignContent: "start" }}>
-          <h2>Save the PDF</h2>
-          <dl className="kv">
-            <dt>File</dt>
-            <dd className="mono selectable" style={{ fontSize: 12 }}>{p.fileName}</dd>
-            <dt>Folder</dt>
-            <dd title={p.dir ?? ""}>{p.dir ?? <span className="faint">Not chosen</span>}</dd>
-            <dt>Pages</dt>
-            <dd className="num">{p.run.pages == null ? <span className="faint">Compiling</span> : pagesOk ? "1" : <span style={{ color: "var(--negative)" }}>{p.run.pages}, needs trimming</span>}</dd>
-            <dt>Accepted changes</dt>
-            <dd className="num">{accepted}</dd>
-          </dl>
-          <div className="row">
-            <button className="btn btn-sm" onClick={p.chooseDir}>
-              <IconFolder /> Choose folder
-            </button>
-            <span className="grow" />
-            <button className="btn btn-primary" onClick={p.exportPdf} disabled={p.exporting || !p.dir || p.run.pages !== 1}>
-              <IconDownload /> {p.exporting ? "Exporting" : "Export PDF"}
-            </button>
-          </div>
-          {p.run.exported_path && (
-            <div className="notice" data-tone="info">
-              <div className="notice-body">
-                <span className="notice-title">Saved</span>
-                <span className="muted small selectable">{p.run.exported_path}</span>
-              </div>
-              <button className="btn btn-sm" onClick={p.reveal}>
-                Show in folder
-              </button>
-            </div>
-          )}
-        </div>
-        <div className="card enter" style={{ display: "grid", gap: 14, alignContent: "start" }}>
-          <h2>Application</h2>
-          <p className="muted small">Exporting adds this role to your tracker as tailored. Update it as it moves.</p>
-          <div className="segmented" role="group" aria-label="Application status">
-            {["tailored", "applied", "interview", "offer", "rejected"].map((s) => (
-              <button key={s} aria-pressed={p.status === s} disabled={!p.status} onClick={() => p.setStatus(s)}>
-                {s[0].toUpperCase() + s.slice(1)}
-              </button>
-            ))}
-          </div>
-          {!p.status && <span className="small faint">Available after the first export.</span>}
-        </div>
-      </div>
-      {p.run.pages != null && p.run.pages > 1 && (
-        <div className="card enter" style={{ display: "grid", gap: 12 }}>
-          <div className="card-head" style={{ marginBottom: 0 }}>
-            <h2>Get back to one page</h2>
-            <span className="meta">Fonts and margins never change</span>
-          </div>
-          <p className="muted small">These bullets end on a short last line, so a small cut saves a whole line. Edit one in the Rewrite step, or drop it here.</p>
-          <div className="trim-list">
-            {p.run.trim_hints.slice(0, 5).map((h) => (
-              <div key={h.bullet_id} className="trim">
-                <span>
-                  <span className="chip">{h.bullet_id}</span> Cut about <b className="num">{h.cut_chars}</b> characters to save a line.{" "}
-                  <span className="faint">{h.text.slice(0, 90)}…</span>
-                </span>
-                <button className="btn btn-sm" onClick={() => p.removeBullet(h.bullet_id)}>
-                  Drop bullet
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

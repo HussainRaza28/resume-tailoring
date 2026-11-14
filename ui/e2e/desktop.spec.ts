@@ -59,17 +59,21 @@ test("the built page runs from file:// against the Python backend", async ({ pag
   const mod = process.platform === "darwin" ? "Meta" : "Control";
   await page.getByLabel("Job posting").fill(posting);
   await page.getByLabel("Job posting").press(`${mod}+Enter`);
+  await expect(page.getByRole("meter", { name: "ATS score" })).toBeVisible({ timeout: 60_000 });
+
+  // A note goes into the facts bank through the real backend, then the rewrite runs.
+  await page.getByLabel("Anything to add?").fill("Mentored 3 new interns on the routing team.");
+  await page.getByRole("button", { name: /^Rewrite/ }).click();
   await expect(page.getByRole("tab", { name: /Rewrite/ })).toHaveAttribute("aria-selected", "true", { timeout: 60_000 });
 
   // The Demo provider rewrites the vague library bullet; accept it.
   const lib = page.locator(".bullet", { hasText: "Supported patrons" });
-  await lib.getByRole("button", { name: /Accept rewrite/ }).click();
+  await lib.getByRole("button", { name: "Accept" }).click();
   await expect(lib.getByText("Accepted")).toBeVisible();
 
-  // Re-score, then export a one-page PDF into the folder set in Settings.
-  await page.getByRole("button", { name: /Continue to re-score/ }).click();
-  await expect(page.getByRole("meter", { name: "Match score" })).toBeVisible({ timeout: 60_000 });
-  await page.getByRole("tab", { name: /Export/ }).click();
+  // Done scores before and after, then export a one-page PDF into the folder set in Settings.
+  await page.getByRole("button", { name: /^Done/ }).click();
+  await expect(page.locator(".score-compare")).toHaveText(/\d+ → \d+/, { timeout: 60_000 });
   await expect(page.getByText("Jordan_Sample_Resume_Larkspur_Freight.pdf")).toBeVisible();
   await page.getByRole("button", { name: "Export PDF" }).click();
   await expect(page.getByText("PDF exported")).toBeVisible({ timeout: 90_000 });
@@ -87,5 +91,6 @@ test("facts import reads a real file through the Python backend", async ({ page 
   await expect(page.locator(".suggestion", { hasText: "140 members" })).toHaveCount(0);
   await expect(page.locator(".covered-group summary")).toHaveText("Already on your resume (1)");
   await row.getByRole("button", { name: "Accept" }).click();
-  await expect(page.getByLabel(/Edit fact f/).first()).toHaveValue(/25 contributors on GitHub/);
+  // The backend is shared with the test above, whose note saved a fact first.
+  await expect(page.locator('input[aria-label^="Edit fact"][value*="25 contributors on GitHub"]')).toHaveCount(1);
 });
