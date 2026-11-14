@@ -1,0 +1,126 @@
+/* Shared by the profile page and the popup. Plain system colours, light and dark. */
+:root {
+  color-scheme: light dark;
+  --ground: #f6f5f2;
+  --surface: #ffffff;
+  --text: #17181a;
+  --muted: #5d5a54;
+  --border: #dcd9d2;
+  --accent: #17181a;
+  --accent-ink: #ffffff;
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #111111;
+    --surface: #1b1b1b;
+    --text: #f4f4f2;
+    --muted: #b5b1aa;
+    --border: #333333;
+    --accent: #f4f4f2;
+    --accent-ink: #111111;
+  }
+}
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--text);
+}
+.page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 20px 96px;
+  display: grid;
+  gap: 16px;
+}
+h1 {
+  font-size: 22px;
+  margin: 0;
+}
+h2 {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+.muted {
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+.card,
+fieldset {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin: 0;
+}
+fieldset {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+}
+legend {
+  font-weight: 600;
+  font-size: 16px;
+  padding: 0 6px;
+}
+form {
+  display: grid;
+  gap: 16px;
+}
+label.field {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+label.field.wide {
+  grid-column: 1 / -1;
+}
+input,
+select {
+  font: inherit;
+  color: var(--text);
+  background: var(--ground);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+button,
+.button {
+  font: inherit;
+  font-weight: 600;
+  border: 0;
+  border-radius: 999px;
+  padding: 9px 18px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+button.secondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.save-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 24px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+@media (max-width: 560px) {
+  fieldset {
+    grid-template-columns: 1fr;
+  }
+}

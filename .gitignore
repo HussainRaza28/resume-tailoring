@@ -16,6 +16,10 @@ dist/
 # Interface
 ui/node_modules/
 ui/dist/
+
+# Browser extension
+extension/node_modules/
+extension/dist/
 test-results/
 playwright-report/
 

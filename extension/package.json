@@ -1,0 +1,19 @@
+{
+  "name": "tailor-autofill",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A Chrome extension that fills job applications from a profile kept on this computer.",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.7",
+    "esbuild": "^0.28.2",
+    "jsdom": "^27.4.0",
+    "typescript": "~5.9.3",
+    "vitest": "^5.1.0"
+  }
+}
