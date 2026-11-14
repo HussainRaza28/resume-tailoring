@@ -209,9 +209,23 @@ def self_test(report: Path) -> int:
     return 0 if ok else 1
 
 
+def leave(code: int) -> None:
+    """End the process once the window has closed.
+
+    pywebview runs each bridge call on a thread Python waits for at exit, and
+    the call hands its result back to the page with ``evaluate_js``. On macOS
+    that waits forever once the window is gone, so a call still running when
+    the window closes would keep the app alive with no window. Everything
+    worth keeping is already saved by then, so the process ends here.
+    """
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
+
+
 def main() -> None:
     if len(sys.argv) == 3 and sys.argv[1] == "--self-test":
-        sys.exit(self_test(Path(sys.argv[2])))
+        leave(self_test(Path(sys.argv[2])))
     logging.basicConfig(level=logging.INFO if os.environ.get("TAILOR_DEBUG") else logging.WARNING)
     page = ui_file()
     if not page.is_file():
@@ -223,6 +237,8 @@ def main() -> None:
 
     open_window(backend)
     webview.start(debug=bool(os.environ.get("TAILOR_DEBUG")))
+    backend.db.close()
+    leave(0)
 
 
 if __name__ == "__main__":
