@@ -68,11 +68,17 @@ def test_old_database_is_upgraded(tmp_path):
     conn.executescript(MIGRATIONS[0])
     conn.execute("PRAGMA user_version = 1")
     conn.execute("INSERT INTO runs (id, created_at, provider, model) VALUES ('old', '2026-01-01', 'demo', 'demo')")
+    conn.execute(
+        "INSERT INTO applications (company, role, date, status, updated_at) "
+        "VALUES ('Acme', 'Intern', '2026-01-02', 'applied', '2026-01-02')"
+    )
     conn.commit()
     conn.close()
     db = Db(path)
-    assert db.schema_version() == SCHEMA_VERSION == 2
+    assert db.schema_version() == SCHEMA_VERSION == 3
     assert db.get_run("old") is not None, "existing rows survive the upgrade"
+    [app] = db.list_applications()
+    assert (app.company, app.url) == ("Acme", ""), "applications gain an empty link"
     assert db.run_base_tex("old") is None
     db.insert_run(RunRecord(id="new", provider="demo", model="demo"), "p", "h", base_tex="\\documentclass{x}")
     assert db.run_base_tex("new") == "\\documentclass{x}"

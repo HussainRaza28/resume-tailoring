@@ -17,7 +17,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Each migration runs once, in order; PRAGMA user_version records how far a file has got.
 MIGRATIONS = [
@@ -112,6 +112,11 @@ MIGRATIONS = [
     """
     ALTER TABLE runs ADD COLUMN base_tex TEXT;
     """,
+    # 3: an application can keep the link to its posting, for roles marked
+    # applied from the Jobs screen.
+    """
+    ALTER TABLE applications ADD COLUMN url TEXT NOT NULL DEFAULT '';
+    """,
 ]
 
 APP_STATUSES = ("tailored", "applied", "interview", "offer", "rejected")
@@ -158,6 +163,7 @@ class Application(BaseModel):
     date: str
     status: str
     notes: str
+    url: str = ""
 
 
 class StepLog(BaseModel):
@@ -336,18 +342,20 @@ class Db:
         if status not in APP_STATUSES:
             raise DbError(f"status must be one of {', '.join(APP_STATUSES)}")
 
-    def add_application(self, run_id: str | None, company: str, role: str, date: str, status: str) -> int:
+    def add_application(
+        self, run_id: str | None, company: str, role: str, date: str, status: str, url: str = ""
+    ) -> int:
         self._check_status(status)
         return self._write(
-            "INSERT INTO applications (run_id, company, role, date, status, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (run_id, company, role, date, status, now()),
+            "INSERT INTO applications (run_id, company, role, date, status, url, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (run_id, company, role, date, status, url, now()),
         )
 
     def update_application(self, app: Application) -> None:
         self._check_status(app.status)
         self._write(
-            "UPDATE applications SET company=?, role=?, date=?, status=?, notes=?, updated_at=? WHERE id=?",
-            (app.company, app.role, app.date, app.status, app.notes, now(), app.id),
+            "UPDATE applications SET company=?, role=?, date=?, status=?, notes=?, url=?, updated_at=? WHERE id=?",
+            (app.company, app.role, app.date, app.status, app.notes, app.url, now(), app.id),
         )
 
     def delete_application(self, app_id: int) -> None:
@@ -355,13 +363,13 @@ class Db:
 
     def list_applications(self) -> list[Application]:
         rows = self._rows(
-            "SELECT id, run_id, company, role, date, status, notes FROM applications ORDER BY date DESC, id DESC"
+            "SELECT id, run_id, company, role, date, status, notes, url FROM applications ORDER BY date DESC, id DESC"
         )
         return [Application(**dict(r)) for r in rows]
 
     def application_for_run(self, run_id: str) -> Application | None:
         rows = self._rows(
-            "SELECT id, run_id, company, role, date, status, notes FROM applications WHERE run_id=?", (run_id,)
+            "SELECT id, run_id, company, role, date, status, notes, url FROM applications WHERE run_id=?", (run_id,)
         )
         return Application(**dict(rows[0])) if rows else None
 

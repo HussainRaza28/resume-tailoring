@@ -62,7 +62,7 @@ from app.core.schemas import Proposal
 from app.core.secrets import KEY_NAMES, SecretError, SecretStore, mask
 from app.core.skills import Coverage, PostingSkills
 from app.core.tex import TexDoc, TexError, read_tex
-from app.importers import files, web
+from app.importers import files, jobs, web
 from app.providers import claude_code
 from app.providers.base import Provider, ProviderError, Usage
 from app.providers.claude_api import ClaudeApiProvider
@@ -209,6 +209,11 @@ class RunState(BaseModel):
 
     def cost(self) -> float:
         return sum(s.cost_usd or 0.0 for s in self.steps)
+
+
+# A real posting runs to a few thousand characters. A page with less than this
+# is a shell that loads the posting in the browser, or a sign-in wall.
+MIN_POSTING_CHARS = 600
 
 
 def score_before(run: RunState) -> int | None:
@@ -579,6 +584,7 @@ class Backend:
         provider: str | None = None,
         model: str | None = None,
         pasted_at_ms: int | None = None,
+        role: str | None = None,
     ) -> RunState:
         if len(posting.strip()) < 40:
             raise AppError("invalid", "Paste the full job posting first.")
@@ -590,6 +596,7 @@ class Backend:
             id=str(uuid.uuid4()),
             created_at=datetime.now(timezone.utc).isoformat(),
             company=(company or "").strip() or guess_company(posting),
+            role=(role or "").strip(),
             posting=posting.strip(),
             provider=provider,
             model=model,
@@ -865,10 +872,75 @@ class Backend:
     def list_applications(self) -> list[Application]:
         return self.db.list_applications()
 
-    def add_application(self, company: str, role: str, date: str, status: str) -> int:
+    def add_application(self, company: str, role: str, date: str, status: str, url: str = "") -> int:
         if not company.strip():
             raise AppError("invalid", "Add a company name.")
-        return self.db.add_application(None, company.strip(), role.strip(), date, status)
+        return self.db.add_application(None, company.strip(), role.strip(), date, status, url.strip())
+
+    # -- jobs ----------------------------------------------------------------
+
+    @property
+    def jobs_path(self) -> Path:
+        return self.data_dir / "jobs.json"
+
+    def _jobs_view(self, state: jobs.JobsState) -> dict:
+        return {
+            "fetched_at": state.fetched_at,
+            "errors": state.errors,
+            "listings": state.listings,
+            "new_ids": [x.id for x in state.listings if jobs.is_new(x, state)],
+            "applied_urls": [a.url for a in self.db.list_applications() if a.url],
+        }
+
+    def jobs_open(self) -> dict:
+        """The cached listings, and the start of a visit for the "New" badge. The page refreshes when they're old."""
+        return self._jobs_view(jobs.JobsCache(self.jobs_path).start_visit())
+
+    def jobs_refresh(self) -> dict:
+        """Fetch both repos again. A repo that can't be reached keeps its last listings, with the reason."""
+        cache = jobs.JobsCache(self.jobs_path)
+        state = cache.refresh()
+        if not state.fetched_at:
+            reasons = " ".join(state.errors.values())
+            raise AppError("offline", f"Could not load the listings. {reasons}".strip())
+        return self._jobs_view(state)
+
+    def job_posting(self, url: str) -> dict:
+        """Try to read a posting's text from its link.
+
+        Many job sites (Workday among them) build the page in the browser or
+        block plain requests, so this often comes back empty. The page then
+        asks the user to paste the posting.
+        """
+        try:
+            page = web.read_url(url)
+        except files.ReadError as e:
+            return {"ok": False, "text": "", "reason": e.message}
+        text = page.text.strip()
+        if len(text) < MIN_POSTING_CHARS:
+            return {"ok": False, "text": "", "reason": "The page didn't include the posting's text."}
+        return {"ok": True, "text": text, "reason": ""}
+
+    def mark_applied(self, company: str, role: str, url: str) -> Application:
+        """Add a listing to the tracker as applied, with its link. A second click updates the same entry."""
+        if not company.strip():
+            raise AppError("invalid", "Add a company name.")
+        existing = next((a for a in self.db.list_applications() if url and a.url == url), None)
+        if existing is not None:
+            existing.status = "applied"
+            self.db.update_application(existing)
+            return existing
+        app_id = self.db.add_application(None, company.strip(), role.strip(), date.today().isoformat(), "applied", url)
+        return next(a for a in self.db.list_applications() if a.id == app_id)
+
+    def open_url(self, url: str) -> None:
+        """Open a link in the default browser. Only http and https."""
+        import webbrowser
+
+        try:
+            webbrowser.open(web.check_url(url))
+        except files.ReadError as e:
+            raise AppError("invalid", e.message) from e
 
     def update_application(self, application: dict) -> None:
         self.db.update_application(Application(**application))
@@ -981,6 +1053,7 @@ COMMANDS = (
     "delete_application", "list_facts", "save_fact", "delete_fact", "suggest_facts_from_file",
     "suggest_facts_from_url", "list_baseline", "add_baseline",
     "delete_baseline", "get_settings", "set_setting", "pick_folder", "pick_tex_file", "reveal",
+    "jobs_open", "jobs_refresh", "job_posting", "mark_applied", "open_url",
 )
 
 

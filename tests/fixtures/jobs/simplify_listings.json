@@ -1,0 +1,166 @@
+[
+ {
+  "date_updated": 1773908094,
+  "sponsorship": "Does Not Offer Sponsorship",
+  "active": true,
+  "degrees": [
+   "Bachelor's"
+  ],
+  "url": "https://job-boards.greenhouse.io/digs/jobs/4663939006",
+  "company_name": "Digs",
+  "title": "Software Engineering Intern - Test Automation",
+  "locations": [
+   "Vancouver, WA"
+  ],
+  "terms": [
+   "Spring 2026"
+  ],
+  "category": "Software Engineering",
+  "source": "AlmondCroffle",
+  "id": "c6638cbe-82ec-44ed-a6db-0a7bb2d60c6a",
+  "date_posted": 1773908094,
+  "company_url": "",
+  "is_visible": true
+ },
+ {
+  "date_updated": 1774261894,
+  "sponsorship": "Other",
+  "active": true,
+  "degrees": [
+   "Bachelor's"
+  ],
+  "url": "https://careers-calamp.icims.com/jobs/4326/intern%2c-engineer-software---carlsbad%2c-ca-%28summer-2026%29/job",
+  "company_name": "CalAmp",
+  "title": "ntern, Engineer Software",
+  "locations": [
+   "Carlsbad, Ca"
+  ],
+  "terms": [
+   "Summer 2026"
+  ],
+  "category": "Software Engineering",
+  "source": "AlmondCroffle",
+  "id": "1554a295-c149-425e-addc-4d97676807a8",
+  "date_posted": 1774261894,
+  "company_url": "",
+  "is_visible": true
+ },
+ {
+  "source": "Simplify",
+  "category": "Software",
+  "company_name": "Intropic",
+  "id": "5336742d-f13f-4d2d-bed9-2fbc9a7b9fe2",
+  "title": "Quantrepreneur - Quantitative Development",
+  "active": true,
+  "terms": [
+   "N/A"
+  ],
+  "date_updated": 1774275736,
+  "date_posted": 1774275736,
+  "url": "https://jobs.lever.co/intropic/c31c65cc-178d-4a50-bc6a-4f4b057f4381/apply",
+  "locations": [
+   "London, UK"
+  ],
+  "company_url": "https://simplify.jobs/c/Intropic",
+  "is_visible": true,
+  "sponsorship": "Other",
+  "degrees": [
+   "Bachelor's",
+   "Master's"
+  ]
+ },
+ {
+  "source": "Simplify",
+  "category": "Software",
+  "company_name": "Intropic",
+  "id": "2a020896-015e-4ca9-8e89-f9ce18d0152c",
+  "title": "Quantrepreneur - Engineering",
+  "active": true,
+  "terms": [
+   "N/A"
+  ],
+  "date_updated": 1774275610,
+  "date_posted": 1774275610,
+  "url": "https://jobs.lever.co/intropic/1427876a-fb80-4ee1-96da-79cac32a7803/apply",
+  "locations": [
+   "London, UK"
+  ],
+  "company_url": "https://simplify.jobs/c/Intropic",
+  "is_visible": true,
+  "sponsorship": "Other",
+  "degrees": [
+   "Bachelor's",
+   "Master's"
+  ]
+ },
+ {
+  "source": "Simplify",
+  "category": "Software",
+  "company_name": "Chicago Trading Company",
+  "id": "5fdbf0e9-e98a-4251-b983-801d494ae586",
+  "title": "Software Engineering Intern",
+  "active": true,
+  "terms": [
+   "Summer 2027"
+  ],
+  "date_updated": 1784587638,
+  "date_posted": 1784585921,
+  "url": "https://job-boards.greenhouse.io/ctccampusboard/jobs/4708230005",
+  "locations": [
+   "Chicago, IL"
+  ],
+  "company_url": "https://simplify.jobs/c/ChicagoTradingCo",
+  "is_visible": true,
+  "sponsorship": "Other",
+  "degrees": [
+   "Bachelor's",
+   "Master's"
+  ]
+ },
+ {
+  "date_updated": 1778157806,
+  "sponsorship": "Does Not Offer Sponsorship",
+  "active": false,
+  "degrees": [
+   "Bachelor's"
+  ],
+  "url": "https://careers-berkley.icims.com/jobs/13671/software-engineer-intern/job",
+  "company_name": "Intrepid Direct Insurance",
+  "title": "Software Engineer Intern",
+  "locations": [
+   "Overland Park, KS"
+  ],
+  "terms": [
+   "Summer 2026"
+  ],
+  "category": "Software Engineering",
+  "source": "AlmondCroffle",
+  "id": "76ca2a05-37d3-4c44-9e51-e75bd9888f5b",
+  "date_posted": 1773907687,
+  "company_url": "",
+  "is_visible": true
+ },
+ {
+  "date_updated": 1774263255,
+  "sponsorship": "Other",
+  "active": true,
+  "degrees": [
+   "Bachelor's"
+  ],
+  "url": "https://job-boards.greenhouse.io/genevatrading/jobs/5085231007",
+  "company_name": "Geneva Trading",
+  "title": "Junior Software Engineer",
+  "locations": [
+   "Chicago, IL"
+  ],
+  "terms": [
+   "Summer 2026"
+  ],
+  "category": "Software Engineering",
+  "source": "AlmondCroffle",
+  "id": "58821bd1-bd22-45bf-82f0-c375329b1523",
+  "date_posted": 1774263048,
+  "company_url": "",
+  "is_visible": false
+ }
+]
