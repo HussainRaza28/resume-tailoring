@@ -107,6 +107,19 @@ Choices made while building Tailor, with the reason for each.
 - **Dropped files cross as base64.** The page reads a dropped file with `FileReader` and sends its bytes to Python. Webviews don't give the page a dropped file's path, and sending the bytes works the same in every webview.
 - **Web requests name the app, not the user.** The user agent is a plain `Tailor/0.1` string. Only `http` and `https` addresses are fetched.
 
+## Jobs
+
+- **Two fixed sources.** The listings come from SimplifyJobs/Summer2027-Internships and speedyapply/2027-SWE-College-Jobs and nowhere else. There's no way to add a repo, because each one needs its own parser.
+- **Raw files from GitHub.** The files are downloaded from `raw.githubusercontent.com`, which needs no token and has no API rate limit.
+- **Structured data first.** Simplify's `listings.json` holds every listing with an `active` flag and a posting time, so it's read first. SpeedyApply has no data file at any of the usual paths, so its README tables are parsed. Simplify's README is the fallback if its JSON fails. The tables sit between generated `TABLE_*_START` and `TABLE_*_END` markers, so their layout is stable, and columns are found by header name in case one gains or loses a column.
+- **Internships only.** SpeedyApply's `README.md` and `INTERN_INTL.md` are read. Its new grad files aren't.
+- **One entry per posting.** The same posting in both repos is merged by its address without tracking parameters, and lists both sources. Its earlier date wins.
+- **The cache is a JSON file in the data folder,** next to the facts bank. It can be rebuilt from the repos at any time, so it doesn't need a table. A repo that fails keeps its last listings, and if both fail nothing changes.
+- **New means first seen since the previous visit.** Each listing keeps when the app first saw it. A listing first seen after the previous visit opened gets the badge, including ones that arrive in this visit's own refresh.
+- **Reading a posting is a guess.** The page reader from the facts import fetches the link. Workday and similar sites build the posting with JavaScript or block plain requests, so a page under 600 characters of text counts as unreadable. The Tailor screen then opens with the company and role filled in and asks for a paste, with a button that opens the posting in the browser.
+- **Applications keep their link.** A new `url` column on the applications table (migration 3) holds it. Marking the same listing applied twice updates one entry.
+- **Links open in the default browser,** through an `open_url` command that only accepts `http` and `https`, so a link never opens inside the app window.
+
 ## Interface blocks
 
 - **Bencho's code and comments are kept as written.** `ui/src/blocks/SOURCE.md` lists each block, where it came from and its license, and whether the file is Bencho's original or a version written for this app from the public listing.

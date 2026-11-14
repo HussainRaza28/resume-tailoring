@@ -58,6 +58,8 @@ Tailor removes `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` when it starts `cl
 4. **Re-score.** Your base resume and the tailored one scored side by side in one call, so the difference is your changes and not noise between runs. Any change that lowers the score is flagged with an Undo button. Keyword coverage is counted in code: how many of the required skills you have are on the page.
 5. **Export.** Save the PDF. It's named after you and the company, such as `Jordan_Sample_Resume_Larkspur_Freight.pdf`. A result longer than one page isn't exported; Tailor suggests which bullets to trim instead.
 
+**Jobs** lists open internships from the [Simplify](https://github.com/SimplifyJobs/Summer2027-Internships) and [SpeedyApply](https://github.com/speedyapply/2027-SWE-College-Jobs) lists on GitHub, newest first. Search, or filter by company, role, location and date posted. Listings that appeared since your last visit say New. The list refreshes when you open it if it's more than an hour old, and the last copy is kept so it works offline. "Tailor for this" reads the posting from its link and starts a run; when a site (Workday, for example) won't show the posting to the app, you get the company and role filled in and a button to open the posting so you can paste it. "Mark applied" adds it to your applications with the link.
+
 The preview on the right updates as you decide. Cmd+K or Ctrl+K opens the command bar to search history and switch screens. The sidebar has your history, an application tracker and the facts bank. In the facts bank you can drop a PDF, Word, text or Markdown file, or paste a link to your site, and Tailor suggests facts from it; nothing is saved until you accept it.
 
 ## Privacy
@@ -65,6 +67,7 @@ The preview on the right updates as you decide. Cmd+K or Ctrl+K opens the comman
 - Your resume, postings, outputs, facts bank and history stay in a private folder on your computer. You can see where it is, or move it, in Settings under Data.
 - A run sends your resume and the posting to the provider you chose, and only that provider. Ollama and the offline demo send nothing anywhere.
 - API keys live in the system keychain.
+- The Jobs screen downloads the two public listing files from GitHub. Nothing about you is sent.
 - The app has no account, no analytics and no server of its own.
 
 ## Development

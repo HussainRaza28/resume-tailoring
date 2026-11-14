@@ -22,6 +22,7 @@ You paste a job posting. The app reads your LaTeX resume into editable pieces ca
 | Window | `app/main.py` | Open the pywebview window |
 | Storage | `app/core/db.py`, `app/core/secrets.py` | SQLite and the keychain |
 | Facts import | `app/core/fact_import.py`, `app/importers/` | Suggest facts from a file or page |
+| Jobs | `app/importers/jobs.py` | Internship listings from two GitHub repos |
 
 ## 1. Reading the resume: `tex.py`
 
@@ -133,9 +134,21 @@ Three more things are worked out in code, not by a model:
 
 You can drop a file (PDF, Word, text or Markdown) or paste a link to your site. `files.py` reads the text with `pypdf` or `python-docx`, and `web.py` fetches the page with `httpx2` and keeps its readable text with `beautifulsoup4`, listing any links that look like a resume PDF. The selected provider then suggests short, specific facts. Each suggestion goes through the same grounding check as a rewrite, with the document as its source, so a number the document doesn't contain is flagged. Then `covered_by` compares each suggestion with what you've already said: every bullet on the base resume with its heading, every skills line and every saved fact. If one of them supports all the suggestion's numbers, names and skills (the same grounding check again) and shares most of its words, the suggestion adds nothing new. It's shown in a closed "Already on your resume" group instead of with the new ones. Nothing is saved until you accept a suggestion, as it is or after editing it.
 
+## 8b. Jobs: `jobs.py`
+
+The Jobs screen lists internships from two GitHub repos, written into the code: SimplifyJobs/Summer2027-Internships and speedyapply/2027-SWE-College-Jobs. The app downloads their files from `raw.githubusercontent.com`, so it needs no GitHub account or token.
+
+Simplify keeps every listing it has ever posted in `.github/scripts/listings.json`, with an `active` flag, so `parse_simplify_json` keeps the active, visible ones. SpeedyApply publishes no data file, only Markdown tables in `README.md` (US internships) and `INTERN_INTL.md` (everywhere else). `parse_readme` reads those, finding the columns by their header names because one table has a Salary column and the others don't. The same function reads Simplify's HTML table if its JSON ever can't be loaded, and follows Simplify's markings: "↳" means the same company as the row above, and 🔒 means closed. A README only says how old a posting is ("3d"), so the date is counted back from the day of the fetch.
+
+The same posting often appears in both repos. `canonical_url` strips tracking parameters such as `utm_source`, and `merge` keeps one entry per address with both sources listed.
+
+`JobsCache` saves the result as `jobs.json` in the data folder, so the list opens offline. If one repo can't be reached, its listings from the last good fetch stay. Each listing records when the app first saw it. Opening the screen starts a visit and remembers the one before, and a listing first seen after that earlier visit gets a New badge. Nothing is new on the very first visit. The page refreshes by itself when the list is more than an hour old.
+
+"Tailor for this" tries to read the posting from its link with the same page reader as the facts import. Sites such as Workday build the posting in the browser, so the reader gets almost nothing back. Under 600 characters counts as a failure, and the Tailor screen opens with the company and role filled in and asks for a paste. "Mark applied" adds the listing to the tracker with its link, and a second click updates the same entry.
+
 ## 9. Packaging
 
-PyInstaller bundles Python, the app, the built interface and Tectonic into `Tailor.app` on a Mac and a folder on Windows. CI signs the Mac app ad hoc, wraps it in a `.dmg`, and builds a Windows installer with Inno Setup. Before uploading, it runs `Tailor --self-test`, which checks the bundled files and compiles a small document with the bundled Tectonic, without opening a window.
+PyInstaller bundles Python, the app, the built interface and Tectonic into `Tailor.app` on a Mac and a folder on Windows. CI signs the Mac app ad hoc, wraps it in a `.dmg`, and builds a Windows installer with Inno Setup. Before uploading, it runs `Tailor --self-test`, which checks the bundled files and compiles a small document with the bundled Tectonic. It then opens the real window with a throwaway data folder, waits for the interface to report that it's talking to Python, makes one call through the bridge and closes.
 
 ## 10. How it's tested
 
