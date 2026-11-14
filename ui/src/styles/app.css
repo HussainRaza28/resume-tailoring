@@ -1617,10 +1617,11 @@ ul.skills,
 
 .asc-canvas { display: block; color: var(--fill-on, var(--ink)); }
 
-/* Bencho's tokens mapped to the app's, on the block's own root. */
+/* Bencho's tokens mapped to the app's, on the block's own root. The ink is the
+   theme's secondary text colour, so the page sits behind the heading. */
 .asc {
-  --fill-on: var(--wake-ink);
-  --ink: var(--text);
+  --fill-on: var(--muted);
+  --ink: var(--muted);
 }
 
 /* ══ Upload dropzone ═════════════════════════════════════ */

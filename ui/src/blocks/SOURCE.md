@@ -6,7 +6,7 @@ A block marked **original** is Bencho's own source, with its comments kept as wr
 
 | Block | Source | License | Used for | File | Status |
 | --- | --- | --- | --- | --- | --- |
-| ASCII wake | bencho.dev | MIT | Empty state before a posting is pasted | `AsciiWake.tsx` | original |
+| ASCII wake | bencho.dev | MIT | Empty state before a posting is pasted | `AsciiWake.tsx` | original, with a new shape |
 | ASCII wake, loader | bencho.dev | MIT | Animation while a step runs (a self-driven variant of ASCII wake) | `AsciiWakeLoader.tsx` | rebuilt |
 | Upload dropzone | bencho.dev | MIT | Facts import: drop a PDF, Word, text or Markdown file | `UploadDropzone.tsx` | original, with additions |
 | Collapsing sidebar | bencho.dev | MIT | History and navigation sidebar | `CollapsingSidebar.tsx` | rebuilt |
@@ -22,3 +22,5 @@ A block marked **original** is Bencho's own source, with its comments kept as wr
 Bencho's design tokens (`--ink`, `--fill-on`, `--fill-slab`, `--font-ui` and so on) are mapped to the app's own tokens in `src/styles/tokens.css`. A token with no match is defined on the block's own root element, so nothing new becomes global.
 
 The Upload dropzone is Bencho's demo block with its code and comments as written, plus a real-file mode added for the facts import. The additions are marked `app:` in the file. Without the `onFile` prop the block behaves as Bencho wrote it.
+
+The ASCII wake draws a landscape page in place of Bencho's cube, on a wider block (520 by 240 instead of 360 by 240), in the theme's secondary text colour so it stays in the background. Bencho's `cube` function and every comment are kept as written. The changes are marked `app:` in the file.

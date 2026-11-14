@@ -24,7 +24,8 @@ import { useEffect, useRef } from "react";
    flickers between neighbouring characters the way a terminal
    redraw does. The cold field never flickers. */
 
-const W = 360;
+/* app: wider than Bencho's 360, to hold a landscape page */
+const W = 520;
 const H = 240;
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
@@ -50,7 +51,8 @@ export const RAMPS: Record<string, string[]> = {
    sparse, the shaded side dense. `lit` is the dot size for a face's
    light: the same value, read the right way round for the page. */
 const CUBE = 112;
-function cube(x: number, y: number, dark: boolean) {
+/* app: kept as Bencho wrote it; the app draws `page` below instead */
+export function cube(x: number, y: number, dark: boolean) {
   /* no face lighter than a third of a full dot: the faintest still
      reads as a face, and is still a field the wake can write on */
   const lit = (v: number) => 0.35 + 0.65 * clamp(dark ? v : 1.09 - v, 0, 1);
@@ -84,6 +86,43 @@ function cube(x: number, y: number, dark: boolean) {
     return seam(s) || seam(t) ? 1 : lit(0.13 - 0.05 * s);
   }
   return 0;
+}
+
+/* app: the shape changed from Bencho's cube to a sheet of paper in landscape,
+   wider than tall, with rounded corners, a crisp edge and a few ruled lines
+   so it reads as a document. It returns the dot size the same way `cube`
+   does. Paper is light and the dots are ink on either theme, so the sheet is
+   sparse and its edge and lines are dense; only the soft light from above
+   turns round with the theme, as the cube's faces do. */
+const PAGE_W = 214;
+const PAGE_H = 96;
+const PAGE_R = 16;
+/* the ruled lines: how far down each one sits and how much of the line it fills */
+const PAGE_LINES: [number, number][] = [
+  [24, 0.42],
+  [46, 0.9],
+  [62, 0.84],
+  [78, 0.62],
+  [104, 0.88],
+  [120, 0.9],
+  [136, 0.7],
+  [162, 0.8],
+];
+function page(x: number, y: number, dark: boolean) {
+  /* distance to the rounded edge: negative inside, 0 on the edge */
+  const qx = Math.abs(x) - (PAGE_W - PAGE_R);
+  const qy = Math.abs(y) - (PAGE_H - PAGE_R);
+  const edge = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - PAGE_R;
+  if (edge > 0) return 0;
+  if (edge > -6) return 0.9;
+  /* from the top of the sheet, and from its left margin */
+  const down = y + PAGE_H;
+  const across = (x + PAGE_W - 30) / (2 * PAGE_W - 60);
+  for (const [at, fill] of PAGE_LINES) {
+    if (Math.abs(down - at) < 4 && across >= 0 && across <= fill) return 0.62;
+  }
+  const light = down / (2 * PAGE_H);
+  return 0.1 + 0.06 * (dark ? 1 - light : light);
 }
 
 /* the face is the system's own monospace — nothing downloaded */
@@ -156,7 +195,7 @@ export function AsciiWake({
     for (let j = 0; j < s.rows; j++) {
       for (let i = 0; i < s.cols; i++) {
         const x = ox + (i + 0.5 + (j & 1) * 0.5) * s.cw - W / 2, y = oy + (j + 0.5) * s.ch - H / 2;
-        s.mask[j * s.cols + i] = cube(x, y, dark);
+        s.mask[j * s.cols + i] = page(x, y, dark);
       }
     }
   };
@@ -364,7 +403,7 @@ export function AsciiWake({
         run();
       }}
       role="img"
-      aria-label="A cube of dots that a pointer drags a wake through"
+      aria-label="A page of dots that a pointer drags a wake through"
     >
       <canvas ref={cv} className="asc-canvas" style={{ width: W, height: H }} aria-hidden="true" />
     </div>
