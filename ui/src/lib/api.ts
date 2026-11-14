@@ -2,7 +2,7 @@
 
 import { base64ToBytes, call, openChannel } from "./ipc";
 
-export type ProviderId = "claude_api" | "claude_code" | "gemini" | "ollama" | "demo";
+export type ProviderId = "claude_api" | "claude_code" | "codex" | "gemini" | "ollama" | "demo";
 export type CheckStatus = "ok" | "blocked" | "unchanged";
 export type DecisionState = "pending" | "accepted" | "rejected";
 export type AppStatus = "tailored" | "applied" | "interview" | "offer" | "rejected";
@@ -262,6 +262,7 @@ export type Settings = Partial<
     | "provider"
     | "model.claude_api"
     | "model.claude_code"
+    | "model.codex"
     | "model.gemini"
     | "model.ollama"
     | "model.demo"
@@ -273,6 +274,7 @@ export type Settings = Partial<
   >
 >;
 
+/** Whether a command-line provider (Claude Code, Codex) is installed and signed in. */
 export interface ClaudeCodeStatus {
   installed: boolean;
   signed_in: boolean;
@@ -316,6 +318,7 @@ export const api = {
   ollamaModels: () => call<OllamaModel[]>("ollama_models"),
   geminiModels: () => call<string[]>("gemini_models"),
   claudeCodeStatus: () => call<ClaudeCodeStatus>("claude_code_status"),
+  codexStatus: () => call<ClaudeCodeStatus>("codex_status"),
 
   startRun: (posting: string, company: string, provider: string | null, model: string | null, pastedAtMs: number | null, role = "", postingUrl = "") =>
     call<RunState>("start_run", { posting, company, provider, model, pastedAtMs, role, postingUrl }),
@@ -372,6 +375,7 @@ export function providerLabel(p: string): string {
   const names: Record<string, string> = {
     claude_api: "Claude API",
     claude_code: "Claude Code (Pro plan)",
+    codex: "ChatGPT (Codex)",
     gemini: "Gemini",
     ollama: "Ollama",
     demo: "Demo",
@@ -387,6 +391,7 @@ export function modelLabel(m: string): string {
     sonnet: "Sonnet (latest)",
     opus: "Opus (latest)",
     "gemini-flash-latest": "Flash (latest)",
+    default: "Default model",
   };
   return known[m] ?? m;
 }

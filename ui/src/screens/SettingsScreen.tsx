@@ -168,6 +168,7 @@ export default function SettingsScreen({ info, settings, setSetting, theme, setT
   };
   const provider = settings.provider ?? "claude_code";
   const [claudeCode, setClaudeCode] = useState<ClaudeCodeStatus | null>(null);
+  const [codex, setCodex] = useState<ClaudeCodeStatus | null>(null);
   const [ollama, setOllama] = useState<OllamaModel[] | null>(null);
   const [ollamaError, setOllamaError] = useState<string | null>(null);
   const [gemini, setGemini] = useState<string[] | null>(null);
@@ -175,6 +176,11 @@ export default function SettingsScreen({ info, settings, setSetting, theme, setT
   useEffect(() => {
     if (provider !== "claude_code") return;
     api.claudeCodeStatus().then(setClaudeCode).catch(() => setClaudeCode(null));
+  }, [provider]);
+
+  useEffect(() => {
+    if (provider !== "codex") return;
+    api.codexStatus().then(setCodex).catch(() => setCodex(null));
   }, [provider]);
 
   useEffect(() => {
@@ -213,6 +219,7 @@ export default function SettingsScreen({ info, settings, setSetting, theme, setT
               {[
                 ["claude_code", "Claude Code (Pro plan)"],
                 ["claude_api", "Claude API"],
+                ["codex", "ChatGPT (Codex)"],
                 ["gemini", "Gemini"],
                 ["ollama", "Ollama"],
                 ["demo", "Offline demo"],
@@ -254,6 +261,50 @@ export default function SettingsScreen({ info, settings, setSetting, theme, setT
                     <option value="opus">Opus, latest</option>
                   </select>
                   <span className="small faint">Each step runs through the claude command on this computer and counts toward your Claude plan, not API credits.</span>
+                </label>
+              </>
+            )}
+            {provider === "codex" && (
+              <>
+                <div className="row">
+                  <span className="grow small muted">Codex</span>
+                  {codex === null ? (
+                    <span className="pill">Checking…</span>
+                  ) : !codex.installed ? (
+                    <span className="pill pill-negative">Not installed</span>
+                  ) : codex.signed_in ? (
+                    <span className="pill pill-positive">Installed · signed in with ChatGPT</span>
+                  ) : codex.auth_method === "api_key" ? (
+                    <span className="pill pill-negative">Signed in with an API key</span>
+                  ) : (
+                    <span className="pill pill-negative">Installed · not signed in</span>
+                  )}
+                </div>
+                {codex && !codex.installed && (
+                  <span className="small faint">
+                    Install with <span className="mono">npm install -g @openai/codex</span>, then run <span className="mono">codex login</span>.
+                  </span>
+                )}
+                {codex?.installed && !codex.signed_in && (
+                  <span className="small faint">
+                    Run <span className="mono">codex login</span> in a terminal and sign in with ChatGPT, then come back.
+                  </span>
+                )}
+                {codex?.path && (
+                  <span className="small faint mono selectable">
+                    {codex.path}
+                    {codex.version ? ` · ${codex.version}` : ""}
+                  </span>
+                )}
+                <label className="field">
+                  <span>Codex model</span>
+                  <input
+                    className="input"
+                    value={settings["model.codex"] === "default" ? "" : (settings["model.codex"] ?? "")}
+                    placeholder="Codex's default"
+                    onChange={(e) => setSetting("model.codex", e.target.value.trim() || "default")}
+                  />
+                  <span className="small faint">Each step runs through the codex command on this computer and uses your ChatGPT plan, not API credits.</span>
                 </label>
               </>
             )}

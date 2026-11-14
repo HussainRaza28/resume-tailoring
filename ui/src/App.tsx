@@ -23,6 +23,7 @@ const MODEL_OPTIONS: MenuOption[] = [
   { value: "claude_code:opus", label: "Claude Code, Opus", detail: "Uses your Claude plan, slower", group: "Claude" },
   { value: "claude_api:claude-sonnet-5-5", label: "Claude API, Sonnet 5.5", detail: "API key · prompt caching", group: "Claude" },
   { value: "claude_api:claude-opus-5-5", label: "Claude API, Opus 5.5", detail: "API key · costs more", group: "Claude" },
+  { value: "codex:default", label: "ChatGPT (Codex)", detail: "Uses your ChatGPT plan", group: "Other providers" },
   { value: "gemini:", label: "Gemini", detail: "Free tier, uses the model set in Settings", group: "Other providers" },
   { value: "ollama:", label: "Ollama", detail: "Local, offline", group: "Other providers" },
   { value: "demo:demo", label: "Offline demo", detail: "No key, placeholder output", group: "Other providers" },
@@ -32,6 +33,7 @@ const MODEL_OPTIONS: MenuOption[] = [
 export const DEFAULT_MODELS: Record<string, string> = {
   claude_api: "claude-sonnet-5-5",
   claude_code: "sonnet",
+  codex: "default",
   gemini: "gemini-flash-latest",
   demo: "demo",
 };

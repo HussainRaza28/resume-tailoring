@@ -50,6 +50,26 @@ claude auth login
 
 Tailor removes `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` when it starts `claude`, so a key in your environment can't switch it to API billing. This provider is meant for personal use with your own subscription.
 
+## The ChatGPT (Codex) provider
+
+"ChatGPT (Codex)" runs each step through OpenAI's `codex` command on your computer, so it uses your ChatGPT plan instead of API credits. To use it:
+
+1. Install Codex (it needs Node.js):
+
+```bash
+npm install -g @openai/codex
+```
+
+2. Sign in once in a terminal, choosing "Sign in with ChatGPT":
+
+```bash
+codex login
+```
+
+3. In Tailor's Settings, choose ChatGPT (Codex). Settings shows whether `codex` was found and whether it's signed in with ChatGPT. Leave the model empty to use Codex's default, or type one your plan offers.
+
+Tailor removes `OPENAI_API_KEY` and `CODEX_API_KEY` when it starts `codex`, so a key in your environment can't switch it to API billing. If Codex itself was signed in with an API key, Settings says so. Codex runs read-only in an empty folder, so it can't change files on your computer. Like the Claude Code provider, this is meant for personal use with your own plan.
+
 ## Using it
 
 1. **Paste a posting** and press Tailor (Cmd+Enter on a Mac, Ctrl+Enter on Windows). The company is filled in for you, and you can change it.

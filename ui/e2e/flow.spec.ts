@@ -207,3 +207,10 @@ test("jobs: refresh, filter, new badges, tailor a listing and mark one applied",
   await page.getByRole("button", { name: "Applications" }).first().click();
   await expect(page.getByRole("button", { name: "Open the Quillstone posting" })).toBeVisible();
 });
+
+test("settings: the ChatGPT (Codex) provider shows its sign-in", async ({ page }) => {
+  await page.goto("/?screen=settings");
+  await page.getByRole("group", { name: "Provider" }).getByRole("button", { name: "ChatGPT (Codex)" }).click();
+  await expect(page.getByText("Installed · signed in with ChatGPT")).toBeVisible();
+  await expect(page.getByLabel("Codex model")).toHaveAttribute("placeholder", "Codex's default");
+});

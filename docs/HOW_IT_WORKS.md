@@ -17,7 +17,7 @@ You paste a job posting. The app reads your LaTeX resume into editable pieces ca
 | Skills | `app/core/skills.py`, `skills.txt` | Find skills in text; count keyword coverage |
 | Facts bank | `app/core/facts.py` | Store answers to "How many…?" questions |
 | Pipeline | `app/core/pipeline.py` | The three model steps and the checks around them |
-| Providers | `app/providers/` | Claude API, Claude Code, Gemini, Ollama, Demo |
+| Providers | `app/providers/` | Claude API, Claude Code, ChatGPT (Codex), Gemini, Ollama, Demo |
 | Bridge | `app/bridge.py` | Every command the interface can call |
 | Window | `app/main.py` | Open the pywebview window |
 | Storage | `app/core/db.py`, `app/core/secrets.py` | SQLite and the keychain |
@@ -94,6 +94,7 @@ A request has a fixed system prompt, a large context that repeats across steps (
 
 - **Claude API** (`claude_api.py`) uses the `anthropic` SDK. The schema goes in `output_config.format`, so the reply is JSON that fits it. The instructions and resume are two system blocks with a cache marker on the resume, so the second and third steps read that shared part from the cache, which on Sonnet 5.5 costs a twentieth of the normal input price. It also asks for the server-side refusal fallback, and drops that option if the account doesn't accept it.
 - **Claude Code** (`claude_code.py`) runs the `claude` command in print mode for each step, so the work counts toward a Claude subscription instead of API credits. It removes `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` from the child's environment so `claude` uses the plan login, streams the output line by line, and reads the final `result` line. This one is for personal use on your own computer.
+- **ChatGPT (Codex)** (`codex.py`) does the same with OpenAI's `codex exec`, so the work counts toward a ChatGPT plan. The step's schema goes in a file passed with `--output-schema`, the prompt goes in on standard input, and `-o` names a file Codex writes its final answer to, which is what the app reads. `--json` events stream the answer to the screen and report token counts and a failed turn. It runs read-only (`-s read-only`) in an empty temporary folder, without the user's own Codex config, and with `OPENAI_API_KEY` and `CODEX_API_KEY` removed so the ChatGPT sign-in is used. `status` reads `codex login status`: "Logged in using ChatGPT" counts as signed in, and an API key sign-in doesn't.
 - **Gemini** (`gemini.py`) uses the `google-genai` SDK with `response_json_schema`. It skips the model's thinking text so only the answer streams to the screen.
 - **Ollama** (`ollama.py`) talks to the local Ollama server over HTTP. Nothing leaves your computer.
 - **Demo** (`demo.py`) answers from the request itself, with no network. It makes the whole app testable end to end.
@@ -158,7 +159,7 @@ PyInstaller bundles Python, the app, the built interface and Tectonic into `Tail
 
 ## 10. How it's tested
 
-- **Python, with pytest** (`tests/`): every truth check has its own tests, and the template engine is checked byte for byte. Providers run against a local stand-in for each API, using the real SDKs. The Claude Code provider runs against a fake `claude` script. The bridge tests run whole runs with the Demo provider through to an exported one-page PDF.
+- **Python, with pytest** (`tests/`): every truth check has its own tests, and the template engine is checked byte for byte. Providers run against a local stand-in for each API, using the real SDKs. The Claude Code and Codex providers run against fake `claude` and `codex` scripts that print what the real commands print. The bridge tests run whole runs with the Demo provider through to an exported one-page PDF.
 - **The interface, with Vitest and Playwright** (`ui/`): unit tests for small pieces such as the preview fit, browser tests against an in-memory mock, and one test that opens the built page from `file://` against the real Python backend.
 - **CI** runs the Python tests on Linux, macOS and Windows, the interface tests on Linux, and then builds and self-tests both installers.
 
