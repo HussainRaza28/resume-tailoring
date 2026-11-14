@@ -199,37 +199,33 @@ export function RewriteStep(p: RewriteProps) {
 
 /* ---------------- 3. re-score ---------------- */
 
-function skillState(s: SkillStatus): "covered" | "addable" | "missing" {
-  return s.covered ? "covered" : s.addable ? "addable" : "missing";
+type CoverageGroup = { id: "covered" | "addable" | "missing"; title: string; note: string; skills: SkillStatus[] };
+
+/** Required first, then preferred; the posting's own order inside each. */
+function byTier(list: SkillStatus[]): SkillStatus[] {
+  return [...list.filter((s) => s.tier === "required"), ...list.filter((s) => s.tier === "preferred")];
+}
+
+function evidenceNote(s: SkillStatus): string {
+  return s.evidence === "base" ? "In your base resume" : s.evidence ? `In your facts bank (${s.evidence})` : "";
 }
 
 export function CoveragePanel({ before, after }: { before: Coverage | null; after: Coverage | null }) {
   const cov = after ?? before;
   if (!cov) return null;
-  const req = cov.skills.filter((s) => s.tier === "required");
-  const pref = cov.skills.filter((s) => s.tier === "preferred");
+  const listed = cov.skills.filter((s) => s.tier === "required" || s.tier === "preferred");
   const pctAfter = after && after.required_have ? after.required_covered / after.required_have : null;
   const pctBefore = before && before.required_have ? before.required_covered / before.required_have : null;
-  const addable = cov.skills.filter((s) => s.addable && s.tier !== "mentioned");
-  const Group = ({ name, list }: { name: string; list: SkillStatus[] }) =>
-    list.length ? (
-      <div style={{ display: "grid", gap: 8 }}>
-        <span className="small muted">{name}</span>
-        <div className="skills">
-          {list.map((s) => (
-            <span
-              key={s.skill}
-              className="skill"
-              data-state={skillState(s)}
-              title={s.covered ? "On your resume" : s.addable ? `You have this (${s.evidence === "base" ? "base resume" : `fact ${s.evidence}`}) but it is not shown` : "Not in your base resume or facts bank, so it cannot be added"}
-            >
-              {s.covered ? <IconCheck size={12} /> : s.addable ? "+ " : ""}
-              {s.skill}
-            </span>
-          ))}
-        </div>
-      </div>
-    ) : null;
+  const groups: CoverageGroup[] = [
+    { id: "covered", title: "On your resume", note: "The page names these, so an ATS finds them.", skills: byTier(listed.filter((s) => s.covered)) },
+    {
+      id: "addable",
+      title: "You have it, not shown",
+      note: "Your base resume or facts bank backs these up. Mention them in a bullet edit.",
+      skills: byTier(listed.filter((s) => !s.covered && s.have)),
+    },
+    { id: "missing", title: "Not in your experience", note: "Nothing you've written backs these up, so they can't be added.", skills: byTier(listed.filter((s) => !s.covered && !s.have)) },
+  ];
   return (
     <div className="card coverage-rows">
       <div className="coverage-head">
@@ -246,23 +242,32 @@ export function CoveragePanel({ before, after }: { before: Coverage | null; afte
       <div className="bar" aria-hidden="true">
         <span style={{ width: `${(pctAfter ?? 0) * 100}%` }} />
       </div>
-      <Group name={`Required (${req.length})`} list={req} />
-      <Group name={`Preferred (${pref.length})`} list={pref} />
-      {addable.length > 0 && (
-        <p className="small muted">
-          {addable.length === 1 ? "One skill you have is" : `${addable.length} skills you have are`} missing from the page: {addable.map((s) => s.skill).join(", ")}. {addable.length === 1 ? "Mention it in a bullet edit; it is" : "Mention them in a bullet edit; they are"} backed by your {addable.some((s) => s.evidence !== "base") ? "facts bank" : "base resume"}.
-        </p>
-      )}
-      <div className="legend">
-        <span className="skill" data-state="covered">
-          <IconCheck size={12} /> on the page
-        </span>
-        <span className="skill" data-state="addable">
-          + you have it, not shown
-        </span>
-        <span className="skill" data-state="missing">
-          not your experience
-        </span>
+      <div className="coverage-groups">
+        {groups.map((g) => (
+          <section key={g.id} className="coverage-group" data-state={g.id} aria-label={`${g.title} (${g.skills.length})`}>
+            <div className="coverage-group-head">
+              <h3>
+                {g.title} <span className="num">({g.skills.length})</span>
+              </h3>
+              <span className="small faint">{g.note}</span>
+            </div>
+            {g.skills.length ? (
+              <ul className="skills">
+                {g.skills.map((s) => (
+                  <li key={s.skill} className="skill" data-state={g.id} title={g.id === "addable" ? evidenceNote(s) : undefined}>
+                    {g.id === "covered" && <IconCheck size={12} />}
+                    {s.skill}
+                    <span className="tier" data-tier={s.tier}>
+                      {s.tier === "required" ? "Required" : "Preferred"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <span className="small faint">None</span>
+            )}
+          </section>
+        ))}
       </div>
     </div>
   );

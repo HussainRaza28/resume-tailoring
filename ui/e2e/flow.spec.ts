@@ -57,6 +57,12 @@ test("paste, diagnose, rewrite, re-score and export", async ({ page }) => {
   await expect(page.getByRole("meter", { name: "Match score" })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("heading", { name: "Keyword coverage" })).toBeVisible();
   await expect(page.getByText(/required skills you have are on the page/)).toBeVisible();
+  // grouped by where each skill stands, each one marked Required or Preferred
+  const onResume = page.getByRole("region", { name: /^On your resume \(\d+\)$/ });
+  await expect(onResume.locator(".skill", { hasText: "PostgreSQL" }).locator(".tier")).toHaveText("Required");
+  const notShown = page.getByRole("region", { name: "You have it, not shown (1)" });
+  await expect(notShown.locator(".skill", { hasText: "Redis" }).locator(".tier")).toHaveText("Preferred");
+  await expect(page.getByRole("region", { name: "Not in your experience (2)" })).toBeVisible();
 
   // a change that lowers the score is flagged and undone in one click
   await expect(page.getByRole("heading", { name: "Changes that lower the score" })).toBeVisible();

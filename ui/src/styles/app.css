@@ -1024,17 +1024,56 @@ button.chip:hover {
   color: var(--faint);
   box-shadow: inset 0 0 0 1px var(--border);
 }
-.legend {
-  display: flex;
+.coverage-groups {
+  display: grid;
   gap: 14px;
-  font-size: 13px;
-  color: var(--faint);
-  flex-wrap: wrap;
 }
-.legend .skill {
-  height: 20px;
-  padding: 0 8px;
-  font-size: 11.5px;
+.coverage-group {
+  display: grid;
+  gap: 8px;
+  padding-left: 12px;
+  border-left: 3px solid var(--border);
+}
+.coverage-group[data-state="covered"] {
+  border-left-color: var(--positive);
+}
+.coverage-group[data-state="addable"] {
+  border-left-color: var(--warning);
+}
+.coverage-group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+}
+.coverage-group-head h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+ul.skills,
+.covered-group ul,
+.finding-list,
+.change-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* Required or Preferred, inside each skill chip. Required is filled so it reads first. */
+.skill .tier {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 99px;
+}
+.skill .tier[data-tier="required"] {
+  background: var(--text);
+  color: var(--ground);
+}
+.skill .tier[data-tier="preferred"] {
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--control);
 }
 
 /* export */
