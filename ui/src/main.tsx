@@ -14,11 +14,13 @@ function bridgeReady(): Promise<void> {
 async function boot() {
   if (inDesktop) {
     await bridgeReady();
+    document.documentElement.dataset.backend = "python";
   } else {
     // Outside the desktop app (plain browser, screenshots, browser tests) the
     // backend is replaced by an in-memory mock with fake sample data.
     const { installMock } = await import("./lib/mock");
     await installMock();
+    document.documentElement.dataset.backend = "mock";
   }
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>

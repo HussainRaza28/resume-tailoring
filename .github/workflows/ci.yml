@@ -112,8 +112,9 @@ jobs:
         run: |
           codesign --force --deep --sign - dist/Tailor.app
           codesign --verify --deep --strict --verbose=2 dist/Tailor.app
-      - name: Self-test the packaged app (macOS)
+      - name: Self-test the packaged app and open its window (macOS)
         if: runner.os == 'macOS'
+        timeout-minutes: 5
         run: |
           dist/Tailor.app/Contents/MacOS/Tailor --self-test selftest.json || { cat selftest.json; exit 1; }
           cat selftest.json
@@ -123,8 +124,9 @@ jobs:
           mkdir -p dist/installer
           hdiutil create -volname Tailor -srcfolder dist/Tailor.app -ov -format UDZO dist/installer/Tailor-0.1.0-arm64.dmg
 
-      - name: Self-test the packaged app (Windows)
+      - name: Self-test the packaged app and open its window (Windows)
         if: runner.os == 'Windows'
+        timeout-minutes: 5
         run: |
           dist/Tailor/Tailor.exe --self-test selftest.json || { cat selftest.json; exit 1; }
           cat selftest.json
