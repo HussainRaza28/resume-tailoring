@@ -5,8 +5,8 @@ import { useToast } from "../blocks/ToastStack";
 import { Notice, explainError } from "../components/Notice";
 import PdfPreview from "../components/PdfPreview";
 import Stepper, { type StepId } from "../components/Stepper";
-import { CostFooter, ExportStep, RedFlagsStep, ReviewStep, RewriteStep, SkeletonList, StreamPanel } from "../components/Steps";
-import { api, type Application, type Fact, type RunState, type Settings } from "../lib/api";
+import { CostFooter, DiagnoseStep, ExportStep, RescoreStep, RewriteStep, SkeletonList, StreamPanel } from "../components/Steps";
+import { api, type Application, type Fact, type ModelStep, type RunState, type Settings } from "../lib/api";
 import { type CmdError, isCmdError } from "../lib/ipc";
 import { modKey, pickFolder, reveal, writeClipboard } from "../lib/platform";
 
@@ -25,10 +25,10 @@ type Props = {
 type Pending = { step: string; text: string } | null;
 
 const STEP_TITLES: Record<string, string> = {
-  red_flags: "Skimming like a recruiter",
-  rewrite: "Rewriting bullets and checking every claim",
+  diagnose: "Scoring and skimming like a recruiter",
+  rewrite: "Rewriting bullets to fix what Diagnose found",
   rewrite_one: "Rewriting with your answer",
-  review: "Scoring as an ATS and a hiring manager",
+  rescore: "Scoring both versions side by side",
 };
 
 export default function TailorScreen(p: Props) {
@@ -37,7 +37,7 @@ export default function TailorScreen(p: Props) {
   const [posting, setPosting] = useState("");
   const [company, setCompany] = useState("");
   const [pastedAt, setPastedAt] = useState<number | null>(null);
-  const [view, setView] = useState<StepId>("red_flags");
+  const [view, setView] = useState<StepId>("diagnose");
   const [pending, setPending] = useState<Pending>(null);
   const [error, setError] = useState<(CmdError & { retry?: () => void }) | null>(null);
   const [facts, setFacts] = useState<Fact[]>([]);
@@ -73,7 +73,7 @@ export default function TailorScreen(p: Props) {
       setPosting("");
       setCompany("");
       setPastedAt(null);
-      setView("red_flags");
+      setView("diagnose");
       return;
     }
     if (run?.id === p.runId) return;
@@ -84,7 +84,7 @@ export default function TailorScreen(p: Props) {
         setPosting(r.posting);
         setCompany(r.company);
         const want = new URLSearchParams(window.location.search).get("step") as StepId | null;
-        setView(want && ["red_flags", "rewrite", "review", "export"].includes(want) ? want : r.exported_at_ms ? "export" : r.review_after ? "review" : r.rewrites.length ? "rewrite" : "red_flags");
+        setView(want && ["diagnose", "rewrite", "rescore", "export"].includes(want) ? want : r.exported_at_ms ? "export" : r.rescore ? "rescore" : r.rewrites.length ? "rewrite" : "diagnose");
       })
       .catch((e) => fail(e));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -142,7 +142,7 @@ export default function TailorScreen(p: Props) {
   };
 
   const runStep = useCallback(
-    async (r: RunState, step: "red_flags" | "rewrite" | "review"): Promise<RunState | null> => {
+    async (r: RunState, step: ModelStep): Promise<RunState | null> => {
       setError(null);
       setPending({ step, text: "" });
       try {
@@ -152,7 +152,7 @@ export default function TailorScreen(p: Props) {
       } catch (e) {
         fail(e, () => {
           runStep(r, step).then((n) => {
-            if (n && step === "red_flags") runStep(n, "rewrite");
+            if (n && step === "diagnose") runStep(n, "rewrite");
           });
         });
         try {
@@ -183,22 +183,22 @@ export default function TailorScreen(p: Props) {
     try {
       const r = await api.startRun(posting, company, p.provider, p.model, pastedAt);
       update(r);
-      setView("red_flags");
-      const afterFlags = await runStep(r, "red_flags");
-      if (!afterFlags) return;
-      setCompany(afterFlags.company);
+      setView("diagnose");
+      const diagnosed = await runStep(r, "diagnose");
+      if (!diagnosed) return;
+      setCompany(diagnosed.company);
       setView("rewrite");
       setFocus(0);
-      await runStep(afterFlags, "rewrite");
+      await runStep(diagnosed, "rewrite");
     } catch (e) {
       fail(e, tailor);
     }
   }, [pending, p, posting, company, pastedAt, update, runStep, fail]);
 
-  const toReview = useCallback(async () => {
+  const toRescore = useCallback(async () => {
     if (!run || pending) return;
-    setView("review");
-    await runStep(run, "review");
+    setView("rescore");
+    await runStep(run, "rescore");
   }, [run, pending, runStep]);
 
   const decide = useCallback(
@@ -237,18 +237,6 @@ export default function TailorScreen(p: Props) {
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [run, update, toast, fail],
-  );
-
-  const acceptSuggestion = useCallback(
-    async (section: number, bulletId: string) => {
-      if (!run) return;
-      try {
-        update(await api.acceptSuggestion(run.id, section, bulletId));
-      } catch (e) {
-        toast.push({ tone: "error", title: "Could not accept that rewrite", body: isCmdError(e) ? e.message : String(e) });
-      }
-    },
-    [run, update, toast],
   );
 
   const copy = useCallback(
@@ -321,8 +309,8 @@ export default function TailorScreen(p: Props) {
       if (mod && e.key === "Enter") {
         e.preventDefault();
         if (!run) tailor();
-        else if (view === "rewrite") toReview();
-        else if (view === "review") setView("export");
+        else if (view === "rewrite") toRescore();
+        else if (view === "rescore") setView("export");
         else if (view === "export") exportPdf();
         return;
       }
@@ -346,34 +334,34 @@ export default function TailorScreen(p: Props) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [run, view, changed, focus, pending, tailor, toReview, exportPdf, decide, copy]);
+  }, [run, view, changed, focus, pending, tailor, toRescore, exportPdf, decide, copy]);
 
   /* commands from the command bar */
   useEffect(() => {
     const onCmd = (e: Event) => {
       const cmd = (e as CustomEvent<string>).detail;
       if (cmd === "run") tailor();
-      else if (cmd === "review") toReview();
+      else if (cmd === "rescore") toRescore();
       else if (cmd === "export") run && setView("export");
       else if (cmd === "accept-all" && run) changed.filter((r) => r.status === "ok").forEach((r) => decide(r.bullet_id, "accept"));
     };
     window.addEventListener("tailor:cmd", onCmd);
     return () => window.removeEventListener("tailor:cmd", onCmd);
-  }, [tailor, toReview, run, changed, decide]);
+  }, [tailor, toRescore, run, changed, decide]);
 
   /* ---------- derived ---------- */
   const done = useMemo(() => {
     const s = new Set<StepId>();
-    if (run?.red_flags) s.add("red_flags");
+    if (run?.diagnosis) s.add("diagnose");
     if (run?.rewrites.length) s.add("rewrite");
-    if (run?.review_after) s.add("review");
+    if (run?.rescore) s.add("rescore");
     if (run?.exported_at_ms) s.add("export");
     return s;
   }, [run]);
   const enabled = useMemo(() => {
-    const s = new Set<StepId>(["red_flags"]);
-    if (run?.red_flags) s.add("rewrite");
-    if (run?.rewrites.length) s.add("review");
+    const s = new Set<StepId>(["diagnose"]);
+    if (run?.diagnosis) s.add("rewrite");
+    if (run?.rewrites.length) s.add("rescore");
     if (run?.rewrites.length) s.add("export");
     return s;
   }, [run]);
@@ -439,15 +427,8 @@ export default function TailorScreen(p: Props) {
                 </>
               ) : (
                 <>
-                  {view === "red_flags" && run.red_flags && (
-                    <>
-                      <RedFlagsStep run={run} />
-                      {run.rewrites.length > 0 && (
-                        <button className="btn" style={{ justifySelf: "start" }} onClick={() => setView("rewrite")}>
-                          See the rewrites that fix these
-                        </button>
-                      )}
-                    </>
+                  {view === "diagnose" && run.diagnosis && (
+                    <DiagnoseStep run={run} onRewrite={run.rewrites.length > 0 ? () => setView("rewrite") : undefined} />
                   )}
                   {view === "rewrite" && (
                     <RewriteStep
@@ -462,13 +443,13 @@ export default function TailorScreen(p: Props) {
                       copy={copy}
                     />
                   )}
-                  {view === "review" && run.review_after && <ReviewStep run={run} facts={facts} acceptSuggestion={acceptSuggestion} copy={copy} />}
-                  {view === "review" && !run.review_after && (
+                  {view === "rescore" && run.rescore && <RescoreStep run={run} undo={(id) => decide(id, "reject")} scoreAgain={toRescore} />}
+                  {view === "rescore" && !run.rescore && (
                     <div className="card" style={{ display: "grid", gap: 12, justifyItems: "start" }}>
-                      <h2>Score the resume</h2>
-                      <p className="muted">Scores your base resume and the version with your accepted rewrites, and lists sections a busy reader would skip.</p>
-                      <button className="btn btn-primary" onClick={toReview}>
-                        Run review <span className="kbd">{modKey}↵</span>
+                      <h2>Score both versions</h2>
+                      <p className="muted">Scores your base resume and the version with your accepted rewrites side by side, in one reading, and shows what each change did.</p>
+                      <button className="btn btn-primary" onClick={toRescore}>
+                        Re-score <span className="kbd">{modKey}↵</span>
                       </button>
                     </div>
                   )}
@@ -504,8 +485,8 @@ export default function TailorScreen(p: Props) {
             </span>
             <span className="grow" />
             <span className="small faint hint">↑↓ move · → accept · ← keep · E edit</span>
-            <button className="btn btn-primary btn-sm" onClick={toReview}>
-              Continue to review <span className="kbd">{modKey}↵</span>
+            <button className="btn btn-primary btn-sm" onClick={toRescore}>
+              Continue to re-score <span className="kbd">{modKey}↵</span>
             </button>
           </div>
         )}
@@ -564,7 +545,7 @@ function EmptyState(p: {
       <div className="hero enter">
         <AsciiWake />
         <h1>Paste a job posting</h1>
-        <p>Red flags, grounded rewrites and a review, then a one-page PDF in your own template. Nothing is invented: every claim is checked against your resume.</p>
+        <p>A diagnosis, rewrites aimed at what it found and a fair re-score, then a one-page PDF in your own template. Nothing is invented: every claim is checked against your resume.</p>
       </div>
       <div className="paste enter">
         <label className="sr-only" htmlFor="posting">

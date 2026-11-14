@@ -6,7 +6,7 @@
  */
 import { emit as emitTo, installMockBackend } from "./ipc";
 import samplePosting from "../../../tests/fixtures/sample_posting.txt?raw";
-import type { Application, BaselineEntry, CheckedRewrite, Coverage, Fact, RunRecord, RunState, StepEvent } from "./api";
+import type { Application, BaselineEntry, CheckedRewrite, Coverage, Diagnosis, Fact, Rescore, RunRecord, RunState, StepEvent } from "./api";
 
 const SAMPLE_POSTING = samplePosting.trim();
 
@@ -159,8 +159,8 @@ function record(r: RunState): RunRecord {
     pasted_at_ms: r.pasted_at_ms,
     exported_at_ms: r.exported_at_ms,
     cost_usd: 0,
-    score_before: r.review_before?.score ?? null,
-    score_after: r.review_after?.score ?? null,
+    score_before: r.rescore?.base.overall ?? r.diagnosis?.score.overall ?? null,
+    score_after: r.rescore?.tailored.overall ?? null,
   };
 }
 
@@ -177,12 +177,11 @@ function seedHistory() {
       model: "demo",
       pasted_at_ms: created.getTime(),
       exported_at_ms: exported ? created.getTime() + 412_000 : null,
-      red_flags: null,
+      diagnosis: null,
       rewrites: [],
       decisions: {},
       removed: [],
-      review_before: null,
-      review_after: null,
+      rescore: null,
       posting_skills: { required: [], preferred: [], mentioned: [] },
       coverage_before: null,
       coverage_after: null,
@@ -197,6 +196,55 @@ function seedHistory() {
   for (const r of [mk("h1", "Harbor Analytics", "Data Engineering Intern", 11, true), mk("h2", "Kestrel Robotics", "Software Intern, Autonomy", 17, true), mk("h3", "Morrow Health", "Backend Engineering Intern", 25, true)]) db.runs.set(r.id, r);
 }
 
+const card = (ats: number, hiring_manager: number) => ({ ats, hiring_manager, overall: Math.round((ats + hiring_manager) / 2) });
+
+function sampleDiagnosis(company: string, role: string): Diagnosis {
+  return {
+    company,
+    role,
+    score: card(62, 54),
+    verdict: "Solid Python and PostgreSQL work for an intern, but the platform fit takes too long to see. The REST experience hides in a side project and one Northwind bullet says nothing.",
+    red_flags: [
+      { flag: "A teamwork bullet with no outcome", why: "“Worked with the team on various backend tasks” is the one line a platform lead reads as filler. It hides the code reviews that are this role's daily work.", section: "Experience" },
+      { flag: "REST work is buried in a side project", why: "The posting asks for REST API design twice. The only API bullet sits last under TrailMap and never says what the API served.", section: "Projects" },
+      { flag: "The posting's stack is not first in Skills", why: "PostgreSQL and Docker are required, but a ten-second skim of the Tools line reads Git and SQLite first.", section: "Technical Skills" },
+    ],
+    skipped_sections: [{ section: "Projects", reason: "Budget Bot reads as a hobby script, so a busy reader skips to Skills." }],
+    missing_keywords: [
+      { keyword: "REST", evidence: ["b9"] },
+      { keyword: "Redis", evidence: ["f1"] },
+    ],
+  };
+}
+
+/** What each accepted change did in the mock re-score. b3's rewrite moves PostgreSQL to the end, so it costs points. */
+const MOCK_EFFECTS: Record<string, [number, string]> = {
+  b2: [6, "Leads with the 12,000 to 3,000 cut a platform team cares about."],
+  b3: [-2, "Pushes PostgreSQL, a required skill, to the end of the line where a skim misses it."],
+  b5: [5, "Replaces filler with code reviews, which this role does every day."],
+  b6: [1, "Plainer, but the library role still reads as unrelated."],
+};
+
+function sampleRescore(r: RunState): Rescore {
+  const current: Record<string, string> = {};
+  for (const x of r.rewrites) if (r.decisions[x.bullet_id]?.state === "accepted") current[x.bullet_id] = x.new_text;
+  for (const id of r.removed) current[id] = "";
+  const changes = Object.keys(current)
+    .sort()
+    .map((id) => {
+      const [effect, reason] = MOCK_EFFECTS[id] ?? [2, "Clearer outcome."];
+      return { bullet_id: id, effect, reason };
+    });
+  const gain = changes.reduce((t, c) => t + c.effect, 0);
+  return {
+    base: card(60, 56),
+    tailored: card(Math.min(95, 60 + gain + 2), Math.min(95, 56 + gain)),
+    verdict: "The Northwind bullets now lead with scale a platform team can picture. The library role still reads as unrelated, and the Budget Bot project adds little for a backend internship.",
+    changes,
+    scored: current,
+  };
+}
+
 /** A finished sample run, so each step can be opened straight from a URL. */
 function seedSampleRun(stage: string) {
   const r: RunState = {
@@ -209,44 +257,24 @@ function seedSampleRun(stage: string) {
     model: "demo",
     pasted_at_ms: Date.now() - 95_000,
     exported_at_ms: null,
-    red_flags: {
-      company: "Larkspur Freight",
-      role: "Software Engineer Intern, Platform",
-      red_flags: [
-        { flag: "A teamwork bullet with no outcome", why: "“Worked with the team on various backend tasks” is the one line a platform lead reads as filler. It hides the code reviews that are this role's daily work.", section: "Experience" },
-        { flag: "REST work is buried in a side project", why: "The posting asks for REST API design twice. The only API bullet sits last under TrailMap and never says what the API served.", section: "Projects" },
-        { flag: "The posting's stack is not first in Skills", why: "PostgreSQL and Docker are required, but a ten-second skim of the Tools line reads Git and SQLite first.", section: "Technical Skills" },
-      ],
-    },
+    diagnosis: sampleDiagnosis("Larkspur Freight", "Software Engineer Intern, Platform"),
     rewrites: rewrites(),
     decisions: { b2: { state: "accepted", origin: "rewrite" }, b3: { state: "accepted", origin: "rewrite" } },
     removed: [],
-    review_before: null,
-    review_after: null,
+    rescore: null,
     posting_skills: { required: ["Python", "SQL", "PostgreSQL", "Docker", "Git", "REST"], preferred: ["TypeScript", "Node.js", "Kubernetes", "AWS", "Redis"], mentioned: [] },
     coverage_before: coverage(false),
     coverage_after: coverage(true),
-    steps: [step("red_flags", 2410, 312, 6200), step("rewrite", 3120, 1240, 14800), step("rewrite_retry", 1410, 220, 3900)],
+    steps: [step("diagnose", 2410, 512, 7400), step("rewrite", 3120, 1240, 14800), step("rewrite_retry", 1410, 220, 3900)],
     pages: 1,
     trim_hints: [],
     exported_path: null,
     export_name: "",
     error: null,
   };
-  if (stage === "review" || stage === "export") {
-    r.review_before = { score: 61, verdict: "", skipped_sections: [] };
-    r.review_after = {
-      score: 72,
-      verdict: "The Northwind bullets now lead with scale a platform team can picture. The library role still reads as unrelated, and the Budget Bot project adds little for a backend internship.",
-      skipped_sections: [
-        {
-          section: "Projects",
-          reason: "Budget Bot reads as a hobby script, so a busy reader skips to Skills.",
-          rewrites: [rw("b10", BB, "Projects", "Made a Discord bot that tracks shared expenses for roommates and posts a weekly summary", "Built a Python Discord bot that tracks shared roommate expenses in SQLite and posts a weekly summary", "ok", { why: "Names the stack the posting asks for" })],
-        },
-      ],
-    };
-    r.steps.push(step("review_before", 2210, 405, 7100), step("review_after", 2260, 512, 7600));
+  if (stage === "rescore" || stage === "export") {
+    r.rescore = sampleRescore(r);
+    r.steps.push(step("rescore", 4410, 620, 9100));
   }
   db.runs.set(r.id, r);
 }
@@ -320,12 +348,11 @@ export async function installMock() {
           model: String(a.model || "demo"),
           pasted_at_ms: (a.pastedAtMs as number) ?? Date.now(),
           exported_at_ms: null,
-          red_flags: null,
+          diagnosis: null,
           rewrites: [],
           decisions: {},
           removed: [],
-          review_before: null,
-          review_after: null,
+          rescore: null,
           posting_skills: { required: ["Python", "SQL", "PostgreSQL", "Docker", "Git", "REST"], preferred: ["TypeScript", "Node.js", "Kubernetes", "AWS", "Redis"], mentioned: [] },
           coverage_before: coverage(false),
           coverage_after: coverage(false),
@@ -342,7 +369,7 @@ export async function installMock() {
       case "run_step": {
         const r = run(a.runId);
         const s = String(a.step);
-        if (failStep && s === "red_flags") {
+        if (failStep && s === "diagnose") {
           await sleep(500);
           const msgs: Record<string, string> = {
             bad_key: "The API key was rejected. Check it in Settings.",
@@ -352,44 +379,24 @@ export async function installMock() {
           r.error = { kind: failStep, message: msgs[failStep] ?? "Failed" };
           throw r.error;
         }
-        if (s === "red_flags") {
-          await streamText(a.onEvent, s, JSON.stringify({ company: "Larkspur Freight", role: "Software Engineer Intern, Platform" }, null, 1).repeat(4));
+        if (s === "diagnose") {
+          await streamText(a.onEvent, s, JSON.stringify({ company: "Larkspur Freight", role: "Software Engineer Intern, Platform", ats_score: 62 }, null, 1).repeat(4));
           r.company = r.company || "Larkspur Freight";
           r.role = "Software Engineer Intern, Platform";
-          r.red_flags = {
-            company: r.company,
-            role: r.role,
-            red_flags: [
-              { flag: "A teamwork bullet with no outcome", why: "“Worked with the team on various backend tasks” is the one line a platform lead reads as filler. It hides the code reviews that are this role's daily work.", section: "Experience" },
-              { flag: "REST work is buried in a side project", why: "The posting asks for REST API design twice. The only API bullet sits last under TrailMap and never says what the API served.", section: "Projects" },
-              { flag: "The posting's stack is not first in Skills", why: "PostgreSQL and Docker are required, but a ten-second skim of the Tools line reads Git and SQLite first.", section: "Technical Skills" },
-            ],
-          };
-          r.steps.push(step("red_flags", 2410, 312, 6200));
+          r.diagnosis = sampleDiagnosis(r.company, r.role);
+          r.steps.push(step("diagnose", 2410, 512, 7400));
         } else if (s === "rewrite") {
           await streamText(a.onEvent, s, JSON.stringify(rewrites().map((x) => ({ bullet_id: x.bullet_id, new_text: x.new_text })), null, 1));
           r.rewrites = rewrites();
           r.decisions = {};
+          r.rescore = null;
           r.steps.push(step("rewrite", 3120, 1240, 14800), step("rewrite_retry", 1410, 220, 3900));
-        } else if (s === "review") {
-          await streamText(a.onEvent, s, JSON.stringify({ score: 78, verdict: "…" }).repeat(10));
-          const accepted = Object.values(r.decisions).filter((d) => d.state === "accepted").length;
-          r.review_before = { score: 61, verdict: "", skipped_sections: [] };
-          r.review_after = {
-            score: Math.min(92, 64 + accepted * 4),
-            verdict: "The Northwind bullets now lead with scale a platform team can picture. The library role still reads as unrelated, and the Budget Bot project adds little for a backend internship.",
-            skipped_sections: [
-              {
-                section: "Projects",
-                reason: "Budget Bot reads as a hobby script, so a busy reader skips to Skills.",
-                rewrites: [
-                  rw("b10", BB, "Projects", "Made a Discord bot that tracks shared expenses for roommates and posts a weekly summary", "Built a Python Discord bot that tracks shared roommate expenses in SQLite and posts a weekly summary", "ok", { why: "Names the stack the posting asks for" }),
-                ],
-              },
-            ],
-          };
-          r.coverage_after = coverage(accepted > 0);
-          r.steps.push(step("review_before", 2210, 405, 7100), step("review_after", 2260, 512, 7600));
+        } else if (s === "rescore") {
+          await streamText(a.onEvent, s, JSON.stringify({ base_ats_score: 60, tailored_ats_score: 70, verdict: "…" }).repeat(8));
+          const accepted = Object.values(r.decisions).some((d) => d.state === "accepted");
+          r.rescore = sampleRescore(r);
+          r.coverage_after = coverage(accepted);
+          r.steps.push(step("rescore", 4410, 620, 9100));
         }
         return structuredClone(r);
       }
@@ -431,15 +438,6 @@ export async function installMock() {
           }
         }
         x.question = null;
-        return structuredClone(r);
-      }
-      case "accept_suggestion": {
-        const r = run(a.runId);
-        const sug = r.review_after?.skipped_sections[Number(a.section)]?.rewrites.find((y) => y.bullet_id === a.bulletId);
-        if (!sug) throw { kind: "not_found", message: "Gone" };
-        const i = r.rewrites.findIndex((y) => y.bullet_id === sug.bullet_id);
-        if (i >= 0) r.rewrites[i] = { ...sug };
-        r.decisions[sug.bullet_id] = { state: "accepted", origin: "review" };
         return structuredClone(r);
       }
       case "toggle_remove": {

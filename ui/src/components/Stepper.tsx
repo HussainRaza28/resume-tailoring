@@ -6,11 +6,11 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { IconCheck } from "./icons";
 
-export type StepId = "red_flags" | "rewrite" | "review" | "export";
+export type StepId = "diagnose" | "rewrite" | "rescore" | "export";
 export const STEPS: { id: StepId; label: string }[] = [
-  { id: "red_flags", label: "Red flags" },
+  { id: "diagnose", label: "Diagnose" },
   { id: "rewrite", label: "Rewrite" },
-  { id: "review", label: "Review" },
+  { id: "rescore", label: "Re-score" },
   { id: "export", label: "Export" },
 ];
 

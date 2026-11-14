@@ -299,7 +299,7 @@ export default function SettingsScreen({ info, settings, setSetting, theme, setT
                 )}
               </label>
             )}
-            {provider === "demo" && <p className="small muted">The offline demo runs the whole flow without a key. Its red flags and scores are placeholders, not a real review.</p>}
+            {provider === "demo" && <p className="small muted">The offline demo runs the whole flow without a key. Its diagnosis and scores are placeholders, not a real reading.</p>}
             {(provider === "claude_api" || provider === "claude_code") && (
               <label className="field">
                 <span>Effort</span>

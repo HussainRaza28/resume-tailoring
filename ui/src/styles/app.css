@@ -704,7 +704,29 @@ button.chip:hover {
   }
 }
 
-/* red flags */
+/* diagnose */
+.section-label {
+  font-size: var(--fs-section);
+  margin-bottom: 10px;
+}
+.score-parts b {
+  color: var(--text);
+  font-weight: 600;
+}
+.finding-list {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+.finding-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 10px;
+}
+.finding-list .chip + .chip {
+  margin-left: 4px;
+}
 .flags {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -878,7 +900,37 @@ button.chip:hover {
   flex: 1;
 }
 
-/* review */
+/* re-score */
+.card[data-tone="warning"] {
+  box-shadow: inset 3px 0 0 var(--warning);
+}
+.change-list {
+  list-style: none;
+  display: grid;
+  gap: 12px;
+}
+.change-row {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  align-items: start;
+  gap: 12px;
+}
+.change-body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.change-effect {
+  font: 600 14px/1.4 var(--mono);
+  color: var(--positive);
+  text-align: right;
+}
+.change-row[data-lowers] .change-effect {
+  color: var(--negative);
+}
+.change-row[data-undone] .change-body {
+  opacity: 0.55;
+}
 .review-top {
   display: grid;
   gap: var(--gap);

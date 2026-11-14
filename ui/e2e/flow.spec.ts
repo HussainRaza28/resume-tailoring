@@ -4,15 +4,25 @@ import { readFileSync } from "node:fs";
 const posting = readFileSync(new URL("../../tests/fixtures/sample_posting.txt", import.meta.url), "utf8");
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 
-test("paste, tailor, decide, review and export", async ({ page }) => {
+test("paste, diagnose, rewrite, re-score and export", async ({ page }) => {
   await page.goto("/?speed=10");
   await expect(page.getByRole("heading", { name: "Paste a job posting" })).toBeVisible();
   await page.getByLabel("Job posting").fill(posting);
   await page.getByLabel("Job posting").press(`${mod}+Enter`);
 
-  // red flags then rewrites stream in
+  // the diagnosis then the rewrites stream in
   await expect(page.getByRole("tab", { name: /Rewrite/ })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
   await expect(page.locator(".bullet").first()).toBeVisible();
+
+  // Diagnose: a base score, three red flags, skipped sections and backed-up keywords
+  await page.getByRole("tab", { name: /Diagnose/ }).click();
+  await expect(page.getByRole("meter", { name: "Base resume score" })).toBeVisible();
+  await expect(page.getByText("ATS 62 · Hiring manager 54")).toBeVisible();
+  await expect(page.locator(".flag")).toHaveCount(3);
+  await expect(page.getByRole("heading", { name: "Sections that get skipped" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Missing keywords you can back up" })).toBeVisible();
+  await page.getByRole("button", { name: "See the rewrites that fix these" }).click();
+  await expect(page.getByRole("tab", { name: /Rewrite/ })).toHaveAttribute("aria-selected", "true");
 
   // a blocked rewrite cannot be accepted and says why
   const blocked = page.locator(".bullet", { hasText: "Reviewed 40+ pull requests" });
@@ -37,11 +47,24 @@ test("paste, tailor, decide, review and export", async ({ page }) => {
   await lib.getByRole("button", { name: "Check and save" }).click();
   await expect(lib.getByText("Accepted")).toBeVisible();
 
-  // review shows score before and after plus deterministic coverage
-  await page.getByRole("button", { name: /Continue to review/ }).click();
+  // accept the PostgreSQL rewrite, which the re-score says costs points
+  const pg = page.locator(".bullet", { hasText: "Removed full table scans" });
+  await pg.getByRole("button", { name: /Accept rewrite/ }).click();
+  await expect(pg.getByText("Accepted")).toBeVisible();
+
+  // re-score: both versions side by side, plus coverage counted in code
+  await page.getByRole("button", { name: /Continue to re-score/ }).click();
   await expect(page.getByRole("meter", { name: "Match score" })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("heading", { name: "Keyword coverage" })).toBeVisible();
   await expect(page.getByText(/required skills you have are on the page/)).toBeVisible();
+
+  // a change that lowers the score is flagged and undone in one click
+  await expect(page.getByRole("heading", { name: "Changes that lower the score" })).toBeVisible();
+  await page.getByRole("button", { name: "Undo change to b3" }).click();
+  await expect(page.getByText("Original kept")).toBeVisible();
+  await expect(page.getByText("Your changes have moved on since this score")).toBeVisible();
+  await page.getByRole("button", { name: "Score again" }).click();
+  await expect(page.getByRole("heading", { name: "Changes that lower the score" })).toHaveCount(0, { timeout: 20_000 });
 
   // export
   await page.getByRole("tab", { name: /Export/ }).click();

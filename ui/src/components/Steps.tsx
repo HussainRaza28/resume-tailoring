@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import AsciiWakeLoader from "../blocks/AsciiWakeLoader";
 import ArcRing from "../blocks/ArcRing";
-import type { Coverage, Fact, RunState, SkillStatus } from "../lib/api";
-import { modelLabel, providerLabel, runTotals } from "../lib/api";
+import type { Coverage, Fact, RunState, ScoreCard, SkillStatus } from "../lib/api";
+import { modelLabel, providerLabel, rescoreIsStale, runTotals } from "../lib/api";
 import { duration, money, pct, tokens } from "../lib/format";
 import BulletCard from "./BulletCard";
 import { IconCheck, IconDownload, IconFolder } from "./icons";
@@ -47,22 +47,89 @@ export function SkeletonList({ n = 3 }: { n?: number }) {
   );
 }
 
-/* ---------------- 1. red flags ---------------- */
+/* ---------------- 1. diagnose ---------------- */
 
-export function RedFlagsStep({ run }: { run: RunState }) {
-  const flags = run.red_flags?.red_flags ?? [];
+/** The two readings behind a headline score. */
+function ScoreParts({ card }: { card: ScoreCard }) {
   return (
-    <div className="flags">
-      {flags.map((f, i) => (
-        <article key={i} className="flag enter" style={{ animationDelay: `${i * 70}ms` }}>
-          <span className="flag-n">0{i + 1}</span>
-          <h3>{f.flag}</h3>
-          <p>{f.why}</p>
-          <div>
-            <span className="pill">{f.section}</span>
+    <span className="score-parts num small muted">
+      ATS <b>{card.ats}</b> · Hiring manager <b>{card.hiring_manager}</b>
+    </span>
+  );
+}
+
+export function DiagnoseStep({ run, onRewrite }: { run: RunState; onRewrite?: () => void }) {
+  const d = run.diagnosis;
+  if (!d) return null;
+  return (
+    <div style={{ display: "grid", gap: "var(--gap)" }}>
+      <div className="card score-card enter">
+        <ArcRing value={d.score.overall} size={148} label="Base resume score" />
+        <div className="score-side">
+          <h2>Your base resume</h2>
+          <ScoreParts card={d.score} />
+          {d.verdict && <p className="muted selectable">{d.verdict}</p>}
+        </div>
+      </div>
+      <div>
+        <h2 className="section-label">Red flags a recruiter spots in 10 seconds</h2>
+        <div className="flags">
+          {d.red_flags.map((f, i) => (
+            <article key={i} className="flag enter" style={{ animationDelay: `${i * 70}ms` }}>
+              <span className="flag-n">0{i + 1}</span>
+              <h3>{f.flag}</h3>
+              <p>{f.why}</p>
+              <div>
+                <span className="pill">{f.section}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+      {d.skipped_sections.length > 0 && (
+        <div className="card enter">
+          <div className="card-head">
+            <h2>Sections that get skipped</h2>
+            <span className="meta">{d.skipped_sections.length} found</span>
           </div>
-        </article>
-      ))}
+          <ul className="finding-list">
+            {d.skipped_sections.map((s, i) => (
+              <li key={i}>
+                <span className="pill">{s.section}</span>
+                <span className="muted">{s.reason}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div className="card enter">
+        <div className="card-head">
+          <h2>Missing keywords you can back up</h2>
+          <span className="meta">{d.missing_keywords.length} found</span>
+        </div>
+        {d.missing_keywords.length ? (
+          <ul className="finding-list">
+            {d.missing_keywords.map((k) => (
+              <li key={k.keyword}>
+                <span className="skill" data-state="addable">{k.keyword}</span>
+                <span className="small muted">
+                  shown by{" "}
+                  {k.evidence.map((id) => (
+                    <span key={id} className="chip">{id}</span>
+                  ))}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="small muted">None. Only keywords your resume or facts bank can back up are listed here.</p>
+        )}
+      </div>
+      {onRewrite && (
+        <button className="btn" style={{ justifySelf: "start" }} onClick={onRewrite}>
+          See the rewrites that fix these
+        </button>
+      )}
     </div>
   );
 }
@@ -90,7 +157,7 @@ export function RewriteStep(p: RewriteProps) {
   return (
     <div className="bullet-list">
       {changed.length === 0 && (
-        <div className="card muted">Every bullet already holds up for this posting, so nothing was rewritten. You can go straight to the review.</div>
+        <div className="card muted">Every bullet already holds up for this posting, so nothing was rewritten. You can go straight to Re-score.</div>
       )}
       {visible.map((r, i) => {
         const head = r.entry !== lastEntry ? r.entry : null;
@@ -130,7 +197,7 @@ export function RewriteStep(p: RewriteProps) {
   );
 }
 
-/* ---------------- 3. review ---------------- */
+/* ---------------- 3. re-score ---------------- */
 
 function skillState(s: SkillStatus): "covered" | "addable" | "missing" {
   return s.covered ? "covered" : s.addable ? "addable" : "missing";
@@ -201,85 +268,116 @@ export function CoveragePanel({ before, after }: { before: Coverage | null; afte
   );
 }
 
-type ReviewProps = {
+type RescoreProps = {
   run: RunState;
-  facts: Fact[];
-  acceptSuggestion: (section: number, bulletId: string) => Promise<void>;
-  copy: (text: string) => void;
+  undo: (bulletId: string) => void;
+  scoreAgain: () => void;
 };
 
-export function ReviewStep({ run, facts, acceptSuggestion, copy }: ReviewProps) {
-  const before = run.review_before?.score ?? null;
-  const after = run.review_after?.score ?? null;
-  const [rejected, setRejected] = useState<Set<string>>(new Set());
-  const sections = run.review_after?.skipped_sections ?? [];
+export function RescoreStep({ run, undo, scoreAgain }: RescoreProps) {
+  const r = run.rescore;
+  if (!r) return null;
+  const stale = rescoreIsStale(run);
+  const delta = r.tailored.overall - r.base.overall;
+  const lowering = r.changes.filter((c) => c.effect < 0);
+  const others = r.changes.filter((c) => c.effect >= 0);
+  const textOf = (id: string) => run.rewrites.find((x) => x.bullet_id === id);
+  const kept = (id: string) => run.decisions[id]?.state !== "accepted";
+  const ChangeRow = ({ id, effect, reason }: { id: string; effect: number; reason: string }) => {
+    const rw = textOf(id);
+    const undone = kept(id);
+    return (
+      <li className="change-row" data-lowers={effect < 0 || undefined} data-undone={undone || undefined}>
+        <span className="change-effect num" aria-label={`${effect > 0 ? "plus" : effect < 0 ? "minus" : ""} ${Math.abs(effect)} points`}>
+          {effect > 0 ? `+${effect}` : effect}
+        </span>
+        <div className="change-body">
+          <span className="small">
+            <span className="chip">{id}</span> {reason}
+          </span>
+          {rw && <span className="small faint selectable">{rw.new_text}</span>}
+        </div>
+        {effect < 0 &&
+          (undone ? (
+            <span className="small faint">Original kept</span>
+          ) : (
+            <button className="btn btn-sm" onClick={() => undo(id)} aria-label={`Undo change to ${id}`}>
+              Undo
+            </button>
+          ))}
+      </li>
+    );
+  };
   return (
     <div style={{ display: "grid", gap: "var(--gap)" }}>
       <div className="review-top">
         <div className="card score-card enter">
-          <ArcRing value={after} before={before} size={168} />
+          <ArcRing value={r.tailored.overall} before={r.base.overall} size={168} />
           <div className="score-side">
             <h2>Match score</h2>
             <div className="score-compare num">
               <span>
-                Base resume <strong>{before ?? "–"}</strong>
+                Base resume <strong>{r.base.overall}</strong>
               </span>
               <span>
-                With your changes <strong>{after ?? "–"}</strong>
+                With your changes <strong>{r.tailored.overall}</strong>
               </span>
             </div>
-            <p className="small faint">The model's opinion, reading as an ATS and a busy hiring manager. Keyword coverage below is counted in code and is the steadier number.</p>
+            <div className="score-compare num small muted">
+              <span>
+                ATS {r.base.ats} → <b>{r.tailored.ats}</b>
+              </span>
+              <span>
+                Hiring manager {r.base.hiring_manager} → <b>{r.tailored.hiring_manager}</b>
+              </span>
+            </div>
+            <p className="small faint">Both versions are scored in one reading with the same rubric, so a change of {Math.abs(delta)} is the changes, not run-to-run noise. Keyword coverage is counted in code.</p>
           </div>
         </div>
         <CoveragePanel before={run.coverage_before} after={run.coverage_after} />
       </div>
-      {run.review_after?.verdict && (
+      {stale && (
+        <div className="notice" data-tone="info">
+          <div className="notice-body">
+            <span className="notice-title">Your changes have moved on since this score</span>
+            <span className="muted small">Score again to see where the resume stands now.</span>
+          </div>
+          <button className="btn btn-sm" onClick={scoreAgain}>
+            Score again
+          </button>
+        </div>
+      )}
+      {r.verdict && (
         <div className="card enter">
           <div className="card-head">
             <h2>Hiring manager's read</h2>
           </div>
-          <p className="muted selectable">{run.review_after.verdict}</p>
+          <p className="muted selectable">{r.verdict}</p>
         </div>
       )}
-      {sections.length > 0 && (
+      {lowering.length > 0 && (
+        <div className="card enter" data-tone="warning">
+          <div className="card-head">
+            <h2>Changes that lower the score</h2>
+            <span className="meta">{lowering.length} found</span>
+          </div>
+          <ul className="change-list">
+            {lowering.map((c) => (
+              <ChangeRow key={c.bullet_id} id={c.bullet_id} effect={c.effect} reason={c.reason} />
+            ))}
+          </ul>
+        </div>
+      )}
+      {others.length > 0 && (
         <div className="card enter">
           <div className="card-head">
-            <h2>Sections that get skipped</h2>
-            <span className="meta">{sections.length} found</span>
+            <h2>What each change did</h2>
           </div>
-          <div style={{ display: "grid", gap: 16 }}>
-            {sections.map((s, si) => (
-              <div key={si} style={{ display: "grid", gap: 10 }}>
-                <div className="row">
-                  <span className="pill">{s.section}</span>
-                  <span className="muted">{s.reason}</span>
-                </div>
-                {s.rewrites.map((r) => {
-                  const accepted = run.decisions[r.bullet_id]?.origin === "review" && run.rewrites.find((x) => x.bullet_id === r.bullet_id)?.new_text === r.new_text;
-                  const key = `${si}:${r.bullet_id}`;
-                  return (
-                    <BulletCard
-                      key={key}
-                      rewrite={r}
-                      decision={accepted ? "accepted" : rejected.has(key) ? "rejected" : "pending"}
-                      focused={false}
-                      facts={facts}
-                      onFocus={() => {}}
-                      onAccept={() => acceptSuggestion(si, r.bullet_id)}
-                      onReject={() => setRejected((x) => new Set(x).add(key))}
-                      onReset={() => setRejected((x) => {
-                        const n = new Set(x);
-                        n.delete(key);
-                        return n;
-                      })}
-                      onEdit={() => {}}
-                      onCopy={copy}
-                    />
-                  );
-                })}
-              </div>
+          <ul className="change-list">
+            {others.map((c) => (
+              <ChangeRow key={c.bullet_id} id={c.bullet_id} effect={c.effect} reason={c.reason} />
             ))}
-          </div>
+          </ul>
         </div>
       )}
     </div>

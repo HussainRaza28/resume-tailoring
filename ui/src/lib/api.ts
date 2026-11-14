@@ -51,14 +51,43 @@ export interface CheckedRewrite {
 export interface SkippedSection {
   section: string;
   reason: string;
-  rewrites: CheckedRewrite[];
 }
 
-export interface Review {
-  score: number;
-  verdict: string;
-  skipped_sections: SkippedSection[];
+/** Scores out of 100. `overall` is the mean of the two, worked out in code. */
+export interface ScoreCard {
+  ats: number;
+  hiring_manager: number;
+  overall: number;
 }
+
+export interface Diagnosis {
+  company: string;
+  role: string;
+  score: ScoreCard;
+  verdict: string;
+  red_flags: RedFlag[];
+  skipped_sections: SkippedSection[];
+  /** Posting keywords the resume doesn't show, each backed by bullet or fact ids. */
+  missing_keywords: { keyword: string; evidence: string[] }[];
+}
+
+export interface ChangeResult {
+  bullet_id: string;
+  /** Points this change alone adds (positive) or costs (negative). */
+  effect: number;
+  reason: string;
+}
+
+export interface Rescore {
+  base: ScoreCard;
+  tailored: ScoreCard;
+  verdict: string;
+  changes: ChangeResult[];
+  /** The bullet texts that were scored, to tell when later decisions made it stale. */
+  scored: Record<string, string>;
+}
+
+export type ModelStep = "diagnose" | "rewrite" | "rescore";
 
 export interface SkillStatus {
   skill: string;
@@ -106,12 +135,11 @@ export interface RunState {
   model: string;
   pasted_at_ms: number | null;
   exported_at_ms: number | null;
-  red_flags: { company: string; role: string; red_flags: RedFlag[] } | null;
+  diagnosis: Diagnosis | null;
   rewrites: CheckedRewrite[];
   decisions: Record<string, { state: DecisionState; origin: string }>;
   removed: string[];
-  review_before: Review | null;
-  review_after: Review | null;
+  rescore: Rescore | null;
   posting_skills: { required: string[]; preferred: string[]; mentioned: string[] };
   coverage_before: Coverage | null;
   coverage_after: Coverage | null;
@@ -269,13 +297,11 @@ export const api = {
     call<RunState>("start_run", { posting, company, provider, model, pastedAtMs }),
   getRun: (runId: string) => call<RunState>("get_run_state", { runId }),
   updateRunMeta: (runId: string, company: string, role: string) => call<RunState>("update_run_meta", { runId, company, role }),
-  runStep: (runId: string, step: "red_flags" | "rewrite" | "review", onEvent?: (e: StepEvent) => void) =>
+  runStep: (runId: string, step: ModelStep, onEvent?: (e: StepEvent) => void) =>
     streaming<RunState>("run_step", { runId, step }, onEvent),
   decide: (runId: string, bulletId: string, action: "accept" | "reject" | "reset" | "edit", text?: string) =>
     call<RunState>("decide", { runId, bulletId, action, text: text ?? null }),
   toggleRemove: (runId: string, bulletId: string) => call<RunState>("toggle_remove", { runId, bulletId }),
-  acceptSuggestion: (runId: string, section: number, bulletId: string) =>
-    call<RunState>("accept_suggestion", { runId, section, bulletId }),
   answerQuestion: (runId: string, bulletId: string, answer: string, onEvent?: (e: StepEvent) => void) =>
     streaming<RunState>("answer_question", { runId, bulletId, answer }, onEvent),
   compileRun: async (runId: string) => toBytes(await call<unknown>("compile_run", { runId })),
@@ -340,6 +366,23 @@ export function acceptedTexts(run: RunState): Record<string, string> {
   const out: Record<string, string> = {};
   for (const r of run.rewrites) if (run.decisions[r.bullet_id]?.state === "accepted") out[r.bullet_id] = r.new_text;
   return out;
+}
+
+/** Accepted texts plus removed bullets as "", the same rule as RunState.current() in app/bridge.py. */
+export function currentTexts(run: RunState): Record<string, string> {
+  const out = acceptedTexts(run);
+  for (const id of run.removed) out[id] = "";
+  return out;
+}
+
+/** True when decisions made since the last Re-score mean its numbers no longer describe the resume. */
+export function rescoreIsStale(run: RunState): boolean {
+  if (!run.rescore) return false;
+  const now = currentTexts(run);
+  const then = run.rescore.scored;
+  const keys = new Set([...Object.keys(now), ...Object.keys(then)]);
+  for (const k of keys) if (now[k] !== then[k]) return true;
+  return false;
 }
 
 export function runTotals(run: RunState) {

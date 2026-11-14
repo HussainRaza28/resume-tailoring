@@ -66,8 +66,8 @@ test("the built page runs from file:// against the Python backend", async ({ pag
   await lib.getByRole("button", { name: /Accept rewrite/ }).click();
   await expect(lib.getByText("Accepted")).toBeVisible();
 
-  // Review, then export a one-page PDF into the folder set in Settings.
-  await page.getByRole("button", { name: /Continue to review/ }).click();
+  // Re-score, then export a one-page PDF into the folder set in Settings.
+  await page.getByRole("button", { name: /Continue to re-score/ }).click();
   await expect(page.getByRole("meter", { name: "Match score" })).toBeVisible({ timeout: 60_000 });
   await page.getByRole("tab", { name: /Export/ }).click();
   await expect(page.getByText("Jordan_Sample_Resume_Larkspur_Freight.pdf")).toBeVisible();
