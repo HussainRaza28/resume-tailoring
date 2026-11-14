@@ -42,10 +42,12 @@ Tailor self-test
 
 def open_window(backend: Backend) -> webview.Window:
     """Create the app window. The app and the self-test both open it this way."""
-    # "?desktop=1" tells the page to wait for the Python bridge instead of using its browser mock.
+    # A plain file:// URL with no query string. On Windows, pywebview hands the URL
+    # to .NET's Uri class, which reads "?..." in a file URL as part of the file name.
+    # The page knows it is in the app because it was opened from a file:// address.
     window = webview.create_window(
         APP_NAME,
-        url=ui_file().as_uri() + "?desktop=1",
+        url=ui_file().as_uri(),
         js_api=Bridge(backend),
         width=1440,
         height=900,

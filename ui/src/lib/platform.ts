@@ -3,7 +3,11 @@
 
 import { call } from "./ipc";
 
-export const inDesktop = typeof window !== "undefined" && new URLSearchParams(location.search).get("desktop") === "1";
+/** True inside the desktop app. The app opens the built page from a file:// address and
+ *  pywebview adds `window.pywebview` to it. The browser mock is always served over http,
+ *  so neither is true there. The window URL carries no query string: on Windows a "?" in
+ *  a file URL ends up in the file name and the page fails to load. */
+export const inDesktop = typeof window !== "undefined" && (location.protocol === "file:" || window.pywebview !== undefined);
 
 export async function pickFolder(defaultPath?: string): Promise<string | null> {
   if (!inDesktop) return "/Users/you/Documents/Resumes";

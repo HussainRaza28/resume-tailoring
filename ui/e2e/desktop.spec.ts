@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 // to the real Python bridge. pywebview is replaced by a stand-in that sends each
 // call to tests/bridge_server.py and replays the streamed events it returns.
 
-const page_url = new URL("../dist/index.html?desktop=1", import.meta.url).href;
+const page_url = new URL("../dist/index.html", import.meta.url).href;
 const posting = readFileSync(new URL("../../tests/fixtures/sample_posting.txt", import.meta.url), "utf8");
 
 test.beforeEach(async ({ page }) => {
@@ -33,7 +33,10 @@ test("the built page runs from file:// against the Python backend", async ({ pag
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   await page.goto(page_url);
-  expect(fileURLToPath(page_url.split("?")[0])).toContain("dist");
+  expect(fileURLToPath(page_url)).toContain("dist");
+  // Opened the way the app opens it: no query string, and the page picks the Python bridge.
+  expect(new URL(page.url()).search).toBe("");
+  await expect(page.locator("html")).toHaveAttribute("data-backend", "python");
 
   // The base resume compiles and the whole page fits the preview pane.
   const canvas = page.getByRole("img", { name: "Resume preview, page 1" });
