@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useToast } from "../blocks/ToastStack";
-import { IconPlus, IconTrash } from "../components/icons";
+import { IconExternal, IconPlus, IconTrash } from "../components/icons";
 import { APP_STATUSES, type AppStatus, type Application, api } from "../lib/api";
 import { isCmdError } from "../lib/ipc";
 
@@ -131,6 +131,11 @@ export default function TrackerScreen({ openRun }: { openRun: (id: string) => vo
                   <tr key={a.id}>
                     <td>
                       <span style={{ fontWeight: 500 }}>{a.company}</span>
+                      {a.url && (
+                        <button className="btn btn-icon btn-inline" onClick={() => api.openUrl(a.url).catch(() => window.open(a.url, "_blank"))} aria-label={`Open the ${a.company} posting`}>
+                          <IconExternal size={14} />
+                        </button>
+                      )}
                     </td>
                     <td className="muted">{a.role || "–"}</td>
                     <td className="num muted">{a.date}</td>

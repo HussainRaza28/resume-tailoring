@@ -175,6 +175,40 @@ export interface Application {
   date: string;
   status: AppStatus;
   notes: string;
+  /** The posting's link, for roles marked applied from Jobs. */
+  url: string;
+}
+
+/** One internship listing from the Simplify or SpeedyApply repo. */
+export interface Listing {
+  /** The posting's link without tracking parameters. */
+  id: string;
+  company: string;
+  role: string;
+  locations: string[];
+  /** YYYY-MM-DD. */
+  date_posted: string;
+  url: string;
+  sources: string[];
+  first_seen_at: string;
+}
+
+export interface JobsView {
+  /** When both repos were last read, as an ISO time. Null before the first fetch. */
+  fetched_at: string | null;
+  /** Repos whose last refresh failed, with the reason. */
+  errors: Record<string, string>;
+  listings: Listing[];
+  /** Listings first seen since the previous visit. */
+  new_ids: string[];
+  /** Links already in the tracker. */
+  applied_urls: string[];
+}
+
+export interface JobPosting {
+  ok: boolean;
+  text: string;
+  reason: string;
 }
 
 export interface Fact {
@@ -297,8 +331,8 @@ export const api = {
   geminiModels: () => call<string[]>("gemini_models"),
   claudeCodeStatus: () => call<ClaudeCodeStatus>("claude_code_status"),
 
-  startRun: (posting: string, company: string, provider: string | null, model: string | null, pastedAtMs: number | null) =>
-    call<RunState>("start_run", { posting, company, provider, model, pastedAtMs }),
+  startRun: (posting: string, company: string, provider: string | null, model: string | null, pastedAtMs: number | null, role = "") =>
+    call<RunState>("start_run", { posting, company, provider, model, pastedAtMs, role }),
   getRun: (runId: string) => call<RunState>("get_run_state", { runId }),
   updateRunMeta: (runId: string, company: string, role: string) => call<RunState>("update_run_meta", { runId, company, role }),
   runStep: (runId: string, step: ModelStep, onEvent?: (e: StepEvent) => void) =>
@@ -319,6 +353,12 @@ export const api = {
     call<number>("add_application", { company, role, date, status }),
   updateApplication: (application: Application) => call<void>("update_application", { application }),
   deleteApplication: (id: number) => call<void>("delete_application", { id }),
+
+  jobsOpen: () => call<JobsView>("jobs_open"),
+  jobsRefresh: () => call<JobsView>("jobs_refresh"),
+  jobPosting: (url: string) => call<JobPosting>("job_posting", { url }),
+  markApplied: (company: string, role: string, url: string) => call<Application>("mark_applied", { company, role, url }),
+  openUrl: (url: string) => call<void>("open_url", { url }),
 
   listFacts: () => call<Fact[]>("list_facts"),
   saveFact: (id: string | null, text: string) => call<Fact[]>("save_fact", { id, text }),

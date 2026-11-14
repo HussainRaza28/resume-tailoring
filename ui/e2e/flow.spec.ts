@@ -148,3 +148,52 @@ test("facts import suggests facts and saves only what is accepted", async ({ pag
   await page.getByRole("button", { name: "Read page" }).click();
   await expect(page.getByRole("button", { name: "Read Resume (PDF)" })).toBeVisible();
 });
+
+test("jobs: refresh, filter, new badges, tailor a listing and mark one applied", async ({ page }) => {
+  await page.goto("/?speed=10");
+  await page.getByRole("button", { name: "Jobs" }).first().click();
+  await expect(page.getByRole("heading", { name: "Jobs" })).toBeVisible();
+
+  // The cached list is two hours old, so opening the screen refreshes it.
+  await expect(page.getByText("Updated just now")).toBeVisible({ timeout: 10_000 });
+  const rows = page.locator(".jobs-table tbody tr");
+  await expect(rows).toHaveCount(8);
+  await expect(page.locator(".new-badge")).toHaveCount(2);
+  await expect(rows.filter({ hasText: "Larkspur Freight" })).toContainText("Simplify, SpeedyApply");
+
+  // Search and filters
+  await page.getByPlaceholder("Search company, role or location").fill("backend");
+  await expect(rows).toHaveCount(2);
+  await page.getByLabel("Location").fill("remote");
+  await expect(rows).toHaveCount(2);
+  await page.getByLabel("Company").fill("morrow");
+  await expect(rows).toHaveCount(1);
+  await expect(page.getByText("1 of 8 match")).toBeVisible();
+  await page.getByPlaceholder("Search company, role or location").fill("");
+  await page.getByLabel("Location").fill("");
+  await page.getByLabel("Company").fill("");
+  await page.getByLabel("Date posted").selectOption({ label: "Past week" });
+  await expect(rows).toHaveCount(5);
+  await page.getByLabel("Date posted").selectOption({ label: "Any time" });
+
+  // Mark applied: it goes into the tracker with its link.
+  await page.getByRole("button", { name: "Mark Quillstone applied" }).click();
+  await expect(rows.filter({ hasText: "Quillstone" }).getByText("Applied")).toBeVisible();
+
+  // A Workday posting can't be read: the Tailor screen asks for a paste, with company and role filled in.
+  await rows.filter({ hasText: "Northbeam Energy" }).getByRole("button", { name: "Tailor for this" }).click();
+  await expect(page.getByText("Paste the posting to continue")).toBeVisible();
+  await expect(page.getByLabel("Company")).toHaveValue("Northbeam Energy");
+  await expect(page.getByLabel("Role")).toHaveValue("Backend Software Intern - Summer 2027");
+  await expect(page.getByLabel("Job posting")).toHaveValue("");
+
+  // A readable posting arrives filled in.
+  await page.getByRole("button", { name: "Jobs" }).first().click();
+  await rows.filter({ hasText: "Larkspur Freight" }).getByRole("button", { name: "Tailor for this" }).click();
+  await expect(page.getByText(/Posting read from jobs.larkspur.example/)).toBeVisible();
+  await expect(page.getByLabel("Job posting")).not.toHaveValue("");
+  await expect(page.getByLabel("Role")).toHaveValue("Software Engineer Intern, Platform");
+
+  await page.getByRole("button", { name: "Applications" }).first().click();
+  await expect(page.getByRole("button", { name: "Open the Quillstone posting" })).toBeVisible();
+});

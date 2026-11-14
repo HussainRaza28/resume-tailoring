@@ -135,3 +135,19 @@ export function Mark({ size = 22 }: { size?: number }) {
     </svg>
   );
 }
+export const IconJobs = (p: P) => (
+  <Icon {...p}>
+    <circle cx="10.5" cy="10.5" r="6" />
+    <path d="m15 15 5 5M8 10.5h5M10.5 8v5" />
+  </Icon>
+);
+export const IconRefresh = (p: P) => (
+  <Icon {...p}>
+    <path d="M20 11a8 8 0 0 0-14.5-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.5 4.5L20 16M20 20v-4h-4" />
+  </Icon>
+);
+export const IconExternal = (p: P) => (
+  <Icon {...p}>
+    <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+  </Icon>
+);

@@ -9,6 +9,7 @@ import { CostFooter, DiagnoseStep, ExportStep, RescoreStep, RewriteStep, Skeleto
 import { api, type Application, type Fact, type ModelStep, type RunState, type Settings } from "../lib/api";
 import { type CmdError, isCmdError } from "../lib/ipc";
 import { modKey, pickFolder, reveal, writeClipboard } from "../lib/platform";
+import type { TailorRequest } from "./JobsScreen";
 
 type Props = {
   runId: string | null;
@@ -20,6 +21,8 @@ type Props = {
   importResume: () => void;
   hasBase: boolean;
   setExportDir: (dir: string) => void;
+  /** A listing from the Jobs screen: its company, role and, if it could be read, the posting. */
+  prefill?: TailorRequest | null;
 };
 
 type Pending = { step: string; text: string } | null;
@@ -36,6 +39,7 @@ export default function TailorScreen(p: Props) {
   const [run, setRun] = useState<RunState | null>(null);
   const [posting, setPosting] = useState("");
   const [company, setCompany] = useState("");
+  const [role, setRole] = useState("");
   const [pastedAt, setPastedAt] = useState<number | null>(null);
   const [view, setView] = useState<StepId>("diagnose");
   const [pending, setPending] = useState<Pending>(null);
@@ -72,6 +76,7 @@ export default function TailorScreen(p: Props) {
       update(null);
       setPosting("");
       setCompany("");
+      setRole("");
       setPastedAt(null);
       setView("diagnose");
       return;
@@ -89,6 +94,15 @@ export default function TailorScreen(p: Props) {
       .catch((e) => fail(e));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.runId]);
+
+  /* a listing picked on the Jobs screen fills in the form */
+  useEffect(() => {
+    if (!p.prefill || p.runId) return;
+    setPosting(p.prefill.posting);
+    setCompany(p.prefill.company);
+    setRole(p.prefill.role);
+    setPastedAt(p.prefill.posting ? Date.now() : null);
+  }, [p.prefill, p.runId]);
 
   useEffect(() => {
     api.listFacts().then(setFacts).catch(() => setFacts([]));
@@ -181,7 +195,7 @@ export default function TailorScreen(p: Props) {
     }
     setError(null);
     try {
-      const r = await api.startRun(posting, company, p.provider, p.model, pastedAt);
+      const r = await api.startRun(posting, company, p.provider, p.model, pastedAt, role);
       update(r);
       setView("diagnose");
       const diagnosed = await runStep(r, "diagnose");
@@ -396,6 +410,9 @@ export default function TailorScreen(p: Props) {
             <EmptyState
               posting={posting}
               company={company}
+              role={role}
+              setRole={setRole}
+              prefill={p.prefill ?? null}
               setPosting={(v) => {
                 if (!pastedAt && v.trim()) setPastedAt(Date.now());
                 setPosting(v);
@@ -533,6 +550,9 @@ export default function TailorScreen(p: Props) {
 function EmptyState(p: {
   posting: string;
   company: string;
+  role: string;
+  setRole: (v: string) => void;
+  prefill: TailorRequest | null;
   setPosting: (v: string) => void;
   setCompany: (v: string) => void;
   onTailor: () => void;
@@ -544,9 +564,10 @@ function EmptyState(p: {
     <>
       <div className="hero enter">
         <AsciiWake />
-        <h1>Paste a job posting</h1>
+        <h1>{p.prefill ? `${p.prefill.company}: ${p.prefill.role}` : "Paste a job posting"}</h1>
         <p>A diagnosis, rewrites aimed at what it found and a fair re-score, then a one-page PDF in your own template. Nothing is invented: every claim is checked against your resume.</p>
       </div>
+      {p.prefill && <ListingNotice prefill={p.prefill} />}
       <div className="paste enter">
         <label className="sr-only" htmlFor="posting">
           Job posting
@@ -564,6 +585,10 @@ function EmptyState(p: {
             Company
           </label>
           <input id="company" className="input" placeholder="Company (found automatically)" value={p.company} onChange={(e) => p.setCompany(e.target.value)} />
+          <label className="sr-only" htmlFor="role">
+            Role
+          </label>
+          <input id="role" className="input" placeholder="Role (found automatically)" value={p.role} onChange={(e) => p.setRole(e.target.value)} />
           <span className="spacer" />
           {!p.hasBase && (
             <button className="btn" onClick={p.importResume}>
@@ -576,5 +601,25 @@ function EmptyState(p: {
         </div>
       </div>
     </>
+  );
+}
+
+/** Where a listing's posting came from, or why it has to be pasted. */
+function ListingNotice({ prefill }: { prefill: TailorRequest }) {
+  const open = () => api.openUrl(prefill.url).catch(() => window.open(prefill.url, "_blank"));
+  let host = prefill.url;
+  try {
+    host = new URL(prefill.url).hostname;
+  } catch {
+    /* keep the link as given */
+  }
+  return prefill.posting ? (
+    <Notice tone="info" title={`Posting read from ${host}`} action={{ label: "Open posting", run: open }}>
+      Check that it's the whole posting, with the requirements, before you tailor.
+    </Notice>
+  ) : (
+    <Notice tone="warning" title="Paste the posting to continue" action={{ label: "Open posting", run: open }}>
+      {prefill.reason ? `${prefill.reason} ` : ""}Many job sites, Workday among them, only show the posting in a browser. Open it, copy the full text and paste it below.
+    </Notice>
   );
 }

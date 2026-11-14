@@ -4,18 +4,19 @@ import CollapsingSidebar, { useCollapsed } from "./blocks/CollapsingSidebar";
 import CommandBar, { type Command } from "./blocks/CommandBar";
 import Menu, { type MenuOption } from "./blocks/Menu";
 import { useToast } from "./blocks/ToastStack";
-import { IconBriefcase, IconChevron, IconFacts, IconPlus, IconSearch, IconSettings, IconSidebar, IconTheme, Mark } from "./components/icons";
+import { IconBriefcase, IconChevron, IconFacts, IconJobs, IconPlus, IconSearch, IconSettings, IconSidebar, IconTheme, Mark } from "./components/icons";
 import { type AppInfo, type RunRecord, type RunState, type Settings, api, modelLabel, providerLabel } from "./lib/api";
 import { APP_NAME } from "./lib/config";
 import { shortDate } from "./lib/format";
 import { isCmdError } from "./lib/ipc";
 import { modKey, pickTexFile } from "./lib/platform";
 import FactsScreen from "./screens/FactsScreen";
+import JobsScreen, { type TailorRequest } from "./screens/JobsScreen";
 import SettingsScreen from "./screens/SettingsScreen";
 import TailorScreen from "./screens/TailorScreen";
 import TrackerScreen from "./screens/TrackerScreen";
 
-type Screen = "tailor" | "tracker" | "facts" | "settings";
+type Screen = "tailor" | "jobs" | "tracker" | "facts" | "settings";
 
 const MODEL_OPTIONS: MenuOption[] = [
   { value: "claude_code:sonnet", label: "Claude Code, Sonnet", detail: "Uses your Claude plan", group: "Claude" },
@@ -44,7 +45,7 @@ export default function App() {
   const toast = useToast();
   // Browser-only deep links (mock mode): ?screen=settings, ?run=sample&step=rescore
   const params = new URLSearchParams(window.location.search);
-  const [screen, setScreen] = useState<Screen>(() => (["tracker", "facts", "settings"].includes(params.get("screen") ?? "") ? (params.get("screen") as Screen) : "tailor"));
+  const [screen, setScreen] = useState<Screen>(() => (["jobs", "tracker", "facts", "settings"].includes(params.get("screen") ?? "") ? (params.get("screen") as Screen) : "tailor"));
   const [collapsed, setCollapsed] = useCollapsed();
   const [cmdOpen, setCmdOpen] = useState(false);
   const [info, setInfo] = useState<AppInfo | null>(null);
@@ -116,9 +117,20 @@ export default function App() {
     }
   }, [toast]);
 
+  /* A listing picked on the Jobs screen, waiting to be tailored. */
+  const [prefill, setPrefill] = useState<TailorRequest | null>(null);
+
   const newRun = useCallback(() => {
     setRunId(null);
     setCurrent(null);
+    setPrefill(null);
+    setScreen("tailor");
+  }, []);
+
+  const tailorListing = useCallback((request: TailorRequest) => {
+    setRunId(null);
+    setCurrent(null);
+    setPrefill(request);
     setScreen("tailor");
   }, []);
 
@@ -165,6 +177,7 @@ export default function App() {
       { id: "run", group: "Tailor", label: current ? "Next step" : "Tailor the pasted posting", hint: `${modKey}↵`, keywords: "run start continue", icon: <IconTheme />, run: () => emit(current ? (current.rescore ? "export" : "rescore") : "run") },
       { id: "accept-all", group: "Tailor", label: "Accept every rewrite that passed the checks", icon: <IconPlus />, keywords: "approve all", run: () => emit("accept-all") },
       { id: "export", group: "Tailor", label: "Go to export", keywords: "pdf save", icon: <IconPlus />, run: () => emit("export") },
+      { id: "jobs", group: "Go to", label: "Jobs", icon: <IconJobs />, keywords: "internships listings simplify speedyapply", run: () => setScreen("jobs") },
       { id: "tracker", group: "Go to", label: "Applications", icon: <IconBriefcase />, keywords: "tracker", run: () => setScreen("tracker") },
       { id: "facts", group: "Go to", label: "Facts bank", icon: <IconFacts />, run: () => setScreen("facts") },
       { id: "settings", group: "Go to", label: "Settings", hint: `${modKey},`, icon: <IconSettings />, keywords: "keys api model stopwatch baseline", run: () => setScreen("settings") },
@@ -191,9 +204,10 @@ export default function App() {
     return base;
   }, [current, newRun, theme, collapsed, importResume, runs, openRun, setTheme, setSetting, setCollapsed]);
 
-  const crumb = screen === "tailor" ? (current ? current.company || "Untitled posting" : "New posting") : screen === "tracker" ? "Applications" : screen === "facts" ? "Facts bank" : "Settings";
+  const crumb = screen === "tailor" ? (current ? current.company || "Untitled posting" : "New posting") : screen === "jobs" ? "Jobs" : screen === "tracker" ? "Applications" : screen === "facts" ? "Facts bank" : "Settings";
   const nav: { id: Screen; label: string; icon: React.ReactNode; hint?: string }[] = [
     { id: "tailor", label: "Tailor", icon: <IconPlus />, hint: `${modKey}N` },
+    { id: "jobs", label: "Jobs", icon: <IconJobs /> },
     { id: "tracker", label: "Applications", icon: <IconBriefcase /> },
     { id: "facts", label: "Facts bank", icon: <IconFacts /> },
     { id: "settings", label: "Settings", icon: <IconSettings /> },
@@ -293,8 +307,10 @@ export default function App() {
             importResume={importResume}
             hasBase={!!info?.has_base_resume}
             setExportDir={(d) => setSetting("export_dir", d)}
+            prefill={prefill}
           />
         )}
+        {screen === "jobs" && <JobsScreen onTailor={tailorListing} />}
         {screen === "tracker" && <TrackerScreen openRun={openRun} />}
         {screen === "facts" && <FactsScreen />}
         {screen === "settings" && <SettingsScreen info={info} settings={settings} setSetting={setSetting} theme={theme} setTheme={setTheme} importResume={importResume} onInfo={setInfo} />}

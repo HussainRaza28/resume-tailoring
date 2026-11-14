@@ -6,7 +6,7 @@
  */
 import { emit as emitTo, installMockBackend } from "./ipc";
 import samplePosting from "../../../tests/fixtures/sample_posting.txt?raw";
-import type { Application, BaselineEntry, CheckedRewrite, Coverage, Diagnosis, Fact, Rescore, RunRecord, RunState, StepEvent } from "./api";
+import type { Application, BaselineEntry, CheckedRewrite, Coverage, Diagnosis, Fact, JobsView, Listing, Rescore, RunRecord, RunState, StepEvent } from "./api";
 
 const SAMPLE_POSTING = samplePosting.trim();
 
@@ -89,6 +89,7 @@ function coverage(after: boolean): Coverage {
 type Db = {
   runs: Map<string, RunState>;
   apps: Application[];
+  jobsFetchedAt: string | null;
   facts: Fact[];
   baseline: BaselineEntry[];
   settings: Record<string, string>;
@@ -96,13 +97,40 @@ type Db = {
   hasBase: boolean;
 };
 
+const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+const job = (company: string, role: string, locations: string[], age: number, url: string, sources: string[], isNew = false): Listing & { isNew: boolean } => ({
+  id: url.split("?")[0],
+  company,
+  role,
+  locations,
+  date_posted: daysAgo(age),
+  url,
+  sources,
+  first_seen_at: "",
+  isNew,
+});
+
+/** Sample listings in the shape the two repos give. The Workday one can't be read, like the real thing. */
+const JOBS = [
+  job("Larkspur Freight", "Software Engineer Intern, Platform", ["Chicago, IL"], 0, "https://jobs.larkspur.example/platform-intern", ["Simplify", "SpeedyApply"], true),
+  job("Northbeam Energy", "Backend Software Intern - Summer 2027", ["Denver, CO", "Remote in USA"], 0, "https://northbeam.wd5.myworkdayjobs.com/en-US/careers/job/Backend-Intern_R1023", ["Simplify"], true),
+  job("Harbor Analytics", "Data Engineering Intern", ["Boston, MA"], 2, "https://jobs.harbor.example/data-intern", ["SpeedyApply"]),
+  job("Kestrel Robotics", "Software Intern, Autonomy", ["Pittsburgh, PA"], 4, "https://kestrel.example/careers/autonomy-intern", ["Simplify"]),
+  job("Quillstone", "Full-Stack Intern", ["New York, NY"], 6, "https://quillstone.example/jobs/fullstack", ["Simplify"]),
+  job("Morrow Health", "Backend Engineering Intern", ["Remote"], 12, "https://morrow.example/jobs/backend-intern", ["SpeedyApply"]),
+  job("Tessellate", "Machine Learning Intern", ["San Francisco, CA", "Seattle, WA", "Austin, TX"], 25, "https://tessellate.example/ml-intern", ["Simplify"]),
+  job("Brightline Labs", "Software Engineering Intern", ["London, UK"], 40, "https://brightline.example/swe-intern", ["SpeedyApply"]),
+];
+
 const db: Db = {
   runs: new Map(),
+  // Two hours old, so opening Jobs refreshes it, as the app does after an hour.
+  jobsFetchedAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
   apps: [
-    { id: 1, run_id: null, company: "Harbor Analytics", role: "Data Engineering Intern", date: "2026-11-02", status: "interview", notes: "Phone screen Nov 18" },
-    { id: 2, run_id: null, company: "Kestrel Robotics", role: "Software Intern, Autonomy", date: "2026-10-27", status: "applied", notes: "" },
-    { id: 3, run_id: null, company: "Morrow Health", role: "Backend Engineering Intern", date: "2026-10-19", status: "rejected", notes: "Position filled" },
-    { id: 4, run_id: null, company: "Quillstone", role: "Full-Stack Intern", date: "2026-10-12", status: "offer", notes: "Decide by Dec 1" },
+    { id: 1, run_id: null, company: "Harbor Analytics", role: "Data Engineering Intern", date: "2026-11-02", status: "interview", notes: "Phone screen Nov 18", url: "" },
+    { id: 2, run_id: null, company: "Kestrel Robotics", role: "Software Intern, Autonomy", date: "2026-10-27", status: "applied", notes: "", url: "" },
+    { id: 3, run_id: null, company: "Morrow Health", role: "Backend Engineering Intern", date: "2026-10-19", status: "rejected", notes: "Position filled", url: "" },
+    { id: 4, run_id: null, company: "Quillstone", role: "Full-Stack Intern", date: "2026-10-12", status: "offer", notes: "Decide by Dec 1", url: "" },
   ],
   facts: [{ id: "f1", text: "Used Redis to cache route lookups at Northwind Logistics", question: null, bullet_text: null, created_at: "2026-11-01T12:00:00Z" }],
   baseline: [
@@ -452,13 +480,47 @@ export async function installMock() {
         r.exported_at_ms = r.exported_at_ms ?? Date.now();
         r.exported_path = `${a.dir}/${exportName(r.company)}`;
         r.pages = 1;
-        if (!db.apps.some((x) => x.run_id === r.id)) db.apps.unshift({ id: Date.now(), run_id: r.id, company: r.company, role: r.role, date: new Date().toISOString().slice(0, 10), status: "tailored", notes: "" });
+        if (!db.apps.some((x) => x.run_id === r.id)) db.apps.unshift({ id: Date.now(), run_id: r.id, company: r.company, role: r.role, date: new Date().toISOString().slice(0, 10), status: "tailored", notes: "", url: "" });
         return structuredClone(r);
       }
+      case "jobs_open":
+      case "jobs_refresh": {
+        if (cmd === "jobs_refresh") {
+          await sleep(400 / speed());
+          db.jobsFetchedAt = new Date().toISOString();
+        }
+        const view: JobsView = {
+          fetched_at: db.jobsFetchedAt,
+          errors: {},
+          listings: JOBS.map(({ isNew: _isNew, ...x }) => x),
+          new_ids: JOBS.filter((x) => x.isNew).map((x) => x.id),
+          applied_urls: db.apps.map((x) => x.url).filter(Boolean),
+        };
+        return structuredClone(view);
+      }
+      case "job_posting": {
+        await sleep(300 / speed());
+        const url = String(a.url);
+        if (url.includes("myworkdayjobs.com")) return { ok: false, text: "", reason: "The page didn't include the posting's text." };
+        return { ok: true, text: SAMPLE_POSTING, reason: "" };
+      }
+      case "mark_applied": {
+        const url = String(a.url);
+        const seen = db.apps.find((x) => x.url && x.url === url);
+        if (seen) {
+          seen.status = "applied";
+          return structuredClone(seen);
+        }
+        const entry: Application = { id: Date.now(), run_id: null, company: String(a.company), role: String(a.role), date: new Date().toISOString().slice(0, 10), status: "applied", notes: "", url };
+        db.apps.unshift(entry);
+        return structuredClone(entry);
+      }
+      case "open_url":
+        return null;
       case "list_applications":
         return structuredClone(db.apps);
       case "add_application":
-        db.apps.unshift({ id: Date.now(), run_id: null, company: String(a.company), role: String(a.role), date: String(a.date), status: a.status as Application["status"], notes: "" });
+        db.apps.unshift({ id: Date.now(), run_id: null, company: String(a.company), role: String(a.role), date: String(a.date), status: a.status as Application["status"], notes: "", url: String(a.url ?? "") });
         return 1;
       case "update_application": {
         const x = a.application as Application;
