@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Listing } from "../lib/api";
-import { STALE_MS, filterListings, isStale, updatedLabel } from "./JobsScreen";
+import { STALE_MS, filterListings, isStale, meansUs, updatedLabel } from "./JobsScreen";
 
-const listing = (company: string, role: string, locations: string[], date_posted: string): Listing => ({
+const listing = (company: string, role: string, locations: string[], date_posted: string, us = true, advanced_degree = false): Listing => ({
   id: `https://jobs.example.com/${company}`,
   company,
   role,
@@ -11,6 +11,8 @@ const listing = (company: string, role: string, locations: string[], date_posted
   url: `https://jobs.example.com/${company}`,
   sources: ["Simplify"],
   first_seen_at: "",
+  advanced_degree,
+  us,
 });
 
 const LISTINGS = [
@@ -18,8 +20,13 @@ const LISTINGS = [
   listing("Harbor Analytics", "Data Engineering Intern", ["Boston, MA"], "2026-11-12"),
   listing("Tessellate", "Machine Learning Intern", ["San Francisco, CA", "Remote"], "2026-10-20"),
 ];
+const MORE = [
+  ...LISTINGS,
+  listing("Maple Systems", "Backend Developer Intern", ["Toronto, ON, Canada"], "2026-11-13", false),
+  listing("Tessellate", "Research Intern, PhD", ["San Francisco, CA"], "2026-11-09", true, true),
+];
 const TODAY = new Date("2026-11-14T15:00:00Z");
-const none = { search: "", company: "", role: "", location: "", range: "any" };
+const none = { search: "", company: "", role: "", location: "", range: "any", advanced: false };
 
 describe("job filters", () => {
   it("shows everything with no filters", () => {
@@ -39,6 +46,20 @@ describe("job filters", () => {
     expect(filterListings(LISTINGS, { ...none, range: "1" }, TODAY).map((x) => x.company)).toEqual(["Larkspur Freight"]);
     expect(filterListings(LISTINGS, { ...none, range: "7" }, TODAY)).toHaveLength(2);
     expect(filterListings(LISTINGS, { ...none, range: "30" }, TODAY)).toHaveLength(3);
+  });
+});
+
+describe("US and degree filters", () => {
+  it("United States matches every US listing, whatever city it names", () => {
+    for (const q of ["United States", "united states", "USA", "US", " u.s. "]) {
+      expect(filterListings(MORE, { ...none, location: q }, TODAY).map((x) => x.company), q).toEqual(["Larkspur Freight", "Harbor Analytics", "Tessellate"]);
+    }
+    expect(meansUs("us east")).toBe(false);
+    expect(filterListings(MORE, { ...none, location: "toronto" }, TODAY).map((x) => x.company)).toEqual(["Maple Systems"]);
+  });
+  it("hides PhD and Master's roles until asked", () => {
+    expect(filterListings(MORE, none, TODAY).some((x) => x.advanced_degree)).toBe(false);
+    expect(filterListings(MORE, { ...none, advanced: true }, TODAY).filter((x) => x.advanced_degree)).toHaveLength(1);
   });
 });
 

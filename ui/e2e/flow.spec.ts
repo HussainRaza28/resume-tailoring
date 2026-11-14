@@ -149,42 +149,60 @@ test("jobs: refresh, filter, new badges, tailor a listing and mark one applied",
   // The cached list is two hours old, so opening the screen refreshes it.
   await expect(page.getByText("Updated just now")).toBeVisible({ timeout: 10_000 });
   const rows = page.locator(".jobs-table tbody tr");
-  await expect(rows).toHaveCount(8);
+  await expect(rows).toHaveCount(9, { timeout: 10_000 });
   await expect(page.locator(".new-badge")).toHaveCount(2);
   await expect(rows.filter({ hasText: "Larkspur Freight" })).toContainText("Simplify, SpeedyApply");
 
+  // PhD and Master's roles are hidden until asked for.
+  await expect(rows.filter({ hasText: "Research Intern, PhD" })).toHaveCount(0);
+  await page.getByLabel(/Show PhD and Master's roles/).check();
+  await expect(rows).toHaveCount(10);
+  await page.getByLabel(/Show PhD and Master's roles/).uncheck();
+
+  // "United States" matches every US listing, not just ones that say so.
+  await page.getByLabel("Location").fill("United States");
+  await expect(rows).toHaveCount(7);
+  await expect(rows.filter({ hasText: "Maple Systems" })).toHaveCount(0);
+  await expect(rows.filter({ hasText: "Brightline Labs" })).toHaveCount(0);
+  await page.getByLabel("Location").fill("");
+
   // Search and filters
   await page.getByPlaceholder("Search company, role or location").fill("backend");
-  await expect(rows).toHaveCount(2);
+  await expect(rows).toHaveCount(3);
   await page.getByLabel("Location").fill("remote");
   await expect(rows).toHaveCount(2);
   await page.getByLabel("Company").fill("morrow");
   await expect(rows).toHaveCount(1);
-  await expect(page.getByText("1 of 8 match")).toBeVisible();
+  await expect(page.getByText("1 match")).toBeVisible();
   await page.getByPlaceholder("Search company, role or location").fill("");
   await page.getByLabel("Location").fill("");
   await page.getByLabel("Company").fill("");
   await page.getByLabel("Date posted").selectOption({ label: "Past week" });
-  await expect(rows).toHaveCount(5);
+  await expect(rows).toHaveCount(6);
   await page.getByLabel("Date posted").selectOption({ label: "Any time" });
+
+  // Each row links to its posting.
+  await expect(page.getByRole("button", { name: /Open the Quillstone posting/ })).toBeVisible();
 
   // Mark applied: it goes into the tracker with its link.
   await page.getByRole("button", { name: "Mark Quillstone applied" }).click();
   await expect(rows.filter({ hasText: "Quillstone" }).getByText("Applied")).toBeVisible();
 
   // A Workday posting can't be read: the Tailor screen asks for a paste, with company and role filled in.
-  await rows.filter({ hasText: "Northbeam Energy" }).getByRole("button", { name: "Tailor for this" }).click();
+  await rows.filter({ hasText: "Northbeam Energy" }).getByRole("button", { name: "Tailor" }).click();
   await expect(page.getByText("Paste the posting to continue")).toBeVisible();
   await expect(page.getByLabel("Company")).toHaveValue("Northbeam Energy");
   await expect(page.getByLabel("Role")).toHaveValue("Backend Software Intern - Summer 2027");
   await expect(page.getByLabel("Job posting")).toHaveValue("");
 
-  // A readable posting arrives filled in.
+  // A readable posting arrives filled in, and the run keeps its link.
   await page.getByRole("button", { name: "Jobs" }).first().click();
-  await rows.filter({ hasText: "Larkspur Freight" }).getByRole("button", { name: "Tailor for this" }).click();
+  await rows.filter({ hasText: "Larkspur Freight" }).getByRole("button", { name: "Tailor" }).click();
   await expect(page.getByText(/Posting read from jobs.larkspur.example/)).toBeVisible();
   await expect(page.getByLabel("Job posting")).not.toHaveValue("");
   await expect(page.getByLabel("Role")).toHaveValue("Software Engineer Intern, Platform");
+  await page.getByLabel("Job posting").press(`${mod}+Enter`);
+  await expect(page.locator(".run-title").getByRole("button", { name: /View posting/ })).toBeVisible({ timeout: 20_000 });
 
   await page.getByRole("button", { name: "Applications" }).first().click();
   await expect(page.getByRole("button", { name: "Open the Quillstone posting" })).toBeVisible();

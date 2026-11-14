@@ -59,7 +59,7 @@ Tailor removes `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` when it starts `cl
 
 Every step shows the company, the role and a link back to the posting.
 
-**Jobs** lists open internships from the [Simplify](https://github.com/SimplifyJobs/Summer2027-Internships) and [SpeedyApply](https://github.com/speedyapply/2027-SWE-College-Jobs) lists on GitHub, newest first. Search, or filter by company, role, location and date posted. Listings that appeared since your last visit say New. The list refreshes when you open it if it's more than an hour old, and the last copy is kept so it works offline. "Tailor for this" reads the posting from its link and starts a run; when a site (Workday, for example) won't show the posting to the app, you get the company and role filled in and a button to open the posting so you can paste it. "Mark applied" adds it to your applications with the link.
+**Jobs** lists open internships from the [Simplify](https://github.com/SimplifyJobs/Summer2027-Internships), [vanshb03](https://github.com/vanshb03/Summer2027-Internships) and [SpeedyApply](https://github.com/speedyapply/2027-SWE-College-Jobs) lists on GitHub, newest first, with a posting that's on more than one list shown once. Search, or filter by company, role, location and date posted. Typing "United States" (or US, USA) in Location matches every US listing, whatever city it names. Roles only open to Master's or PhD students are hidden unless you tick "Show PhD and Master's roles". Each role links to its posting. Listings that appeared since your last visit say New. The list refreshes when you open it if it's more than an hour old, and the last copy is kept so it works offline. "Tailor" reads the posting from its link and starts a run; when a site (Workday, for example) won't show the posting to the app, you get the company and role filled in and a button to open the posting so you can paste it. "Mark applied" adds it to your applications with the link.
 
 The preview on the right updates as you decide. Cmd+K or Ctrl+K opens the command bar to search history and switch screens. The sidebar has your history, an application tracker and the facts bank. In the facts bank you can drop a PDF, Word, text or Markdown file, or paste a link to your site, and Tailor suggests facts from it; nothing is saved until you accept it.
 
@@ -68,7 +68,7 @@ The preview on the right updates as you decide. Cmd+K or Ctrl+K opens the comman
 - Your resume, postings, outputs, facts bank and history stay in a private folder on your computer. You can see where it is, or move it, in Settings under Data.
 - A run sends your resume and the posting to the provider you chose, and only that provider. Ollama and the offline demo send nothing anywhere.
 - API keys live in the system keychain.
-- The Jobs screen downloads the two public listing files from GitHub. Nothing about you is sent.
+- The Jobs screen downloads the three public listing files from GitHub. Nothing about you is sent.
 - The app has no account, no analytics and no server of its own.
 
 ## Development

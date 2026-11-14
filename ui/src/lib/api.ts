@@ -173,6 +173,10 @@ export interface Listing {
   url: string;
   sources: string[];
   first_seen_at: string;
+  /** Only open to Master's or PhD students. */
+  advanced_degree: boolean;
+  /** At least one location is in the US. */
+  us: boolean;
 }
 
 export interface JobsView {

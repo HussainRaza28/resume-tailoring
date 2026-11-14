@@ -1,5 +1,5 @@
 /**
- * Jobs: internship listings from the Simplify and SpeedyApply repos.
+ * Jobs: internship listings from the Simplify, vanshb03 and SpeedyApply repos.
  *
  * Opening the screen shows the cached listings at once, then refreshes them if
  * the last fetch is more than an hour old. Search and the filters run in the
@@ -43,9 +43,13 @@ export function isStale(fetchedAt: string | null, now: number): boolean {
   return !fetchedAt || now - Date.parse(fetchedAt) > STALE_MS;
 }
 
-type Filters = { search: string; company: string; role: string; location: string; range: string };
+type Filters = { search: string; company: string; role: string; location: string; range: string; advanced: boolean };
 
 const has = (hay: string, needle: string) => hay.toLowerCase().includes(needle.trim().toLowerCase());
+
+/** Typed into the location filter, these mean anywhere in the US. Same list as places.py. */
+const US_QUERIES = new Set(["us", "usa", "u.s.", "u.s.a.", "united states", "united states of america", "america"]);
+export const meansUs = (q: string) => US_QUERIES.has(q.trim().toLowerCase().replace(/\s+/g, " "));
 
 /** The filters, applied in the page. Each text filter matches anywhere in its field. */
 export function filterListings(listings: Listing[], f: Filters, today: Date): Listing[] {
@@ -56,8 +60,9 @@ export function filterListings(listings: Listing[], f: Filters, today: Date): Li
       (!f.search.trim() || has(`${x.company} ${x.role} ${x.locations.join(" ")}`, f.search)) &&
       (!f.company.trim() || has(x.company, f.company)) &&
       (!f.role.trim() || has(x.role, f.role)) &&
-      (!f.location.trim() || x.locations.some((l) => has(l, f.location))) &&
-      (!since || x.date_posted >= since),
+      (!f.location.trim() || (meansUs(f.location) ? x.us : x.locations.some((l) => has(l, f.location)))) &&
+      (!since || x.date_posted >= since) &&
+      (f.advanced || !x.advanced_degree),
   );
 }
 
@@ -71,7 +76,7 @@ export default function JobsScreen({ onTailor }: { onTailor: (request: TailorReq
   const [view, setView] = useState<JobsView | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [now, setNow] = useState(Date.now());
-  const [filters, setFilters] = useState<Filters>({ search: "", company: "", role: "", location: "", range: "any" });
+  const [filters, setFilters] = useState<Filters>({ search: "", company: "", role: "", location: "", range: "any", advanced: false });
   const [limit, setLimit] = useState(PAGE);
   const [opening, setOpening] = useState<string | null>(null);
 
@@ -119,11 +124,13 @@ export default function JobsScreen({ onTailor }: { onTailor: (request: TailorReq
   const shown = useMemo(() => filterListings(listings, filters, new Date(now)), [listings, filters, now]);
   const companies = useMemo(() => Array.from(new Set(listings.map((x) => x.company))).sort(), [listings]);
   const places = useMemo(() => Array.from(new Set(listings.flatMap((x) => x.locations))).sort(), [listings]);
-  const set = (k: keyof Filters) => (v: string) => {
+  const set = (k: Exclude<keyof Filters, "advanced">) => (v: string) => {
     setFilters((f) => ({ ...f, [k]: v }));
     setLimit(PAGE);
   };
-  const filtered = Object.entries(filters).some(([k, v]) => (k === "range" ? v !== "any" : v.trim()));
+  const filtered = Object.entries(filters).some(([k, v]) => (k === "advanced" ? false : k === "range" ? v !== "any" : String(v).trim()));
+  const advancedCount = useMemo(() => listings.filter((x) => x.advanced_degree).length, [listings]);
+  const open = (x: Listing) => api.openUrl(x.url).catch(() => window.open(x.url, "_blank"));
 
   const tailor = async (x: Listing) => {
     setOpening(x.id);
@@ -153,10 +160,7 @@ export default function JobsScreen({ onTailor }: { onTailor: (request: TailorReq
         <div className="title-row">
           <div className="grow">
             <h1>Jobs</h1>
-            <p className="sub">
-              Internships from the Simplify and SpeedyApply lists on GitHub.{" "}
-              {view ? `${listings.length.toLocaleString()} open${newIds.size ? `, ${newIds.size} new since your last visit` : ""}.` : ""}
-            </p>
+            <p className="sub">{view ? `${listings.length.toLocaleString()} open internships${newIds.size ? ` · ${newIds.size} new` : ""}` : " "}</p>
           </div>
           <span className="small muted num" aria-live="polite">
             {refreshing ? "Updating…" : updatedLabel(view?.fetched_at ?? null, now)}
@@ -182,6 +186,10 @@ export default function JobsScreen({ onTailor }: { onTailor: (request: TailorReq
               </option>
             ))}
           </select>
+          <label className="toggle small muted jobs-advanced">
+            <input type="checkbox" checked={filters.advanced} onChange={(e) => setFilters((f) => ({ ...f, advanced: e.target.checked }))} />
+            Show PhD and Master's roles{advancedCount ? ` (${advancedCount.toLocaleString()})` : ""}
+          </label>
           <datalist id="jobs-companies">
             {companies.map((c) => (
               <option key={c} value={c} />
@@ -206,7 +214,7 @@ export default function JobsScreen({ onTailor }: { onTailor: (request: TailorReq
           ) : (
             <>
               <div className="jobs-count small muted num">
-                {filtered ? `${shown.length.toLocaleString()} of ${listings.length.toLocaleString()} match` : `${listings.length.toLocaleString()} listings, newest first`}
+                {filtered ? `${shown.length.toLocaleString()} match` : `${shown.length.toLocaleString()} listings, newest first`}
               </div>
               <table className="table jobs-table">
                 <thead>
@@ -226,27 +234,28 @@ export default function JobsScreen({ onTailor }: { onTailor: (request: TailorReq
                         <span style={{ fontWeight: 500 }}>{x.company}</span>
                         {newIds.has(x.id) && <span className="pill pill-positive new-badge">New</span>}
                       </td>
-                      <td>{x.role}</td>
+                      <td>
+                        <button className="link-button role-link" onClick={() => open(x)} aria-label={`Open the ${x.company} posting: ${x.role}`}>
+                          {x.role} <IconExternal size={13} />
+                        </button>
+                      </td>
                       <td className="muted">{x.locations.length > 2 ? `${x.locations.slice(0, 2).join(", ")} +${x.locations.length - 2}` : x.locations.join(", ") || "–"}</td>
                       <td className="num muted" title={x.date_posted}>
                         {prettyDate(x.date_posted)}
                       </td>
                       <td className="small muted">{x.sources.join(", ")}</td>
                       <td className="jobs-actions">
-                        <button className="btn btn-sm btn-primary" onClick={() => tailor(x)} disabled={opening !== null}>
-                          {opening === x.id ? "Reading…" : "Tailor for this"}
-                        </button>
                         {applied.has(x.url) ? (
-                          <span className="small muted applied-mark">
+                          <span className="small muted applied-mark" title="In Applications">
                             <IconCheck size={12} /> Applied
                           </span>
                         ) : (
-                          <button className="btn btn-sm" onClick={() => markApplied(x)} aria-label={`Mark ${x.company} applied`}>
+                          <button className="btn btn-sm btn-ghost" onClick={() => markApplied(x)} aria-label={`Mark ${x.company} applied`}>
                             Mark applied
                           </button>
                         )}
-                        <button className="btn btn-icon" onClick={() => api.openUrl(x.url).catch(() => window.open(x.url, "_blank"))} aria-label={`Open the ${x.company} posting`}>
-                          <IconExternal />
+                        <button className="btn btn-sm btn-primary" onClick={() => tailor(x)} disabled={opening !== null}>
+                          {opening === x.id ? "Reading…" : "Tailor"}
                         </button>
                       </td>
                     </tr>

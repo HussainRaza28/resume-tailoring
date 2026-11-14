@@ -2041,6 +2041,22 @@ ul.skills,
   gap: 10px;
   align-items: center;
 }
+.jobs-advanced {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.role-link {
+  color: var(--text);
+  text-decoration: none;
+  text-align: left;
+}
+.role-link svg {
+  color: var(--faint);
+  flex: none;
+}
 .jobs-search {
   position: relative;
   display: flex;
@@ -2078,6 +2094,10 @@ ul.skills,
 }
 .jobs-actions > * + * {
   margin-left: 6px;
+}
+.jobs-actions .btn-ghost {
+  color: var(--muted);
+  font-weight: 400;
 }
 .applied-mark {
   display: inline-flex;

@@ -97,7 +97,7 @@ type Db = {
 };
 
 const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
-const job = (company: string, role: string, locations: string[], age: number, url: string, sources: string[], isNew = false): Listing & { isNew: boolean } => ({
+const job = (company: string, role: string, locations: string[], age: number, url: string, sources: string[], isNew = false, us = true, advanced = false): Listing & { isNew: boolean } => ({
   id: url.split("?")[0],
   company,
   role,
@@ -106,6 +106,8 @@ const job = (company: string, role: string, locations: string[], age: number, ur
   url,
   sources,
   first_seen_at: "",
+  advanced_degree: advanced,
+  us,
   isNew,
 });
 
@@ -118,7 +120,9 @@ const JOBS = [
   job("Quillstone", "Full-Stack Intern", ["New York, NY"], 6, "https://quillstone.example/jobs/fullstack", ["Simplify"]),
   job("Morrow Health", "Backend Engineering Intern", ["Remote"], 12, "https://morrow.example/jobs/backend-intern", ["SpeedyApply"]),
   job("Tessellate", "Machine Learning Intern", ["San Francisco, CA", "Seattle, WA", "Austin, TX"], 25, "https://tessellate.example/ml-intern", ["Simplify"]),
-  job("Brightline Labs", "Software Engineering Intern", ["London, UK"], 40, "https://brightline.example/swe-intern", ["SpeedyApply"]),
+  job("Brightline Labs", "Software Engineering Intern", ["London, UK"], 40, "https://brightline.example/swe-intern", ["SpeedyApply"], false, false),
+  job("Maple Systems", "Backend Developer Intern", ["Toronto, ON, Canada"], 3, "https://maple.example/backend-intern", ["vanshb03"], false, false),
+  job("Tessellate", "Research Intern, PhD", ["San Francisco, CA"], 5, "https://tessellate.example/research-phd", ["Simplify", "vanshb03"], false, true, true),
 ];
 
 const db: Db = {

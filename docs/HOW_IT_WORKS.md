@@ -22,7 +22,7 @@ You paste a job posting. The app reads your LaTeX resume into editable pieces ca
 | Window | `app/main.py` | Open the pywebview window |
 | Storage | `app/core/db.py`, `app/core/secrets.py` | SQLite and the keychain |
 | Facts import | `app/core/fact_import.py`, `app/importers/` | Suggest facts from a file or page |
-| Jobs | `app/importers/jobs.py` | Internship listings from two GitHub repos |
+| Jobs | `app/importers/jobs.py`, `places.py` | Internship listings from three GitHub repos |
 
 ## 1. Reading the resume: `tex.py`
 
@@ -138,13 +138,15 @@ Three more things are worked out in code, not by a model:
 
 You can drop a file (PDF, Word, text or Markdown) or paste a link to your site. `files.py` reads the text with `pypdf` or `python-docx`, and `web.py` fetches the page with `httpx2` and keeps its readable text with `beautifulsoup4`, listing any links that look like a resume PDF. The selected provider then suggests short, specific facts. Each suggestion goes through the same grounding check as a rewrite, with the document as its source, so a number the document doesn't contain is flagged. Then `covered_by` compares each suggestion with what you've already said: every bullet on the base resume with its heading, every skills line and every saved fact. If one of them supports all the suggestion's numbers, names and skills (the same grounding check again) and shares most of its words, the suggestion adds nothing new. It's shown in a closed "Already on your resume" group instead of with the new ones. Nothing is saved until you accept a suggestion, as it is or after editing it.
 
-## 8b. Jobs: `jobs.py`
+## 8b. Jobs: `jobs.py`, `places.py`
 
-The Jobs screen lists internships from two GitHub repos, written into the code: SimplifyJobs/Summer2027-Internships and speedyapply/2027-SWE-College-Jobs. The app downloads their files from `raw.githubusercontent.com`, so it needs no GitHub account or token.
+The Jobs screen lists internships from three GitHub repos, written into the code: SimplifyJobs/Summer2027-Internships, vanshb03/Summer2027-Internships and speedyapply/2027-SWE-College-Jobs. The app downloads their files from `raw.githubusercontent.com`, so it needs no GitHub account or token.
 
-Simplify keeps every listing it has ever posted in `.github/scripts/listings.json`, with an `active` flag, so `parse_simplify_json` keeps the active, visible ones. SpeedyApply publishes no data file, only Markdown tables in `README.md` (US internships) and `INTERN_INTL.md` (everywhere else). `parse_readme` reads those, finding the columns by their header names because one table has a Salary column and the others don't. The same function reads Simplify's HTML table if its JSON ever can't be loaded, and follows Simplify's markings: "↳" means the same company as the row above, and 🔒 means closed. A README only says how old a posting is ("3d"), so the date is counted back from the day of the fetch.
+Simplify keeps every listing it has ever posted in `.github/scripts/listings.json`, with an `active` flag, and vanshb03 keeps one in the same format, so `parse_listings_json` reads both and keeps the active, visible ones. SpeedyApply publishes no data file, only Markdown tables in `README.md` (US internships) and `INTERN_INTL.md` (everywhere else). `parse_readme` reads those, finding the columns by their header names because one table has a Salary column and the others don't. The same function reads Simplify's HTML table if its JSON ever can't be loaded, and follows Simplify's markings: "↳" means the same company as the row above, and 🔒 means closed. A README only says how old a posting is ("3d"), so the date is counted back from the day of the fetch.
 
-The same posting often appears in both repos. `canonical_url` strips tracking parameters such as `utm_source`, and `merge` keeps one entry per address with both sources listed.
+The same posting often appears in more than one repo. `canonical_url` strips tracking parameters such as `utm_source`, and `merge` keeps one entry per address with every source listed. vanshb03 links through its own short links, so its addresses never match the others; `merge` also treats the same company and title from two different lists as one posting when their places overlap.
+
+Each listing carries two flags. `advanced_degree` marks a role only open to Master's or PhD students: Simplify's JSON lists the degrees a role accepts, its README puts 🎓 on the role, and otherwise the title decides (PhD, Master's, MBA, doctoral). A role that also takes a Bachelor's isn't flagged. The screen hides flagged roles until you ask for them. `us` says whether any of the listing's places is in the US, from `places.is_us`. That's rules rather than a list of cities: a state name or code, DC or Puerto Rico, the country's names, remote in the US, and a few aliases for cities written without a state (NYC, SF, Chicago and so on). Anything naming Canada or a province isn't US, since "CA" also means California. Typing "United States", "US" or "USA" in the location filter then matches every listing with `us` set. The tests check the rules against location strings copied from the three lists.
 
 `JobsCache` saves the result as `jobs.json` in the data folder, so the list opens offline. If one repo can't be reached, its listings from the last good fetch stay. Each listing records when the app first saw it. Opening the screen starts a visit and remembers the one before, and a listing first seen after that earlier visit gets a New badge. Nothing is new on the very first visit. The page refreshes by itself when the list is more than an hour old.
 
