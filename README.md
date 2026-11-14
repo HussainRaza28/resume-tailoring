@@ -1,6 +1,6 @@
 # Tailor
 
-A desktop app for Mac and Windows that tailors a LaTeX resume to a job posting. Paste a posting and Tailor scores your resume and finds what a recruiter would flag, rewrites your bullets to fix it, scores the old and new versions side by side, and exports a one-page PDF in your own template.
+A desktop app for Mac and Windows that tailors a LaTeX resume to a job posting. Find an internship, tailor your resume to it, apply. Tailor scores your resume against the posting, rewrites the bullets that need it, and exports a one-page PDF in your own template.
 
 It doesn't invent anything. Every number, name and skill in a rewrite is checked in code against your resume and your facts bank, and a rewrite that adds something it can't back up is blocked, with the reason shown. Only the text of your bullets, headings and skills lines ever changes. Fonts, margins and sections stay exactly as you wrote them.
 
@@ -53,10 +53,11 @@ Tailor removes `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` when it starts `cl
 ## Using it
 
 1. **Paste a posting** and press Tailor (Cmd+Enter on a Mac, Ctrl+Enter on Windows). The company is filled in for you, and you can change it.
-2. **Diagnose.** Scores out of 100 as an ATS filter and as a hiring manager, the top three red flags a recruiter for this company spots in ten seconds, the sections a reader would skip, and the posting's keywords you can back up but don't show.
-3. **Rewrite.** Your Experience and Projects bullets, rewritten to fix what Diagnose found. Each bullet shows the old and new text side by side, with changed words highlighted, and which bullet or fact it came from. Accept with →, keep the original with ←, edit with E, or copy it. A blocked rewrite says why and can't be accepted until it's fixed. If a rewrite asks a question such as "How many users did it have?", your answer goes into the facts bank and the bullet is rewritten with it.
-4. **Re-score.** Your base resume and the tailored one scored side by side in one call, so the difference is your changes and not noise between runs. Any change that lowers the score is flagged with an Undo button. Keyword coverage is counted in code: how many of the required skills you have are on the page.
-5. **Export.** Save the PDF. It's named after you and the company, such as `Jordan_Sample_Resume_Larkspur_Freight.pdf`. A result longer than one page isn't exported; Tailor suggests which bullets to trim instead.
+2. **Score.** Your base resume's ATS score out of 100 and the top three red flags. Add anything the resume is missing in "Anything to add?" (it's saved to your facts bank, and Undo takes it out again), then press Rewrite.
+3. **Rewrite.** Only the bullets a red flag or missing keyword calls for, old and new side by side. Accept with → or keep the original with ←. A rewrite that invents something, or drops a tool or number your bullet had, is blocked and says why.
+4. **Done.** The score before and after, scored together so the difference is your changes, keyword coverage, and Export PDF. The PDF is named after you and the company, such as `Jordan_Sample_Resume_Larkspur_Freight.pdf`. A result longer than one page isn't exported; Tailor suggests which bullets to trim instead.
+
+Every step shows the company, the role and a link back to the posting.
 
 **Jobs** lists open internships from the [Simplify](https://github.com/SimplifyJobs/Summer2027-Internships) and [SpeedyApply](https://github.com/speedyapply/2027-SWE-College-Jobs) lists on GitHub, newest first. Search, or filter by company, role, location and date posted. Listings that appeared since your last visit say New. The list refreshes when you open it if it's more than an hour old, and the last copy is kept so it works offline. "Tailor for this" reads the posting from its link and starts a run; when a site (Workday, for example) won't show the posting to the app, you get the company and role filled in and a button to open the posting so you can paste it. "Mark applied" adds it to your applications with the link.
 
