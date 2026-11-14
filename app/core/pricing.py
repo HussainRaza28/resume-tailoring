@@ -31,7 +31,7 @@ CLAUDE_PRICES = {
 
 FREE = Price(0.0, 0.0, 0.0, 0.0)
 # Providers that never charge per token.
-FREE_PROVIDERS = {"claude_code", "gemini", "ollama", "demo", "fake"}
+FREE_PROVIDERS = {"claude_code", "codex", "gemini", "ollama", "demo", "fake"}
 
 
 def price_for(provider: str, model: str) -> Price | None:

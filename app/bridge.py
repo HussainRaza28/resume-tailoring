@@ -63,10 +63,11 @@ from app.core.secrets import KEY_NAMES, SecretError, SecretStore, mask
 from app.core.skills import Coverage, PostingSkills
 from app.core.tex import TexDoc, TexError, read_tex
 from app.importers import files, jobs, web
-from app.providers import claude_code
+from app.providers import claude_code, codex
 from app.providers.base import Provider, ProviderError, Usage
 from app.providers.claude_api import ClaudeApiProvider
 from app.providers.claude_code import ClaudeCodeProvider
+from app.providers.codex import CodexProvider
 from app.providers.demo import DemoProvider
 from app.providers.gemini import GeminiProvider
 from app.providers.ollama import DEFAULT_HOST, OllamaProvider
@@ -80,6 +81,8 @@ DEFAULT_PROVIDER = "claude_code"
 DEFAULT_MODELS = {
     "claude_api": "claude-sonnet-5-5",
     "claude_code": "sonnet",
+    # "default" leaves the choice to Codex, which picks the model the ChatGPT plan offers.
+    "codex": "default",
     "gemini": "gemini-flash-latest",
     "demo": "demo",
 }
@@ -89,6 +92,7 @@ SETTING_KEYS = (
     "provider",
     "model.claude_api",
     "model.claude_code",
+    "model.codex",
     "model.gemini",
     "model.ollama",
     "model.demo",
@@ -397,6 +401,8 @@ class Backend:
             return ClaudeApiProvider(self._key("claude_api"), model=model, effort=effort)
         if provider == "claude_code":
             return ClaudeCodeProvider(model=model, effort=effort)
+        if provider == "codex":
+            return CodexProvider(model="" if model == "default" else model)
         if provider == "gemini":
             return GeminiProvider(self._key("gemini"), model=model)
         if provider == "ollama":
@@ -607,6 +613,9 @@ class Backend:
 
     def claude_code_status(self) -> dict:
         return claude_code.status()
+
+    def codex_status(self) -> dict:
+        return codex.status()
 
     # -- runs ----------------------------------------------------------------
 
@@ -1086,7 +1095,7 @@ class Backend:
 # Every command the page may run. Anything else is refused.
 COMMANDS = (
     "app_info", "change_data_dir", "show_data_dir", "key_status", "save_key", "delete_key", "import_base_resume", "base_resume_info",
-    "compile_base", "ollama_models", "gemini_models", "claude_code_status",
+    "compile_base", "ollama_models", "gemini_models", "claude_code_status", "codex_status",
     "start_run", "get_run_state", "update_run_meta", "run_step", "decide", "toggle_remove",
     "add_note", "undo_note", "compile_run", "export_run", "tailored_source",
     "list_runs", "delete_run", "list_applications", "add_application", "update_application",
