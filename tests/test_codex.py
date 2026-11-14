@@ -8,6 +8,7 @@ shapes for a failed turn were copied from the real CLI.
 
 import json
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -101,7 +102,8 @@ def test_flags_prompt_schema_and_environment(fake):
         assert flag in argv, flag
     assert argv[argv.index("-s") + 1] == "read-only"
     assert argv[argv.index("-m") + 1] == "gpt-5.5"
-    assert argv[argv.index("-C") + 1] == rec["cwd"], "runs in its own empty folder"
+    # Compared resolved: on macOS the temp folder is under /var, which is a link to /private/var.
+    assert Path(argv[argv.index("-C") + 1]).resolve() == Path(rec["cwd"]).resolve(), "runs in its own empty folder"
     # The step's schema goes in a file, and the whole prompt on standard input.
     assert rec["schema"]["additionalProperties"] is False
     assert set(rec["schema"]["required"]) == {"company", "role", "red_flags"}
