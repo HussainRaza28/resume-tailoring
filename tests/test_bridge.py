@@ -112,7 +112,7 @@ def test_keys_are_masked_and_validated(h):
 def test_missing_key_is_reported_when_a_step_runs(ready):
     ready.ok("set_setting", key="provider", value="claude_api")
     run = ready.ok("start_run", posting=POSTING)
-    assert ready.err("run_step", runId=run["id"], step="red_flags")["kind"] == "missing_key"
+    assert ready.err("run_step", runId=run["id"], step="diagnose")["kind"] == "missing_key"
 
 
 def test_settings_are_limited_to_known_keys(h):
@@ -132,8 +132,9 @@ def test_whole_flow_with_the_demo_provider(ready):
     assert run["export_name"].startswith("Jordan_Sample_Resume")
     assert run["coverage_before"] is not None
 
-    run = ready.ok("run_step", runId=run["id"], step="red_flags", onEvent="ch1")
-    assert len(run["red_flags"]["red_flags"]) == 3
+    run = ready.ok("run_step", runId=run["id"], step="diagnose", onEvent="ch1")
+    assert len(run["diagnosis"]["red_flags"]) == 3
+    assert run["diagnosis"]["score"]["overall"] > 0
     kinds = [e["type"] for c, e in ready.events if c == "ch1"]
     assert kinds[0] == "started" and kinds[-1] == "finished" and "delta" in kinds
 
@@ -145,14 +146,18 @@ def test_whole_flow_with_the_demo_provider(ready):
     run = ready.ok("decide", runId=run["id"], bulletId=bullet, action="accept")
     assert run["decisions"][bullet] == {"state": "accepted", "origin": "rewrite"}
 
-    run = ready.ok("run_step", runId=run["id"], step="review", onEvent="ch3")
-    assert run["review_before"]["score"] > 0 and run["review_after"]["score"] > 0
-    assert [s["step"] for s in run["steps"]] == ["red_flags", "rewrite", "review_before", "review_after"]
+    run = ready.ok("run_step", runId=run["id"], step="rescore", onEvent="ch3")
+    scores = run["rescore"]
+    assert scores["tailored"]["overall"] > scores["base"]["overall"]
+    assert [c["bullet_id"] for c in scores["changes"]] == [bullet]
+    assert scores["scored"] == {bullet: changed[0]["new_text"]}
+    assert [s["step"] for s in run["steps"]] == ["diagnose", "rewrite", "rescore"]
     assert all(s["cost_usd"] == 0.0 for s in run["steps"])
 
     record = ready.ok("list_runs")[0]
-    assert record["id"] == run["id"] and record["score_after"] == run["review_after"]["score"]
-    assert len(ready.db.step_logs(run["id"])) == 4
+    assert record["id"] == run["id"]
+    assert (record["score_before"], record["score_after"]) == (scores["base"]["overall"], scores["tailored"]["overall"])
+    assert len(ready.db.step_logs(run["id"])) == 3
 
     source = ready.ok("tailored_source", runId=run["id"])
     assert changed[0]["new_text"].replace("&", "\\&") in source
@@ -160,10 +165,43 @@ def test_whole_flow_with_the_demo_provider(ready):
 
 def test_state_survives_a_restart(ready, tmp_path):
     run = ready.ok("start_run", posting=POSTING)
-    run = ready.ok("run_step", runId=run["id"], step="red_flags")
+    run = ready.ok("run_step", runId=run["id"], step="diagnose")
     ready.backend.runs.clear()  # as if the app had been closed and opened again
     again = ready.ok("get_run_state", runId=run["id"])
-    assert again["red_flags"] == run["red_flags"]
+    assert again["diagnosis"] == run["diagnosis"]
+
+
+def test_a_lowering_change_can_be_undone_and_a_new_rewrite_clears_old_scores(ready):
+    run = ready.ok("start_run", posting=POSTING)
+    run = ready.ok("run_step", runId=run["id"], step="rewrite")
+    # Dropping b2's numbers: the demo scores a bullet with a number higher.
+    worse = "Built a Python service that batches delivery route updates"
+    run = ready.ok("decide", runId=run["id"], bulletId="b2", action="edit", text=worse)
+    assert run["decisions"]["b2"]["state"] == "accepted"
+    run = ready.ok("run_step", runId=run["id"], step="rescore")
+    effects = {c["bullet_id"]: c["effect"] for c in run["rescore"]["changes"]}
+    assert effects["b2"] < 0
+    # Undo is keeping the original bullet: it drops out of the accepted changes.
+    run = ready.ok("decide", runId=run["id"], bulletId="b2", action="reject")
+    assert run["decisions"]["b2"]["state"] == "rejected"
+    assert "b2" not in ready.backend.runs[run["id"]].current()
+    run = ready.ok("run_step", runId=run["id"], step="rewrite")
+    assert run["rescore"] is None
+
+
+def test_runs_saved_before_diagnose_still_load():
+    from app.bridge import RunState
+
+    old = {
+        "id": "r1", "created_at": "2026-11-01T00:00:00+00:00", "posting": "p", "provider": "demo", "model": "demo",
+        "red_flags": {"company": "Acme", "role": "Intern", "red_flags": [{"flag": "f", "why": "w", "section": "s"}]},
+        "review_before": {"score": 58, "verdict": "before", "skipped_sections": []},
+        "review_after": {"score": 54, "verdict": "after", "skipped_sections": []},
+    }
+    run = RunState.model_validate(old)
+    assert run.diagnosis.company == "Acme" and run.diagnosis.red_flags[0].flag == "f"
+    assert run.diagnosis.score.overall == 58
+    assert (run.rescore.base.overall, run.rescore.tailored.overall) == (58, 54)
 
 
 def test_blocked_edit_stays_pending_and_cannot_be_accepted(ready):

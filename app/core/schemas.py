@@ -22,10 +22,28 @@ class RedFlag(Strict):
     section: str
 
 
-class RedFlagsReply(Strict):
+class SkippedSection(Strict):
+    """A section a reader would skim past, and why."""
+
+    section: str
+    reason: str
+
+
+class MissingKeyword(Strict):
+    keyword: str
+    # Ids of the bullets (b1, b2, ...) or facts (f1, f2, ...) that show the person has it.
+    evidence: list[str]
+
+
+class DiagnoseReply(Strict):
     company: str
     role: str
+    ats_score: int
+    hiring_manager_score: int
+    verdict: str
     red_flags: list[RedFlag]
+    skipped_sections: list[SkippedSection]
+    missing_keywords: list[MissingKeyword]
 
 
 class Proposal(Strict):
@@ -44,13 +62,19 @@ class RewritesReply(Strict):
     rewrites: list[Proposal]
 
 
-class SkippedSection(Strict):
-    section: str
+class ChangeEffect(Strict):
+    """How one changed bullet moves the tailored resume's score."""
+
+    bullet_id: str
+    # Points gained (positive) or lost (negative) against the original bullet.
+    effect: int
     reason: str
-    rewrites: list[Proposal]
 
 
-class ReviewReply(Strict):
-    score: int
+class RescoreReply(Strict):
+    base_ats_score: int
+    base_hiring_manager_score: int
+    tailored_ats_score: int
+    tailored_hiring_manager_score: int
     verdict: str
-    skipped_sections: list[SkippedSection]
+    changes: list[ChangeEffect]

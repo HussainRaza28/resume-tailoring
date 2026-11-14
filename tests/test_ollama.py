@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from app.core.schemas import RedFlagsReply
+from tests.sample_schema import SampleReply
 from app.providers.base import CompletionRequest, Offline, OtherError
 from app.providers.ollama import OllamaProvider
 from tests.http_stub import Stub
@@ -36,8 +36,8 @@ def stub_factory():
 
 
 def request():
-    return CompletionRequest(step="red_flags", system="Rules.", context="The resume.", user="The posting.",
-                             schema=RedFlagsReply)
+    return CompletionRequest(step="diagnose", system="Rules.", context="The resume.", user="The posting.",
+                             schema=SampleReply)
 
 
 def test_streams_lines_and_counts_usage(stub_factory):

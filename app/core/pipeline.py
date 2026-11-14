@@ -1,9 +1,12 @@
 """The tailoring steps, run one after another:
 
-1. Red flags: a recruiter's skim, the top 3 reasons to say no.
-2. Rewrite: the Experience and Projects bullets, each citing its sources.
-3. Review: an ATS and hiring-manager score, before and after, and the sections
-   a reader would skip.
+1. Diagnose: score the base resume as an ATS filter and as a hiring manager,
+   find the top 3 red flags, the sections a reader would skip and the posting's
+   keywords the person can back up but doesn't show.
+2. Rewrite: the Experience and Projects bullets, aimed at what Diagnose found,
+   each citing its sources.
+3. Re-score: the base and the rewritten resume scored side by side in one call,
+   with the effect of each change, so a change that costs points can be undone.
 
 Every model call asks for JSON that matches a schema, and every proposed bullet
 goes through the grounding check and the style rules before the user can
@@ -17,7 +20,7 @@ from pydantic import BaseModel
 from app.core import grounding, skills, style
 from app.core.facts import FactsBank
 from app.core.grounding import GroundingReport, Source
-from app.core.schemas import Proposal, RedFlag, RedFlagsReply, ReviewReply, RewritesReply
+from app.core.schemas import DiagnoseReply, Proposal, RedFlag, RescoreReply, RewritesReply, SkippedSection
 from app.core.style import Violation
 from app.core.tex import BULLET, SKILLS_LINE, Remove, ReorderSkills, SetText, TexDoc, split_skills, tex_to_plain
 from app.providers.base import Completion, CompletionRequest, DeltaSink, Provider, ProviderError, Usage, ignore_deltas
@@ -39,27 +42,56 @@ Ground rules, which override anything else:
 - Be direct and specific. No compliments, no padding."""
 
 
-def red_flags_prompt(company: str, posting: str) -> str:
+# Shared by Diagnose and Re-score, so their numbers mean the same thing.
+RUBRIC = """Scoring rubric. Use it exactly, so scores can be compared:
+- ats_score: how many of the posting's required and preferred skills and terms appear on the resume, and whether job titles and section headings are standard and easy to parse.
+- hiring_manager_score: whether bullets lead with concrete, measurable impact, how relevant the experience is to this role, and how fast the fit is clear in a 10-second skim."""
+
+
+def diagnose_prompt(company: str, posting: str, facts: str) -> str:
     named = f" ({company.strip()})" if company.strip() else ""
     return (
-        f"Act as a senior recruiter for this exact company{named}. Read my resume the way you'd actually read it, "
-        "skimming for reasons to say no. Give me the top 3 red flags a hiring manager spots in under 10 seconds.\n\n"
-        "Be brutally honest, with no compliments or padding. For each flag say why it hurts for this specific job "
-        "and which resume section it is in (use the section names from the resume). Also give the company name and "
-        "the role title as written in the posting.\n\n"
+        "Act as both an ATS filter and a hiring manager reading 200 resumes in one sitting, and as a senior recruiter "
+        f"for this exact company{named}. Read my resume the way you'd actually read it, skimming for reasons to say no.\n\n"
+        f"{RUBRIC}\n\n"
+        "Give me:\n"
+        "- A match score out of 100 as the ATS filter (`ats_score`) and as the hiring manager (`hiring_manager_score`).\n"
+        "- The top 3 red flags a hiring manager spots in under 10 seconds (`red_flags`). Be brutally honest, with no "
+        "compliments or padding. For each flag say why it hurts for this specific job and which resume section it is in "
+        "(use the section names from the resume).\n"
+        "- Which sections would get skipped, and why (`skipped_sections`).\n"
+        "- Keywords from the posting that are missing from the resume or easy to miss, but only ones my resume or facts "
+        "bank shows I have (`missing_keywords`). For each, list the ids of the bullets (b1, b2, ...) or facts (f1, f2, "
+        "...) that show it in `evidence`. Leave out anything I have no evidence for.\n"
+        "- `verdict`: two or three sentences on how the resume reads for this role.\n"
+        "Also give the company name and the role title as written in the posting. Do not suggest a summary, objective "
+        "or profile section.\n\n"
+        f"<facts_bank>\n{facts}\n</facts_bank>\n\n"
         f"<job_posting>\n{posting.strip()}\n</job_posting>"
     )
 
 
+def _diagnosis_text(diagnosis: Diagnosis | None) -> str:
+    if diagnosis is None:
+        return "(none)\n"
+    flags = "".join(f"{i}. {f.flag} ({f.section}): {f.why}\n" for i, f in enumerate(diagnosis.red_flags, 1))
+    skipped = "".join(f"- {s.section}: {s.reason}\n" for s in diagnosis.skipped_sections) or "(none)\n"
+    keywords = (
+        "".join(f"- {k.keyword} (shown by {', '.join(k.evidence)})\n" for k in diagnosis.missing_keywords) or "(none)\n"
+    )
+    return f"Red flags:\n{flags}\nSections that get skipped:\n{skipped}\nMissing keywords I can back up:\n{keywords}"
+
+
 def rewrite_prompt(
-    posting: str, flags: list[RedFlag], facts: str, bullets: list[tuple[str, str, str]], feedback: str
+    posting: str, diagnosis: Diagnosis | None, facts: str, bullets: list[tuple[str, str, str]], feedback: str
 ) -> str:
-    flags_text = "".join(f"{i}. {f.flag} ({f.section}): {f.why}\n" for i, f in enumerate(flags, 1))
     bullets_text = "".join(f"[{bid}] ({entry}) {text}\n" for bid, entry, text in bullets)
     return (
-        "Rewrite my experience section to kill those red flags. Lead every line with measurable impact using the "
-        "Google XYZ formula and strip out every generic phrase.\n\n"
-        f"Red flags:\n{flags_text}\n"
+        "Rewrite my experience section to fix exactly what the diagnosis below found: kill those red flags, make the "
+        "skipped sections worth reading, and work in the missing keywords where a bullet's sources back them up. Lead "
+        "every line with measurable impact using the Google XYZ formula (accomplished X, as measured by Y, by doing Z) "
+        "and strip out every generic phrase.\n\n"
+        f"{_diagnosis_text(diagnosis)}\n"
         "Rewrite these bullets (Experience and Projects). Return one entry per bullet id, in the same order. For each:\n"
         "- `new_text`: the rewritten bullet. Measurable impact is optional: only use numbers that appear in the "
         "cited sources. A bullet without a number is fine. Keep roughly the same length so the resume stays one page.\n"
@@ -67,7 +99,7 @@ def rewrite_prompt(
         "you used.\n"
         "- `question`: if the bullet would be clearly stronger with a number you do not have, a short question asking "
         'for it, such as "How many users did the app have?". Otherwise null.\n'
-        "- `why`: one short sentence on which red flag this fixes.\n"
+        "- `why`: one short sentence on which finding from the diagnosis this fixes.\n"
         "If a bullet is already strong, return it unchanged.\n\n"
         f"<bullets>\n{bullets_text}</bullets>\n\n"
         f"<facts_bank>\n{facts}\n</facts_bank>\n"
@@ -76,15 +108,21 @@ def rewrite_prompt(
     )
 
 
-def review_prompt(posting: str, resume_plain_text: str) -> str:
+def rescore_prompt(posting: str, base_plain: str, tailored_plain: str, changes: list[tuple[str, str, str]]) -> str:
+    changes_text = "".join(f"[{bid}]\n  before: {old}\n  after: {new}\n" for bid, old, new in changes) or "(none)\n"
     return (
-        "Act as both an ATS filter and a hiring manager reading 200 resumes in one sitting. Give me a match score out "
-        "of 100, tell me which sections would get skipped, and rewrite them so they actually stop the scroll.\n\n"
-        "Score the resume in <resume_to_score> (not the base resume in the system prompt, which is only the source of "
-        "truth for facts). For each section that would get skipped, give the reason and rewrites for specific bullets "
-        "by id. Each rewrite must cite its sources (the bullet's own id and any facts-bank ids). Only rewrite bullets "
-        "in Experience and Projects. Do not suggest a summary or objective section.\n\n"
-        f"<resume_to_score>\n{resume_plain_text}\n</resume_to_score>\n\n"
+        "Act as both an ATS filter and a hiring manager reading 200 resumes in one sitting. Score two versions of my "
+        "resume for this job in this one reply, with the same rubric, so the comparison is fair: <resume_a> is the base "
+        "resume and <resume_b> is the tailored one.\n\n"
+        f"{RUBRIC}\n\n"
+        "Give the ATS and hiring manager scores out of 100 for both (`base_...` for resume A, `tailored_...` for resume "
+        "B). Then, for every changed bullet in <changes>, give `effect`: how many points that change alone moves "
+        "resume B's score compared with keeping the original bullet. Use a negative number if the change makes the "
+        "resume worse, and 0 if it makes no difference. Add one short sentence in `reason`. `verdict`: two or three "
+        "sentences on how the tailored resume reads now. Do not suggest a summary, objective or profile section.\n\n"
+        f"<resume_a>\n{base_plain}\n</resume_a>\n\n"
+        f"<resume_b>\n{tailored_plain}\n</resume_b>\n\n"
+        f"<changes>\n{changes_text}</changes>\n\n"
         f"<job_posting>\n{posting.strip()}\n</job_posting>"
     )
 
@@ -121,16 +159,52 @@ class CheckedRewrite(BaseModel):
     reasons: list[str]
 
 
-class SkippedSectionResult(BaseModel):
-    section: str
+class ScoreCard(BaseModel):
+    ats: int
+    hiring_manager: int
+    # The headline number: the mean of the two, worked out here rather than by the model.
+    overall: int
+
+    @classmethod
+    def of(cls, ats: int, hiring_manager: int) -> ScoreCard:
+        ats, hiring_manager = _clamp(ats), _clamp(hiring_manager)
+        return cls(ats=ats, hiring_manager=hiring_manager, overall=round((ats + hiring_manager) / 2))
+
+
+class KeywordFinding(BaseModel):
+    keyword: str
+    # Bullet and fact ids that back it up, checked in code.
+    evidence: list[str]
+
+
+class Diagnosis(BaseModel):
+    company: str = ""
+    role: str = ""
+    score: ScoreCard
+    verdict: str = ""
+    red_flags: list[RedFlag] = []
+    skipped_sections: list[SkippedSection] = []
+    missing_keywords: list[KeywordFinding] = []
+
+
+class ChangeResult(BaseModel):
+    bullet_id: str
+    effect: int
     reason: str
-    rewrites: list[CheckedRewrite]
+
+    @property
+    def lowers_score(self) -> bool:
+        return self.effect < 0
 
 
-class Review(BaseModel):
-    score: int
-    verdict: str
-    skipped_sections: list[SkippedSectionResult]
+class Rescore(BaseModel):
+    base: ScoreCard
+    tailored: ScoreCard
+    verdict: str = ""
+    changes: list[ChangeResult] = []
+    # The bullet texts that were scored, so the interface can tell when a
+    # decision made afterwards has made the scores out of date.
+    scored: dict[str, str] = {}
 
 
 class StepStats(BaseModel):
@@ -336,26 +410,72 @@ def step_stats(step: str, completion: Completion, checked: list[CheckedRewrite] 
 # ---------------------------------------------------------------------------
 
 
+def _clamp(score: int) -> int:
+    return max(0, min(100, score))
+
+
 def _asks_for_summary(flag: RedFlag) -> bool:
     return style.is_summary_section(flag.flag) and "add" in flag.flag.lower()
 
 
-def red_flags(
-    provider: Provider, ctx: Context, company: str, posting: str, on_delta: DeltaSink = ignore_deltas
-) -> tuple[RedFlagsReply, StepStats]:
-    request = ctx._request("red_flags", red_flags_prompt(company, posting), RedFlagsReply, 4000)
+def _backed_keywords(ctx: Context, reply: DiagnoseReply, facts: FactsBank) -> list[KeywordFinding]:
+    """Keep a missing keyword only when a cited bullet or fact really mentions it.
+
+    The skills lexicon matches a skill under any of its names (Postgres and
+    PostgreSQL, say); anything else must appear word for word.
+    """
+    lex = skills.lexicon()
+    out: list[KeywordFinding] = []
+    for item in reply.missing_keywords:
+        keyword = item.keyword.strip()
+        if not keyword or any(k.keyword.lower() == keyword.lower() for k in out):
+            continue
+        canonical = lex.find(keyword)
+        backed = []
+        for sid in item.evidence:
+            sid = sid.strip()
+            fact = facts.get(sid)
+            slot = ctx.doc.slot(sid)
+            text = fact.text if fact is not None else ctx.doc.text(sid) if slot is not None else None
+            if text is None:
+                continue
+            named = any(lex.contains(text, c) for c in canonical)
+            if named or skills.contains_token(skills.normalize(text), skills.normalize(keyword)):
+                backed.append(sid)
+        if backed:
+            out.append(KeywordFinding(keyword=keyword, evidence=backed))
+    return out
+
+
+def diagnose(
+    provider: Provider,
+    ctx: Context,
+    company: str,
+    posting: str,
+    facts: FactsBank,
+    on_delta: DeltaSink = ignore_deltas,
+) -> tuple[Diagnosis, StepStats]:
+    request = ctx._request("diagnose", diagnose_prompt(company, posting, facts_prompt_text(facts)), DiagnoseReply, 6000)
     completion = provider.complete(request, on_delta)
-    reply: RedFlagsReply = completion.data
-    # A flag that says to add a summary is dropped: the resume never gets one.
-    reply.red_flags = [f for f in reply.red_flags if not _asks_for_summary(f)][:3]
-    return reply, step_stats("red_flags", completion)
+    reply: DiagnoseReply = completion.data
+    result = Diagnosis(
+        company=reply.company,
+        role=reply.role,
+        score=ScoreCard.of(reply.ats_score, reply.hiring_manager_score),
+        verdict=reply.verdict,
+        # A flag that says to add a summary is dropped: the resume never gets one.
+        red_flags=[f for f in reply.red_flags if not _asks_for_summary(f)][:3],
+        skipped_sections=[s for s in reply.skipped_sections if not style.is_summary_section(s.section)],
+        missing_keywords=_backed_keywords(ctx, reply, facts),
+    )
+    return result, step_stats("diagnose", completion)
 
 
 def rewrite(
     provider: Provider,
     ctx: Context,
     posting: str,
-    flags: list[RedFlag],
+    diagnosis: Diagnosis | None,
     facts: FactsBank,
     only: list[str] | None = None,
     on_delta: DeltaSink = ignore_deltas,
@@ -366,8 +486,8 @@ def rewrite(
     """
     targets = [t for t in ctx.rewrite_targets() if only is None or t[0] in only]
     facts_text = facts_prompt_text(facts)
-    request = ctx._request("rewrite", rewrite_prompt(posting, flags, facts_text, targets, ""), RewritesReply, 16000)
-    completion = provider.complete(request, on_delta)
+    user = rewrite_prompt(posting, diagnosis, facts_text, targets, "")
+    completion = provider.complete(ctx._request("rewrite", user, RewritesReply, 16000), on_delta)
     checked = ctx.check_all(completion.data.rewrites, facts, targets)
     stats = [step_stats("rewrite", completion, checked)]
 
@@ -378,7 +498,7 @@ def rewrite(
     lines = "\n".join(f'[{r.bullet_id}] "{r.new_text}": {" ".join(r.reasons)}' for r in blocked)
     blocked_ids = {r.bullet_id for r in blocked}
     retry_targets = [t for t in targets if t[0] in blocked_ids]
-    user = rewrite_prompt(posting, flags, facts_text, retry_targets, RETRY_FEEDBACK.format(lines=lines))
+    user = rewrite_prompt(posting, diagnosis, facts_text, retry_targets, RETRY_FEEDBACK.format(lines=lines))
     try:
         retry = provider.complete(ctx._request("rewrite_retry", user, RewritesReply, 8000), on_delta)
     except ProviderError:
@@ -390,43 +510,43 @@ def rewrite(
     return [by_id.get(r.bullet_id, r) for r in checked], stats
 
 
-def review(
+def rescore(
     provider: Provider,
     ctx: Context,
     posting: str,
     replaced: dict[str, str],
-    facts: FactsBank,
-    step: str = "review",
     on_delta: DeltaSink = ignore_deltas,
-) -> tuple[Review, StepStats]:
-    """Score the resume as it stands, with ``replaced`` holding the accepted rewrites."""
-    plain = resume_plain(ctx.doc, replaced, with_ids=True)
-    completion = provider.complete(ctx._request(step, review_prompt(posting, plain), ReviewReply, 12000), on_delta)
-    reply: ReviewReply = completion.data
-    rewritable = {b.id for b in ctx.doc.bullets_in(REWRITE_SECTIONS)}
-    sections = []
-    every_rewrite = []
-    for s in reply.skipped_sections:
-        if style.is_summary_section(s.section):
-            continue  # never a summary section, even if a model suggests one
-        rewrites = []
-        for proposal in s.rewrites:
-            if proposal.bullet_id not in rewritable:
-                continue
-            checked = ctx.check(proposal, facts)
-            if checked is None:
-                continue
-            # Compare with the current text (after accepted rewrites), not the base.
-            current = replaced.get(checked.bullet_id)
-            if current is not None:
-                checked.old_text = current
-                if _squash(current) == _squash(checked.new_text):
-                    checked.status = UNCHANGED
-            rewrites.append(checked)
-            every_rewrite.append(checked)
-        sections.append(SkippedSectionResult(section=s.section, reason=s.reason, rewrites=rewrites))
-    result = Review(score=max(0, min(100, reply.score)), verdict=reply.verdict, skipped_sections=sections)
-    return result, step_stats(step, completion, every_rewrite)
+) -> tuple[Rescore, StepStats]:
+    """Score the base resume and the current one (``replaced`` holds the accepted
+    changes) in a single call, with the effect of each change.
+
+    Two separate calls would each carry their own run-to-run noise, so a small
+    gain could show up as a loss. One call scores both with the same reading.
+    """
+    base_plain = resume_plain(ctx.doc, {}, with_ids=True)
+    tailored_plain = resume_plain(ctx.doc, replaced, with_ids=True)
+    changes = [
+        (bid, ctx.doc.text(bid) or "", text or "(removed)")
+        for bid, text in sorted(replaced.items())
+        if _squash(text) != _squash(ctx.doc.text(bid) or "")
+    ]
+    user = rescore_prompt(posting, base_plain, tailored_plain, changes)
+    completion = provider.complete(ctx._request("rescore", user, RescoreReply, 6000), on_delta)
+    reply: RescoreReply = completion.data
+    changed_ids = {bid for bid, _old, _new in changes}
+    result = Rescore(
+        base=ScoreCard.of(reply.base_ats_score, reply.base_hiring_manager_score),
+        tailored=ScoreCard.of(reply.tailored_ats_score, reply.tailored_hiring_manager_score),
+        verdict=reply.verdict,
+        # Effects for bullets that didn't change are noise, so they're dropped.
+        changes=[
+            ChangeResult(bullet_id=c.bullet_id, effect=c.effect, reason=c.reason)
+            for c in reply.changes
+            if c.bullet_id in changed_ids
+        ],
+        scored=dict(replaced),
+    )
+    return result, step_stats("rescore", completion)
 
 
 # ---------------------------------------------------------------------------

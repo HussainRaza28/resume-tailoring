@@ -28,12 +28,11 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from app.core import compile as compiler
 from app.core import pricing, skills
@@ -47,17 +46,19 @@ from app.core.pipeline import (
     UNCHANGED,
     CheckedRewrite,
     Context,
-    Review,
+    Diagnosis,
+    Rescore,
+    ScoreCard,
     StepStats,
     TrimHint,
     coverage_for,
+    diagnose,
     export_edits,
-    red_flags,
-    review,
+    rescore,
     rewrite,
     trim_hints,
 )
-from app.core.schemas import Proposal, RedFlagsReply
+from app.core.schemas import Proposal
 from app.core.secrets import KEY_NAMES, SecretError, SecretStore, mask
 from app.core.skills import Coverage, PostingSkills
 from app.core.tex import TexDoc, TexError, read_tex
@@ -116,7 +117,7 @@ class AppError(Exception):
 
 class Decision(BaseModel):
     state: str = "pending"  # pending, accepted or rejected
-    # Where accepted text came from: "rewrite" or "review".
+    # Where accepted text came from: "rewrite" or "edit".
     origin: str = ""
 
 
@@ -139,12 +140,11 @@ class RunState(BaseModel):
     model: str
     pasted_at_ms: int | None = None
     exported_at_ms: int | None = None
-    red_flags: RedFlagsReply | None = None
+    diagnosis: Diagnosis | None = None
     rewrites: list[CheckedRewrite] = []
     decisions: dict[str, Decision] = {}
     removed: list[str] = []
-    review_before: Review | None = None
-    review_after: Review | None = None
+    rescore: Rescore | None = None
     posting_skills: PostingSkills = PostingSkills()
     coverage_before: Coverage | None = None
     coverage_after: Coverage | None = None
@@ -154,6 +154,37 @@ class RunState(BaseModel):
     exported_path: str | None = None
     export_name: str = ""
     error: ErrorInfo | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_older_runs(cls, data: Any) -> Any:
+        """Read runs saved before Diagnose and Re-score replaced Red flags and Review.
+
+        Their red flags become a diagnosis, and their two review scores become a
+        re-score with the same number standing for both readings.
+        """
+        if not isinstance(data, dict) or "diagnosis" in data:
+            return data
+        data = dict(data)
+        flags = data.pop("red_flags", None)
+        before = data.pop("review_before", None)
+        after = data.pop("review_after", None)
+        if flags:
+            score = before["score"] if before else 0
+            data["diagnosis"] = {
+                "company": flags.get("company", ""),
+                "role": flags.get("role", ""),
+                "score": ScoreCard.of(score, score).model_dump(),
+                "verdict": before.get("verdict", "") if before else "",
+                "red_flags": flags.get("red_flags", []),
+            }
+        if before and after:
+            data["rescore"] = {
+                "base": ScoreCard.of(before["score"], before["score"]).model_dump(),
+                "tailored": ScoreCard.of(after["score"], after["score"]).model_dump(),
+                "verdict": after.get("verdict", ""),
+            }
+        return data
 
     def accepted(self) -> dict[str, str]:
         """Bullet id to text, for every accepted change."""
@@ -180,6 +211,14 @@ class RunState(BaseModel):
         return sum(s.cost_usd or 0.0 for s in self.steps)
 
 
+def score_before(run: RunState) -> int | None:
+    """The base resume's score: from Re-score when it has run, which is the fairer
+    number, otherwise from Diagnose."""
+    if run.rescore:
+        return run.rescore.base.overall
+    return run.diagnosis.score.overall if run.diagnosis else None
+
+
 def now_ms() -> int:
     return int(time.time() * 1000)
 
@@ -187,7 +226,7 @@ def now_ms() -> int:
 def guess_company(posting: str) -> str:
     """A first guess at the company from the posting.
 
-    The user can edit it, and the red flags step fills it in from the model when
+    The user can edit it, and the Diagnose step fills it in from the model when
     it's still empty.
     """
     patterns = [
@@ -366,8 +405,8 @@ class Backend:
             "cache_read_tokens": usage.cache_read_tokens,
             "cache_write_tokens": usage.cache_write_tokens,
             "cost_usd": run.cost(),
-            "score_before": run.review_before.score if run.review_before else None,
-            "score_after": run.review_after.score if run.review_after else None,
+            "score_before": score_before(run),
+            "score_after": run.rescore.tailored.overall if run.rescore else None,
             "coverage_before": run.coverage_before.required_pct() if run.coverage_before else None,
             "coverage_after": run.coverage_after.required_pct() if run.coverage_after else None,
             "blocked_claims": sum(s.blocked_claims for s in run.steps),
@@ -586,7 +625,7 @@ class Backend:
         return self._change_run(run_id, change)
 
     def run_step(self, run_id: str, step: str, on_event: str | None = None) -> RunState:
-        """Run one model step: "red_flags", "rewrite" or "review"."""
+        """Run one model step: "diagnose", "rewrite" or "rescore"."""
         run = self._get_run(run_id)
         ctx = self._run_context(run_id)
         facts = self._facts()
@@ -597,28 +636,20 @@ class Backend:
         steps_before = len(run.steps)
         updates: dict[str, Any] = {}
         try:
-            if step == "red_flags":
-                flags, stats = red_flags(provider, ctx, run.company, run.posting, sink)
+            if step == "diagnose":
+                found, stats = diagnose(provider, ctx, run.company, run.posting, facts, sink)
                 self._record_step(run, stats)
-                updates = {"red_flags": flags, "company": run.company or flags.company, "role": run.role or flags.role}
+                updates = {"diagnosis": found, "company": run.company or found.company, "role": run.role or found.role}
             elif step == "rewrite":
-                flag_list = run.red_flags.red_flags if run.red_flags else []
-                checked, all_stats = rewrite(provider, ctx, run.posting, flag_list, facts, None, sink)
+                checked, all_stats = rewrite(provider, ctx, run.posting, run.diagnosis, facts, None, sink)
                 for stats in all_stats:
                     self._record_step(run, stats)
                 self._log_blocks(run, checked)
-                updates = {"rewrites": checked, "decisions": {}}
-            elif step == "review":
-                # Score the base resume and the current one side by side, in parallel.
-                with ThreadPoolExecutor(max_workers=2) as pool:
-                    before = pool.submit(review, provider, ctx, run.posting, {}, facts, "review_before", sink)
-                    after = pool.submit(review, provider, ctx, run.posting, run.current(), facts, "review_after", sink)
-                    review_before, stats_before = before.result()
-                    review_after, stats_after = after.result()
-                self._record_step(run, stats_before)
-                self._record_step(run, stats_after)
-                self._log_blocks(run, [r for s in review_after.skipped_sections for r in s.rewrites])
-                updates = {"review_before": review_before, "review_after": review_after}
+                updates = {"rewrites": checked, "decisions": {}, "rescore": None}
+            elif step == "rescore":
+                scored, stats = rescore(provider, ctx, run.posting, run.current(), sink)
+                self._record_step(run, stats)
+                updates = {"rescore": scored}
             else:
                 raise AppError("invalid", f"Unknown step {step}.")
         except ProviderError as e:
@@ -707,32 +738,6 @@ class Backend:
 
         return self._change_run(run_id, change)
 
-    def accept_suggestion(self, run_id: str, section: int, bullet_id: str) -> RunState:
-        """Accept a rewrite the review suggested. It replaces the bullet's current proposal."""
-        ctx = self._run_context(run_id)
-        facts = self._facts()
-
-        def change(run: RunState) -> None:
-            sections = run.review_after.skipped_sections if run.review_after else []
-            suggestion = None
-            if 0 <= section < len(sections):
-                suggestion = next((r for r in sections[section].rewrites if r.bullet_id == bullet_id), None)
-            if suggestion is None:
-                raise AppError("not_found", "That suggestion is gone.")
-            if suggestion.status == BLOCKED:
-                raise AppError("blocked", " ".join(suggestion.reasons))
-            suggestion = suggestion.model_copy(deep=True)
-            index = next((i for i, r in enumerate(run.rewrites) if r.bullet_id == bullet_id), None)
-            if index is None:
-                run.rewrites.append(suggestion)
-            else:
-                suggestion.old_text = run.rewrites[index].old_text
-                run.rewrites[index] = suggestion
-            run.decisions[bullet_id] = Decision(state="accepted", origin="review")
-            self._recompute_coverage(run, ctx, facts)
-
-        return self._change_run(run_id, change)
-
     def answer_question(self, run_id: str, bullet_id: str, answer: str, on_event: str | None = None) -> RunState:
         """Answer a "How many…?" question.
 
@@ -759,13 +764,12 @@ class Backend:
 
         ctx = self._run_context(run_id)
         provider = self._provider(run.provider, run.model)
-        flag_list = run.red_flags.red_flags if run.red_flags else []
         step = "rewrite_one"
         if on_event:
             self.emit(on_event, {"type": "started", "step": step})
         try:
             checked, all_stats = rewrite(
-                provider, ctx, run.posting, flag_list, bank, [bullet_id], self._sink(on_event, step)
+                provider, ctx, run.posting, run.diagnosis, bank, [bullet_id], self._sink(on_event, step)
             )
         finally:
             if on_event:
@@ -971,7 +975,7 @@ COMMANDS = (
     "app_info", "change_data_dir", "show_data_dir", "key_status", "save_key", "delete_key", "import_base_resume", "base_resume_info",
     "compile_base", "ollama_models", "gemini_models", "claude_code_status",
     "start_run", "get_run_state", "update_run_meta", "run_step", "decide", "toggle_remove",
-    "accept_suggestion", "answer_question", "compile_run", "export_run", "tailored_source",
+    "answer_question", "compile_run", "export_run", "tailored_source",
     "list_runs", "delete_run", "list_applications", "add_application", "update_application",
     "delete_application", "list_facts", "save_fact", "delete_fact", "suggest_facts_from_file",
     "suggest_facts_from_url", "list_baseline", "add_baseline",

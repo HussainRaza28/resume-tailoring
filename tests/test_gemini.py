@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from app.core.schemas import RedFlagsReply
+from tests.sample_schema import SampleReply
 from app.providers.base import BadKey, BadOutput, CompletionRequest, MissingKey, Offline, RateLimited, ServerError
 from app.providers.gemini import GeminiProvider
 from tests.http_stub import Stub
@@ -55,15 +55,15 @@ def stub_factory():
 
 
 def request():
-    return CompletionRequest(step="red_flags", system="Rules.", context="The resume.", user="The posting.",
-                             schema=RedFlagsReply)
+    return CompletionRequest(step="diagnose", system="Rules.", context="The resume.", user="The posting.",
+                             schema=SampleReply)
 
 
 def test_streams_skips_thoughts_and_counts_usage(stub_factory):
     stub = stub_factory([(200, "text/event-stream", good_stream(json.dumps(REPLY)))])
     seen = []
     out = GeminiProvider("key", base_url=stub.url).complete(request(), seen.append)
-    assert out.data == RedFlagsReply(**REPLY)
+    assert out.data == SampleReply(**REPLY)
     assert "".join(seen) == json.dumps(REPLY), "thinking text never reaches the interface"
     assert (out.usage.input_tokens, out.usage.cache_read_tokens, out.usage.output_tokens) == (200, 800, 42)
     assert out.model == "gemini-3-flash"

@@ -2,7 +2,8 @@
 
 import pytest
 
-from app.core.schemas import RedFlagsReply, ReviewReply, RewritesReply
+from app.core.schemas import DiagnoseReply, RescoreReply, RewritesReply
+from tests.sample_schema import SampleReply
 from app.providers.base import (
     BadKey,
     BadOutput,
@@ -17,25 +18,27 @@ from app.providers.demo import DemoProvider, rewrite_line
 from tests.fake_provider import FakeProvider
 
 
-def req(step, schema=RedFlagsReply, user="u"):
-    return CompletionRequest(step=step, system="s", context="c", user=user, schema=schema)
+def req(step, schema=SampleReply, user="u", context="c"):
+    return CompletionRequest(step=step, system="s", context=context, user=user, schema=schema)
 
 
 # -- schemas ---------------------------------------------------------------
 
 
 def test_schemas_are_strict_and_inline():
-    schema = json_schema(ReviewReply)
+    schema = json_schema(DiagnoseReply)
     assert "$defs" not in schema
     assert "$ref" not in str(schema)
     assert schema["additionalProperties"] is False
-    proposal = schema["properties"]["skipped_sections"]["items"]["properties"]["rewrites"]["items"]
-    assert proposal["additionalProperties"] is False
+    keyword = schema["properties"]["missing_keywords"]["items"]
+    assert keyword["additionalProperties"] is False
+    assert set(keyword["required"]) == {"keyword", "evidence"}
+    proposal = json_schema(RewritesReply)["properties"]["rewrites"]["items"]
     assert set(proposal["required"]) == {"bullet_id", "new_text", "sources", "question", "why"}
 
 
 def test_every_field_is_required():
-    for model in (RedFlagsReply, RewritesReply, ReviewReply):
+    for model in (DiagnoseReply, RewritesReply, RescoreReply):
         schema = json_schema(model)
         assert set(schema["required"]) == set(schema["properties"]), model.__name__
 
@@ -45,14 +48,14 @@ def test_every_field_is_required():
 
 def test_parse_reply_accepts_plain_and_fenced_json():
     good = '{"company": "A", "role": "B", "red_flags": []}'
-    assert parse_reply(good, RedFlagsReply).company == "A"
-    assert parse_reply(f"```json\n{good}\n```", RedFlagsReply).role == "B"
+    assert parse_reply(good, SampleReply).company == "A"
+    assert parse_reply(f"```json\n{good}\n```", SampleReply).role == "B"
 
 
 def test_parse_reply_rejects_wrong_shapes():
     for bad in ["nope", '{"company": "A"}', '{"company": "A", "role": "B", "red_flags": [], "extra": 1}']:
         with pytest.raises(BadOutput):
-            parse_reply(bad, RedFlagsReply)
+            parse_reply(bad, SampleReply)
 
 
 # -- retries ---------------------------------------------------------------
@@ -116,10 +119,13 @@ def test_fake_streams_and_reports_usage():
 # -- the Demo provider -----------------------------------------------------
 
 
-def test_demo_red_flags_takes_the_role_from_the_posting():
-    out = DemoProvider().complete(req("red_flags", user="Read this.\n<job_posting>\nPlatform Intern\nMore\n</job_posting>"))
-    assert out.data.role == "Platform Intern"
-    assert len(out.data.red_flags) == 3
+def test_demo_diagnose_takes_the_role_from_the_posting_and_scores_the_resume():
+    resume = "- [b1] Cut calls from 12,000 to 3,000\n- [b2] Worked with the team"
+    user = "Read this.\n<job_posting>\nPlatform Intern\nMore\n</job_posting>"
+    out = DemoProvider().complete(req("diagnose", DiagnoseReply, user, context=resume)).data
+    assert out.role == "Platform Intern"
+    assert len(out.red_flags) == 3
+    assert out.ats_score == out.hiring_manager_score == 52 + 3 - 6
 
 
 def test_demo_rewrites_only_vague_bullets():
@@ -136,13 +142,21 @@ def test_demo_rewrite_line():
     assert rewrite_line("Assisted the lead")[0] == "Handled the lead"
 
 
-def test_demo_review_score_is_a_count():
-    user = "- [b1] Cut calls from 12,000 to 3,000\n- [b2] Worked with the team\n- [b3] Built a thing"
-    assert DemoProvider().complete(req("review_before", ReviewReply, user)).data.score == 52 + 3 - 6
+def test_demo_rescore_counts_both_resumes_and_each_change():
+    user = (
+        "<resume_a>\n- [b1] Built a thing\n- [b2] Worked with the team\n</resume_a>\n"
+        "<resume_b>\n- [b1] Built a thing for 40 users\n- [b2] Worked alongside the team\n</resume_b>\n"
+        "<changes>\n[b1]\n  before: Built a thing\n  after: Built a thing for 40 users\n"
+        "[b2]\n  before: Worked with the team\n  after: Worked alongside the team\n</changes>"
+    )
+    out = DemoProvider().complete(req("rescore", RescoreReply, user)).data
+    assert out.base_ats_score == 52 - 6
+    assert out.tailored_ats_score == 52 + 3
+    assert {c.bullet_id: c.effect for c in out.changes} == {"b1": 3, "b2": 6}
 
 
 def test_demo_streams_in_chunks():
     chunks = []
-    DemoProvider().complete(req("red_flags", user="<job_posting>\nX\n</job_posting>"), chunks.append)
+    DemoProvider().complete(req("diagnose", DiagnoseReply, user="<job_posting>\nX\n</job_posting>"), chunks.append)
     assert len(chunks) > 1
     assert all(len(c) <= 64 for c in chunks)

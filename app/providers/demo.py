@@ -2,7 +2,7 @@
 
 It builds its replies from the request itself, with no key and no network, so
 the whole flow can be tried (and tested end to end) on any computer. The
-interface labels it "Demo", and its score is a simple count, not a real review.
+interface labels it "Demo", and its scores are a simple count, not a real reading.
 """
 
 from __future__ import annotations
@@ -13,8 +13,10 @@ from app.providers.base import CompletionRequest, DeltaSink, Provider, RawReply,
 
 # Bullet lines in the rewrite message: "[b2] (Northwind Logistics | Intern) Built a ..."
 _REWRITE_LINE = re.compile(r"^\[(b\d+)\] \(([^)]*)\) (.+)$", re.MULTILINE)
-# Bullet lines in the resume being scored: "- [b2] Built a ..."
+# Bullet lines in a resume: "- [b2] Built a ..."
 _SCORE_LINE = re.compile(r"^- \[(b\d+)\] (.+)$", re.MULTILINE)
+# One change in the Re-score message: "[b2]" then "  before: ..." and "  after: ..."
+_CHANGE = re.compile(r"^\[(b\d+)\]\n  before: (.*)\n  after: (.*)$", re.MULTILINE)
 
 # Openers that say what a team did instead of what the person did.
 _VAGUE = ["Worked with ", "Helped ", "Responsible for ", "Assisted ", "Was part of ", "Participated in "]
@@ -35,6 +37,13 @@ _RED_FLAGS = [
         "flag": "Posting's core stack sits last in the skills list",
         "why": "A ten-second skim reads the first few skills on each line and stops.",
         "section": "Technical Skills",
+    },
+]
+
+_SKIPPED = [
+    {
+        "section": "Technical Skills",
+        "reason": "The posting's stack is buried mid-line, so a skim of the first few items misses it.",
     },
 ]
 
@@ -65,17 +74,39 @@ class DemoProvider(Provider):
 
     def _send(self, request: CompletionRequest, on_delta: DeltaSink) -> RawReply:
         step = request.step
-        if step == "red_flags":
-            reply = {"company": "", "role": _first_posting_line(request.user), "red_flags": _RED_FLAGS}
+        if step == "diagnose":
+            score = _demo_score([m.group(2) for m in _SCORE_LINE.finditer(request.context)])
+            reply = {
+                "company": "",
+                "role": _first_posting_line(request.user),
+                "ats_score": score,
+                "hiring_manager_score": score,
+                "verdict": "Demo reading from a simple count of specific and vague bullets. Connect a provider for a real one.",
+                "red_flags": _RED_FLAGS,
+                "skipped_sections": _SKIPPED,
+                "missing_keywords": [],
+            }
         elif step.startswith("rewrite"):
             reply = {"rewrites": [self._proposal(m.group(1), m.group(3)) for m in _REWRITE_LINE.finditer(request.user)]}
         elif step == "suggest_facts":
             reply = {"facts": [{"text": t, "quote": t} for t in _sentences_with_numbers(request.user)]}
-        elif step.startswith("review"):
+        elif step == "rescore":
+            base = _demo_score(_bullets_in(request.user, "resume_a"))
+            tailored = _demo_score(_bullets_in(request.user, "resume_b"))
             reply = {
-                "score": _demo_score([m.group(2) for m in _SCORE_LINE.finditer(request.user)]),
-                "verdict": "Demo score from a simple count of specific bullets. Connect a provider for a real review.",
-                "skipped_sections": [],
+                "base_ats_score": base,
+                "base_hiring_manager_score": base,
+                "tailored_ats_score": tailored,
+                "tailored_hiring_manager_score": tailored,
+                "verdict": "Demo scores from a simple count of specific and vague bullets. Connect a provider for a real one.",
+                "changes": [
+                    {
+                        "bullet_id": m.group(1),
+                        "effect": _demo_score([m.group(3)]) - _demo_score([m.group(2)]),
+                        "reason": "Counted by the demo: specific bullets gain points, vague openers lose them.",
+                    }
+                    for m in _CHANGE.finditer(request.user)
+                ],
             }
         else:
             raise ValueError(f"the Demo provider has no reply for step {step!r}")
@@ -111,6 +142,13 @@ def _first_posting_line(message: str) -> str:
     posting = message.split("<job_posting>", 1)[1] if "<job_posting>" in message else ""
     lines = posting.strip().splitlines()
     return lines[0].strip() if lines else ""
+
+
+def _bullets_in(message: str, tag: str) -> list[str]:
+    """Bullet texts inside <tag>...</tag> in a message."""
+    opening = f"<{tag}>\n"  # the instructions also name the tag, mid-sentence
+    part = message.split(opening, 1)[1].split(f"</{tag}>", 1)[0] if opening in message else ""
+    return [m.group(2) for m in _SCORE_LINE.finditer(part)]
 
 
 def _demo_score(bullets: list[str]) -> int:

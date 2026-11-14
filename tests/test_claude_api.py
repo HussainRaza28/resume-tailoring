@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from app.core.schemas import RedFlagsReply
+from tests.sample_schema import SampleReply
 from app.providers.base import BadKey, BadOutput, CompletionRequest, MissingKey, OtherError, RateLimited
 from app.providers.claude_api import DEFAULT_MODEL, FALLBACK_BETA, ClaudeApiProvider
 from tests.http_stub import Stub, sse
@@ -53,7 +53,7 @@ def stub_factory():
 
 def request():
     return CompletionRequest(
-        step="red_flags", system="Rules.", context="The resume.", user="The posting.", schema=RedFlagsReply
+        step="diagnose", system="Rules.", context="The resume.", user="The posting.", schema=SampleReply
     )
 
 
@@ -65,7 +65,7 @@ def test_streams_and_returns_checked_data(stub_factory):
     stub = stub_factory([(200, "text/event-stream", message_stream(json.dumps(REPLY)))])
     seen = []
     out = provider(stub).complete(request(), seen.append)
-    assert out.data == RedFlagsReply(**REPLY)
+    assert out.data == SampleReply(**REPLY)
     assert len(seen) == 2 and "".join(seen) == json.dumps(REPLY)
     assert out.usage.cache_read_tokens == 900
     assert out.usage.output_tokens == 25

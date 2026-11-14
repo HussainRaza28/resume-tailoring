@@ -73,7 +73,7 @@ def test_applications_enforce_status(db):
 
 
 def test_step_logs_and_blocks(db):
-    db.log_step(StepLog(run_id="r1", step="red_flags", provider="fake", model="fake-1", duration_ms=1200,
+    db.log_step(StepLog(run_id="r1", step="diagnose", provider="fake", model="fake-1", duration_ms=1200,
                         input_tokens=10, output_tokens=5, cost_usd=0.001, ok=True))
     assert len(db.step_logs("r1")) == 1 and db.step_logs("r1")[0].ok is True
     db.log_grounding_block("r1", "fake", "fake-1", "b1", "40%", "number")

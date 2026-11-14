@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-from app.core.schemas import RedFlagsReply
+from tests.sample_schema import SampleReply
 from app.providers.base import BadOutput, CompletionRequest, OtherError
 from app.providers.claude_code import (
     ClaudeCodeMissing,
@@ -90,15 +90,15 @@ def fake(tmp_path, monkeypatch):
 
 
 def request():
-    return CompletionRequest(step="red_flags", system="Rules.", context="The resume.", user="The posting.",
-                             schema=RedFlagsReply)
+    return CompletionRequest(step="diagnose", system="Rules.", context="The resume.", user="The posting.",
+                             schema=SampleReply)
 
 
 @windows_launcher
 def test_structured_output_streams_and_is_checked(fake):
     seen = []
     out = ClaudeCodeProvider(command=fake.command).complete(request(), seen.append)
-    assert out.data == RedFlagsReply(**REPLY)
+    assert out.data == SampleReply(**REPLY)
     assert "".join(seen) == json.dumps(REPLY)
     assert out.usage.cache_read_tokens == 900 and out.usage.output_tokens == 40
     assert out.model == "claude-sonnet-5-5"
