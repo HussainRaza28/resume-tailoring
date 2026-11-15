@@ -14,15 +14,18 @@ You paste a job posting. The app reads your LaTeX resume into editable pieces ca
 | PDF compiler | `app/core/compile.py` | Run Tectonic and count pages |
 | Grounding check | `app/core/grounding.py` | Block claims that aren't in the sources |
 | Style rules | `app/core/style.py` | Flag phrasing the app warns about |
+| Bold | `app/core/bold.py` | Keep the template's bold through a rewrite |
 | Skills | `app/core/skills.py`, `skills.txt` | Find skills in text; count keyword coverage |
 | Facts bank | `app/core/facts.py` | Store answers to "How many…?" questions |
 | Pipeline | `app/core/pipeline.py` | The three model steps and the checks around them |
 | Providers | `app/providers/` | Claude API, Claude Code, ChatGPT (Codex), Gemini, Ollama, Demo |
+| Finding CLIs | `app/providers/cli_paths.py` | Find `claude` and `codex` outside the terminal's `PATH` |
 | Bridge | `app/bridge.py` | Every command the interface can call |
 | Window | `app/main.py` | Open the pywebview window |
 | Storage | `app/core/db.py`, `app/core/secrets.py` | SQLite and the keychain |
 | Facts import | `app/core/fact_import.py`, `app/importers/` | Suggest facts from a file or page |
 | Jobs | `app/importers/jobs.py`, `places.py` | Internship listings from three GitHub repos |
+| Autofill export | `app/core/autofill.py` | The base resume as a profile for the extension |
 | Autofill extension | `extension/src/` | Fill job applications in Chrome from a saved profile |
 
 ## 1. Reading the resume: `tex.py`
@@ -156,13 +159,19 @@ Each listing carries two flags. `advanced_degree` marks a role only open to Mast
 
 ## 8c. The Autofill extension: `extension/`
 
-A separate Chrome extension that fills job applications from a profile kept in the browser. It has three parts. `options.ts` is the profile page, built from one list of fields in `profileForm.ts` and saved with `chrome.storage.local`. `popup.ts` is the toolbar popup. `content.ts` runs in the job site's page and adds the floating Autofill button.
+A separate Chrome extension that fills job applications from a profile kept in the browser. It has three parts. `options.ts` is the profile page, built from one list of sections in `profileForm.ts` and saved with `chrome.storage.local`. Plain fields are drawn from that list, and roles, schools and languages get list editors with add, move and remove buttons; the form is the page's state, and `readForm` reads the whole profile back out of it. `popup.ts` is the toolbar popup. `content.ts` runs in the job site's page and adds the floating Autofill button. The pages use the app's own tokens and fonts, and the profile header has a small ASCII wake (`wake.ts`, the app's block redrawn without React).
+
+The profile (`profile.ts`) holds lists: roles with dates and bullets, schools, skills, languages and links, plus the common answers and the self-identification answers. `withDefaults` upgrades an older saved profile, moving its single school into the education list.
+
+**Import from Tailor.** The app's Settings has Export for Autofill (`app/core/autofill.py`). It reads the base resume with the same `TexDoc` parser the pipeline uses: the header's name, phone and links, each education and experience heading's fields (dates are read as "YYYY-MM"; a heading with the title first is detected by job-title words), the bullets as plain text, and the skills lines, plus the facts bank. The extension's `importTailor.ts` checks the file's format, merges it (the resume replaces contact details, roles, schools, skills and facts; everything a resume doesn't hold is kept) and lists each change for the person to apply or cancel. A copy of the app's export of the sample resume sits in the extension's test fixtures, and a Python test keeps it equal to what the app produces, so both sides are tested on the same file.
 
 The filling is in `src/fill/`. `engine.ts` walks every visible field in page order. For each one it asks what the field wants: the site's own field name first (`sites.ts`), then the label (`keys.ts`, ordered rules such as "first name" before "name"). It then answers from the profile. `dom.ts` does the setting in a way React forms notice: the browser's own value setter plus `input` and `change` events, a `DataTransfer` for the resume, and a click on the right option for dropdowns that open a list. Choices are picked by meaning, so "Decline to answer" in the profile matches "I don't wish to answer" or "Decline To Self Identify" on the form.
 
+Entry fields are answered by position: the n-th field asking for a company gets the n-th role (`ENTRY_KEYS` in `keys.ts`), which is how Greenhouse's employment blocks are filled. Workday's My Experience needs more, so a site can run its own step before the general pass (`Site.before`). Workday's (`workday.ts`) finds each section by its heading, finds the entries already on the page by a field every entry has (`jobTitle`, `schoolName`, `language`, `url`), matches them to the profile by company or school, fills their blanks, and presses the section's Add for each profile entry still missing, waiting for the new entry to appear. Dates go into Workday's split month and year boxes. Skills, and other search boxes such as the phone country code, are typed, opened with Enter and picked from the list (`setSearchBox` in `dom.ts`). Fields that step touched are skipped by the general pass.
+
 What it leaves alone is as important. Open questions ("Why do you want to work here?"), single checkboxes (consents), fields that already have an answer, and the submit and Next buttons are never touched. Every field it didn't fill is counted, outlined and summed up in "Filled 14 fields, 3 left for you" (`summary.ts`). On Workday each press fills the page that's showing.
 
-The tests (Vitest with jsdom) load a saved form for each site, run the filler and check every field. The samples are rebuilt from each site's structure, since the real sites can't be reached from the build environment.
+The tests (Vitest with jsdom) load a saved form for each site, run the filler and check every field. The samples are rebuilt from each site's structure, since the real sites can't be reached from the build environment. The Workday tests add Workday's behaviour around the saved pages: dropdown buttons open their options, search boxes list matches after Enter, and each Add inserts a new entry from a `<template>` a moment later. They check the add-entry flow, the split dates, the skills, that entries Workday parsed aren't added twice, and that a second press changes nothing.
 
 ## 9. Packaging
 

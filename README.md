@@ -46,7 +46,9 @@ Add keys in Settings under API keys. They're stored in the macOS Keychain or the
 claude auth login
 ```
 
-3. In Tailor's Settings, choose Claude Code. Settings shows whether `claude` was found and whether it's signed in.
+3. In Tailor's Settings, choose Claude Code. Settings shows whether `claude` was found, where, and whether it's signed in.
+
+An app opened from the Start menu or Finder doesn't get your terminal's `PATH`, so Tailor also looks in `~/.local/bin` (`%USERPROFILE%\.local\bin` on Windows), npm's global folder and Homebrew's. If it still says Not installed, press **Choose path…** next to the status and pick the `claude` command. The same goes for `codex`.
 
 Tailor removes `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` when it starts `claude`, so a key in your environment can't switch it to API billing. This provider is meant for personal use with your own subscription.
 
@@ -110,11 +112,22 @@ Then, in Chrome:
 
 After an update, build again (or unzip the new artifact over the old folder) and click the reload arrow on the extension's card in `chrome://extensions`.
 
-**Set up your profile once.** Click the toolbar button, then Edit profile. Fill in your details, choose your resume PDF, and save. The demographic questions all default to "Decline to answer".
+**Set up your profile once.** Click the toolbar button, then Edit profile. Fill in your details, choose your resume PDF, and save. The profile holds your roles (title, company, location, dates and bullets), schools, skills, languages and links, and the answers most applications ask for: how you heard about the job (Job board), whether you've worked there before (No), 18 or older (Yes), phone type (Mobile) and the phone's country. The demographic questions all default to "Decline to answer".
 
-**Fill an application.** On Workday, Greenhouse, Lever and Ashby an Autofill button appears in the bottom corner of the page. On any other site, use Autofill this page in the toolbar popup. Each press fills the page that's showing; on Workday, press it again on each page after Save and Continue. Autofill:
+**Or import it from Tailor.** In the app, open Settings and press **Export for Autofill** under Base resume. It saves a `.json` profile built from your base resume: contact links, every role and school with dates and bullets, your skills, and your facts bank. In the extension's profile page press **Import from Tailor**, pick that file, check the list of changes, and press Apply. Your address, answers and self-identification stay as they were, and everything stays editable.
 
-- never submits, and never presses Next or Save and Continue
+**Fill an application.** On Workday, Greenhouse, Lever and Ashby an Autofill button appears in the bottom corner of the page. On any other site, use Autofill this page in the toolbar popup. Each press fills the page that's showing; on Workday, press it again on each page after Save and Continue:
+
+- **My Information:** name, address, email, phone with its type and country code, how you heard, and whether you've worked there before.
+- **My Experience:** presses Add for each role, school, language and website and fills every field, with a role's bullets as its description, one per line. If Workday already read your resume into entries, it fills their blanks instead of adding copies. Skills are picked one by one from the skills list, and the resume and LinkedIn are added too.
+- **Application Questions:** work authorization, sponsorship, 18 or older and worked here before. Open questions are outlined for you.
+- **Voluntary Disclosures and Self Identify:** your answers, "Decline to answer" by default, plus your name and today's date on the disability form.
+
+On Greenhouse, each employment block and the education dates are filled from the same roles and schools.
+
+Autofill:
+
+- never submits, and never presses Next, Save and Continue or Review; on Workday the only button it presses is Add
 - leaves open questions such as "Why do you want to work here?" blank
 - never ticks a consent or terms box, and never changes a field you've already filled
 - shows "Filled 14 fields, 3 left for you" and outlines what's left until you answer it
