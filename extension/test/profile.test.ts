@@ -4,7 +4,8 @@ import {
   MAX_RESUME_BYTES,
   type Store,
   emptyProfile,
-  graduationParts,
+  monthParts,
+  today,
   loadProfile,
   loadResume,
   removeResume,
@@ -80,33 +81,104 @@ describe("profile", () => {
   });
 
   it("splits a graduation date for forms that ask for month and year", () => {
-    expect(graduationParts("2027-05")).toEqual({ year: "2027", month: "05", monthName: "May" });
-    expect(graduationParts("")).toEqual({ year: "", month: "", monthName: "" });
+    expect(monthParts("2027-05")).toEqual({ year: "2027", month: "05", monthName: "May" });
+    expect(monthParts("")).toEqual({ year: "", month: "", monthName: "" });
+    expect(today(new Date(2026, 10, 5))).toBe("11/05/2026");
   });
 });
 
 describe("profile form", () => {
+  const field = (form: HTMLFormElement, key: string) => form.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(`[data-key="${key}"]`)!;
+
   it("shows the profile, and reads back what was typed", () => {
     const form = document.createElement("form");
-    renderForm(form, { ...emptyProfile(), firstName: "Jordan", graduationDate: "2027-05" });
-    const field = (key: string) => form.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-key="${key}"]`)!;
-    expect(field("firstName").value).toBe("Jordan");
-    expect(field("graduationDate").getAttribute("type")).toBe("month");
-    expect(field("gender").value).toBe(DECLINE);
+    renderForm(form, { ...emptyProfile(), firstName: "Jordan", skills: ["Python", "SQL"] });
+    expect(field(form, "firstName").value).toBe("Jordan");
+    expect(field(form, "gender").value).toBe(DECLINE);
+    expect(field(form, "skills").value).toBe("Python\nSQL");
+    expect(field(form, "heardFrom").value).toBe("Job board");
+    expect(field(form, "workedHereBefore").value).toBe("No");
+    expect(field(form, "over18").value).toBe("Yes");
+    expect(field(form, "phoneType").value).toBe("Mobile");
 
-    field("lastName").value = "  Sample ";
-    field("needsSponsorship").value = "No";
-    field("race").value = "Asian";
+    field(form, "lastName").value = "  Sample ";
+    field(form, "needsSponsorship").value = "No";
+    field(form, "race").value = "Asian";
+    field(form, "skills").value = "Python, SQL\nDocker, python";
+    field(form, "websites").value = "https://a.example\n\nhttps://b.example";
     const read = readForm(form, emptyProfile());
-    expect(read).toMatchObject({ firstName: "Jordan", lastName: "Sample", needsSponsorship: "No", graduationDate: "2027-05" });
+    expect(read).toMatchObject({ firstName: "Jordan", lastName: "Sample", needsSponsorship: "No" });
+    expect(read.skills).toEqual(["Python", "SQL", "Docker"]);
+    expect(read.websites).toEqual(["https://a.example", "https://b.example"]);
     expect(read.demographics).toMatchObject({ race: "Asian", gender: DECLINE });
   });
 
-  it("has a field for everything the autofill uses", () => {
+  it("has a field for every plain value the autofill uses", () => {
     const form = document.createElement("form");
     renderForm(form, emptyProfile());
     const keys = Array.from(form.querySelectorAll<HTMLElement>("[data-key]")).map((el) => el.dataset.key);
-    const expected = [...Object.keys(emptyProfile()).filter((k) => k !== "demographics"), ...Object.keys(emptyProfile().demographics)];
+    const lists = ["work", "education", "languages", "questions", "demographics"];
+    const expected = [
+      ...Object.keys(emptyProfile()).filter((k) => !lists.includes(k)),
+      ...Object.keys(emptyProfile().questions),
+      ...Object.keys(emptyProfile().demographics),
+    ];
     expect(keys.sort()).toEqual(expected.sort());
+  });
+
+  it("adds, edits, reorders and removes work entries", () => {
+    const form = document.createElement("form");
+    document.body.replaceChildren(form);
+    renderForm(form, { ...emptyProfile(), work: [{ title: "Intern", company: "Northwind", location: "", current: false, start: "2025-06", end: "2025-08", bullets: ["Built a thing"] }] });
+    const list = form.querySelector<HTMLElement>("[data-list='work']")!;
+    list.querySelector<HTMLButtonElement>(".entry-add")!.click();
+    const entries = () => Array.from(list.querySelectorAll<HTMLElement>(".entry"));
+    expect(entries()).toHaveLength(2);
+    const second = entries()[1];
+    const set = (entry: HTMLElement, name: string, value: string) => {
+      const el = entry.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[data-field='${name}']`)!;
+      el.value = value;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    set(second, "title", "Assistant");
+    set(second, "company", "Library");
+    set(second, "bullets", "- Helped patrons\n\n• Set up laptops");
+    const current = second.querySelector<HTMLInputElement>("[data-field='current']")!;
+    current.click();
+    expect(second.querySelector<HTMLInputElement>("[data-field='end']")!.disabled).toBe(true);
+    expect(second.querySelector("strong")!.textContent).toBe("Assistant · Library");
+
+    // Move the second role up, then read everything back.
+    second.querySelector<HTMLButtonElement>("[aria-label='Move up']")!.click();
+    let read = readForm(form, emptyProfile());
+    expect(read.work.map((w) => w.company)).toEqual(["Library", "Northwind"]);
+    expect(read.work[0]).toMatchObject({ current: true, end: "", bullets: ["Helped patrons", "Set up laptops"] });
+    expect(read.work[1]).toMatchObject({ start: "2025-06", end: "2025-08", bullets: ["Built a thing"] });
+
+    entries()[0].querySelector<HTMLButtonElement>("[aria-label='Remove']")!.click();
+    read = readForm(form, emptyProfile());
+    expect(read.work.map((w) => w.company)).toEqual(["Northwind"]);
+  });
+
+  it("keeps education and language entries, and drops blank ones", () => {
+    const form = document.createElement("form");
+    renderForm(form, {
+      ...emptyProfile(),
+      education: [{ school: "State University", degree: "BS", field: "CS", minor: "", gpa: "3.8", start: "2023-09", end: "2027-05" }],
+      languages: [{ language: "Spanish", level: "Advanced" }],
+    });
+    form.querySelector<HTMLButtonElement>("[data-list='education'] .entry-add")!.click();
+    const read = readForm(form, emptyProfile());
+    expect(read.education).toEqual([{ school: "State University", degree: "BS", field: "CS", minor: "", gpa: "3.8", start: "2023-09", end: "2027-05" }]);
+    expect(read.languages).toEqual([{ language: "Spanish", level: "Advanced" }]);
+  });
+});
+
+describe("older saved profiles", () => {
+  it("moves the single school into the education list", () => {
+    const p = withDefaults({ firstName: "Jordan", school: "State University", major: "CS", gpa: "3.8", graduationDate: "2027-05" } as never);
+    expect(p.education).toEqual([{ school: "State University", degree: "", field: "CS", minor: "", gpa: "3.8", start: "", end: "2027-05" }]);
+    expect(p.questions.heardFrom).toBe("Job board");
+    expect("school" in p).toBe(false);
   });
 });
