@@ -86,7 +86,52 @@ export const ashby: Site = {
   ]),
 };
 
-export const SITES: Site[] = [greenhouse, lever, ashby];
+/**
+ * Workday: <company>.wd5.myworkdayjobs.com and similar. Fields carry a
+ * data-automation-id (older pages) or an id such as name--legalName--firstName
+ * (newer ones). An application is several pages; Autofill fills the page that's
+ * showing, and the person moves on with Workday's own "Save and Continue".
+ * Dropdowns are buttons that open a list of options (handled in dom.ts).
+ */
+const WORKDAY_FIELDS: [RegExp, FieldKey][] = [
+  [/legalnamesection_firstname|legalname--firstname/, "firstName"],
+  [/legalnamesection_lastname|legalname--lastname/, "lastName"],
+  [/^email$|emailaddress|--email$/, "email"],
+  [/phone-number|phonenumber--phonenumber|--phonenumber$/, "phone"],
+  [/addresssection_addressline1|address--addressline1/, "street"],
+  [/addresssection_city|address--city/, "city"],
+  [/addresssection_postalcode|address--postalcode/, "postalCode"],
+  [/addresssection_countryregion|address--countryregion/, "state"],
+  [/countrydropdown|country--country/, "country"],
+  [/file-upload-input-ref/, "resume"],
+  [/linkedinquestion|linkedin/, "linkedin"],
+  [/(^|--)school(name)?$|schoolname/, "school"],
+  [/(^|--)degree$/, "degree"],
+  [/fieldofstudy/, "major"],
+  [/(^|--)gpa$|gradeaverage/, "gpa"],
+  [/hispanicorlatino/, "hispanicLatino"],
+  [/ethnicitydropdown|ethnicity/, "race"],
+  [/(^|--|personalinfous--)gender$/, "gender"],
+  [/veteranstatus/, "veteran"],
+];
+
+export const workday: Site = {
+  name: "Workday",
+  matches: (url) => /(^|\.)(myworkdayjobs|myworkday|myworkdaysite)\.com$/.test(url.hostname),
+  keyFor: (el) => {
+    const names = [el.getAttribute("data-automation-id") ?? "", el.id].map((x) => x.toLowerCase());
+    for (const [pattern, key] of WORKDAY_FIELDS) {
+      if (names.some((n) => n && pattern.test(n))) return key;
+    }
+    // The disability form is a list of checkboxes under a generic question. Only the
+    // checkboxes count: the page's name and date fields have "disability" in their ids too.
+    const isChoice = el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio");
+    if (isChoice && el.closest("[data-automation-id*='disability' i], [id*='disability' i]")) return "disability";
+    return null;
+  },
+};
+
+export const SITES: Site[] = [greenhouse, lever, ashby, workday];
 
 /** The known site for a page address, or null for "match by label only". */
 export function siteFor(href: string): Site | null {

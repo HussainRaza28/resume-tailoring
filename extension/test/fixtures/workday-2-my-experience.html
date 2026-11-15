@@ -1,0 +1,51 @@
+<!--
+  Workday application, page 2 of 5: My Experience.
+  Rebuilt by hand from Workday's structure (see page 1). The education block,
+  the resume upload (file-upload-input-ref) and the LinkedIn question.
+-->
+<div data-automation-id="applyFlowPage">
+  <div data-automation-id="progressBar"><span data-automation-id="progressBarActiveStep">My Experience</span></div>
+  <h2>My Experience</h2>
+  <section aria-labelledby="work-title">
+    <h3 id="work-title">Work Experience</h3>
+    <button type="button" data-automation-id="Add" aria-label="Add Work Experience">Add</button>
+  </section>
+  <section aria-labelledby="education-title">
+    <h3 id="education-title">Education 1</h3>
+    <div data-automation-id="formField-school">
+      <label for="education-4--schoolName">School or University<abbr title="required">*</abbr></label>
+      <input id="education-4--schoolName" data-automation-id="school" type="text" />
+    </div>
+    <div data-automation-id="formField-degree">
+      <label id="label-degree">Degree<abbr title="required">*</abbr></label>
+      <button type="button" aria-haspopup="listbox" id="education-4--degree" data-automation-id="degree" aria-labelledby="label-degree">Select One</button>
+    </div>
+    <div data-automation-id="formField-field-of-study">
+      <label for="education-4--fieldOfStudy">Field of Study</label>
+      <input id="education-4--fieldOfStudy" data-automation-id="fieldOfStudy" type="text" />
+    </div>
+    <div data-automation-id="formField-gpa">
+      <label for="education-4--gradeAverage">Overall Result (GPA)</label>
+      <input id="education-4--gradeAverage" data-automation-id="gpa" type="text" />
+    </div>
+  </section>
+  <section aria-labelledby="resume-title">
+    <h3 id="resume-title">Resume/CV</h3>
+    <div data-automation-id="formField-resume">
+      <label for="file-1">Upload a file (5MB max)</label>
+      <input id="file-1" type="file" data-automation-id="file-upload-input-ref" style="display: none" />
+      <button type="button" data-automation-id="select-files">Select files</button>
+    </div>
+  </section>
+  <section aria-labelledby="web-title">
+    <h3 id="web-title">Websites</h3>
+    <div data-automation-id="formField-linkedinQuestion">
+      <label for="input-30">LinkedIn</label>
+      <input id="input-30" data-automation-id="linkedinQuestion" type="text" />
+    </div>
+  </section>
+  <div data-automation-id="pageFooter">
+    <button type="button" data-automation-id="bottom-navigation-previous-button">Back</button>
+    <button type="button" data-automation-id="bottom-navigation-next-button">Save and Continue</button>
+  </div>
+</div>

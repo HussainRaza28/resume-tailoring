@@ -1,0 +1,27 @@
+<!--
+  Workday application, page 5 of 5: Self Identify (the US disability form).
+  Rebuilt by hand from Workday's structure (see page 1). The disability answer
+  is a group of checkboxes under a generic question; name and date sign it.
+-->
+<div data-automation-id="applyFlowPage">
+  <div data-automation-id="progressBar"><span data-automation-id="progressBarActiveStep">Self Identify</span></div>
+  <h2>Voluntary Self-Identification of Disability</h2>
+  <div data-automation-id="formField-name">
+    <label for="selfIdentifiedDisabilityData--name">Name<abbr title="required">*</abbr></label>
+    <input id="selfIdentifiedDisabilityData--name" type="text" />
+  </div>
+  <div data-automation-id="formField-dateSignedOn">
+    <label for="selfIdentifiedDisabilityData--dateSignedOn">Date<abbr title="required">*</abbr></label>
+    <input id="selfIdentifiedDisabilityData--dateSignedOn" type="text" placeholder="MM/DD/YYYY" />
+  </div>
+  <fieldset data-automation-id="formField-disabilityStatus" id="selfIdentifiedDisabilityData--disabilityStatus">
+    <legend>Please check one of the boxes below:<abbr title="required">*</abbr></legend>
+    <div><input type="checkbox" id="d-yes" /><label for="d-yes">Yes, I have a disability (or previously had a disability)</label></div>
+    <div><input type="checkbox" id="d-no" /><label for="d-no">No, I do not have a disability and have not had one in the past</label></div>
+    <div><input type="checkbox" id="d-decline" /><label for="d-decline">I do not want to answer</label></div>
+  </fieldset>
+  <div data-automation-id="pageFooter">
+    <button type="button" data-automation-id="bottom-navigation-previous-button">Back</button>
+    <button type="button" data-automation-id="bottom-navigation-next-button">Save and Continue</button>
+  </div>
+</div>
