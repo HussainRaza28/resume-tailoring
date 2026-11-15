@@ -88,3 +88,41 @@ export function changedShare(ops: DiffOp[]): number {
   const changed = ops.filter((o) => o.kind !== "same").reduce((n, o) => n + o.text.length, 0);
   return total ? changed / total : 0;
 }
+
+/** Text without its **bold** markers, and which characters of it were bold. */
+export function parseBold(text: string): { plain: string; bold: boolean[] } {
+  let plain = "";
+  const bold: boolean[] = [];
+  const re = /\*\*(.+?)\*\*/g;
+  let last = 0;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    for (const c of text.slice(last, m.index)) {
+      plain += c;
+      bold.push(false);
+    }
+    for (const c of m[1]) {
+      plain += c;
+      bold.push(true);
+    }
+    last = m.index + m[0].length;
+  }
+  for (const c of text.slice(last)) {
+    plain += c;
+    bold.push(false);
+  }
+  return { plain, bold };
+}
+
+export type Run = { text: string; bold: boolean };
+
+/** Cut ``text`` (which starts at ``offset`` in the plain side) into runs of bold and normal text. */
+export function boldRuns(text: string, bold: boolean[], offset: number): Run[] {
+  const runs: Run[] = [];
+  for (let i = 0; i < text.length; i++) {
+    const b = bold[offset + i] ?? false;
+    const last = runs[runs.length - 1];
+    if (last && last.bold === b) last.text += text[i];
+    else runs.push({ text: text[i], bold: b });
+  }
+  return runs;
+}

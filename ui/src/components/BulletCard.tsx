@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { CheckedRewrite, DecisionState, Fact } from "../lib/api";
-import { changedShare, wordDiff } from "../lib/diff";
+import { boldRuns, changedShare, parseBold, wordDiff } from "../lib/diff";
 import { IconCheck, IconUndo, IconX } from "./icons";
 
 type Props = {
@@ -14,26 +14,51 @@ type Props = {
   onReset: () => void;
 };
 
-export function DiffText({ oldText, newText, side }: { oldText: string; newText: string; side: "old" | "new" }) {
-  const ops = useMemo(() => wordDiff(oldText, newText), [oldText, newText]);
-  // A bullet that was mostly reworded reads better as two plain sentences than as
-  // a wall of strike-through; only partial edits get word highlights.
-  if (changedShare(ops) > 0.62) return <span style={{ color: side === "old" ? "var(--muted)" : "var(--text)" }}>{side === "old" ? oldText : newText}</span>;
+/** Text with its bold shown as real bold. */
+function Bold({ text, bold, offset }: { text: string; bold: boolean[]; offset: number }) {
   return (
     <>
-      {ops.map((o, i) =>
-        o.kind === "same" ? (
-          <span key={i}>{o.text}</span>
-        ) : o.kind === "removed" && side === "old" ? (
+      {boldRuns(text, bold, offset).map((run, i) => (run.bold ? <strong key={i}>{run.text}</strong> : <span key={i}>{run.text}</span>))}
+    </>
+  );
+}
+
+/** One side of an old/new comparison. Bold is written **like this** in the text and
+ *  shown as real bold; the diff itself compares the words without the markers. */
+export function DiffText({ oldText, newText, side }: { oldText: string; newText: string; side: "old" | "new" }) {
+  const oldParsed = useMemo(() => parseBold(oldText), [oldText]);
+  const newParsed = useMemo(() => parseBold(newText), [newText]);
+  const ops = useMemo(() => wordDiff(oldParsed.plain, newParsed.plain), [oldParsed.plain, newParsed.plain]);
+  const mine = side === "old" ? oldParsed : newParsed;
+  // A bullet that was mostly reworded reads better as two plain sentences than as
+  // a wall of strike-through; only partial edits get word highlights.
+  if (changedShare(ops) > 0.62)
+    return (
+      <span style={{ color: side === "old" ? "var(--muted)" : "var(--text)" }}>
+        <Bold text={mine.plain} bold={mine.bold} offset={0} />
+      </span>
+    );
+  let offset = 0;
+  return (
+    <>
+      {ops.map((o, i) => {
+        const shown = o.kind === "same" || (o.kind === "removed" && side === "old") || (o.kind === "added" && side === "new");
+        if (!shown) return null;
+        const at = offset;
+        offset += o.text.length;
+        const inner = <Bold text={o.text} bold={mine.bold} offset={at} />;
+        return o.kind === "same" ? (
+          <span key={i}>{inner}</span>
+        ) : o.kind === "removed" ? (
           <del key={i} className="diff-removed">
-            {o.text}
+            {inner}
           </del>
-        ) : o.kind === "added" && side === "new" ? (
+        ) : (
           <ins key={i} className="diff-added" style={{ textDecoration: "none" }}>
-            {o.text}
+            {inner}
           </ins>
-        ) : null,
-      )}
+        );
+      })}
     </>
   );
 }

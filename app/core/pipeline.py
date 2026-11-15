@@ -20,6 +20,7 @@ import re
 from pydantic import BaseModel
 
 from app.core import grounding, skills, style
+from app.core.bold import keep_bold, strip_bold
 from app.core.facts import FactsBank
 from app.core.grounding import GroundingReport, Source
 from app.core.schemas import Proposal, RedFlag, RescoreReply, RewritesReply, ScoreReply
@@ -39,7 +40,7 @@ SYSTEM = """You help one person tailor their own resume to one job posting.
 Ground rules, which override anything else:
 - Never invent anything. No new numbers, skills, tools, employers, titles, dates, awards or outcomes. Use only what is in the resume below or in the facts bank given with a request. A program checks every number, name and skill you write against the sources you cite and blocks anything it cannot find.
 - Never suggest a summary, objective or profile section.
-- Write plain text. No LaTeX, no Markdown, no emoji.
+- Write plain text. No LaTeX, no emoji, and no Markdown except **bold** where a request allows it.
 - Style: no em dashes, no lists of three added for rhythm, no "not X but Y" contrasts, none of the words leverage, seamless, robust, spearheaded, delve or synergy, no comparisons with the person's own earlier work, and no mentions of AI tools unless the original bullet already has them. Every number must make sense on its own.
 - Be direct and specific. No compliments, no padding."""
 
@@ -87,7 +88,9 @@ def rewrite_prompt(
         f"Keywords from the posting that I can back up but don't show:\n{keywords_text}\n"
         "Return one entry per bullet id, in the same order. For each:\n"
         "- `new_text`: the bullet, rewritten or unchanged. Only use numbers that appear in the cited sources. Keep "
-        "roughly the same length so the resume stays one page.\n"
+        "roughly the same length so the resume stays one page. Bold is written **like this**. Keep a phrase bold if "
+        "it was bold and is still in the bullet. You may bold the one short phrase that states the key result, "
+        "using only words already in the original bullet. No other Markdown.\n"
         "- `sources`: the ids you drew on, always including the bullet's own id, plus any facts-bank ids (f1, f2, ...) "
         "you used.\n"
         "- `why`: a few words on which red flag or keyword this fixes, or empty if unchanged.\n\n"
@@ -288,7 +291,10 @@ class Context:
         if slot is None or slot.kind != BULLET:
             return None
         old_text = self.doc.text(proposal.bullet_id) or ""
-        new_text = clean_model_text(proposal.new_text)
+        # Keep the template's bold, and only the new bold the rules allow.
+        new_text = keep_bold(old_text, clean_model_text(proposal.new_text))
+        plain_new = strip_bold(new_text)
+        plain_old = strip_bold(old_text)
         cited = [s.strip() for s in proposal.sources]
         # A rewrite always draws on its own bullet; add it if the model forgot.
         if proposal.bullet_id not in cited:
@@ -296,9 +302,11 @@ class Context:
         sources = self.sources_for(proposal.bullet_id, cited, facts)
         source_texts = [s.text for s in sources if s.id != "heading"]
 
-        report = grounding.check(new_text, sources)
-        violations = style.check_bullet(new_text, source_texts)
-        dropped = dropped_specifics(old_text, new_text)
+        source_texts = [strip_bold(t) for t in source_texts]
+        sources = [Source(id=x.id, text=strip_bold(x.text)) for x in sources]
+        report = grounding.check(plain_new, sources)
+        violations = style.check_bullet(plain_new, source_texts)
+        dropped = dropped_specifics(plain_old, plain_new)
         # Only a claim the sources don't back up blocks a rewrite. Style and lost
         # detail are the person's call, so they show as warnings.
         reasons = report.reasons()
@@ -306,6 +314,10 @@ class Context:
             f'Drops "{d}" from the original.' for d in dropped
         ]
         if _squash(new_text) == _squash(old_text):
+            status = UNCHANGED
+        elif _squash(plain_new) == _squash(plain_old):
+            # Only the bold changed. Not worth a rewrite: keep the original.
+            new_text = old_text
             status = UNCHANGED
         elif report.ok():
             status = OK

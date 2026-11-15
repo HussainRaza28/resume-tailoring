@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { changedShare, side, tokenize, wordDiff } from "./diff";
+import { boldRuns, changedShare, parseBold, side, tokenize, wordDiff } from "./diff";
 
 describe("wordDiff", () => {
   it("returns one same run for identical text", () => {
@@ -54,5 +54,28 @@ describe("wordDiff", () => {
       expect(side(ops, "old")).toBe(a);
       expect(side(ops, "new")).toBe(b);
     }
+  });
+});
+
+describe("bold markers", () => {
+  it("strips markers and remembers which characters were bold", () => {
+    const { plain, bold } = parseBold("Cut calls **40%** fast");
+    expect(plain).toBe("Cut calls 40% fast");
+    expect(bold.filter(Boolean).length).toBe(3);
+    expect(bold[10]).toBe(true);
+    expect(bold[9]).toBe(false);
+  });
+
+  it("cuts a span into bold and normal runs", () => {
+    const { plain, bold } = parseBold("a **bc** d");
+    expect(boldRuns(plain, bold, 0)).toEqual([
+      { text: "a ", bold: false },
+      { text: "bc", bold: true },
+      { text: " d", bold: false },
+    ]);
+    expect(boldRuns("c d", bold, 3)).toEqual([
+      { text: "c", bold: true },
+      { text: " d", bold: false },
+    ]);
   });
 });

@@ -38,7 +38,7 @@ const BB = "**Budget Bot** | *Python, SQLite*";
 
 function rewrites(): CheckedRewrite[] {
   return [
-    rw("b2", NW, "Experience", "Built a Python service that batches delivery route updates, cutting API calls to the mapping provider from 12,000 to 3,000 per day", "Cut mapping API calls from 12,000 to 3,000 per day by building a Python service that batches delivery route updates", "ok", { why: "Leads with the result the platform team cares about" }),
+    rw("b2", NW, "Experience", "Built a Python service that batches delivery route updates, cutting API calls to the mapping provider from **12,000 to 3,000 per day**", "Cut mapping API calls from **12,000 to 3,000 per day** by building a Python service that batches delivery route updates", "ok", { why: "Leads with the result the platform team cares about" }),
     rw("b3", NW, "Experience", "Added PostgreSQL indexes to the shipment lookup query after profiling showed full table scans on 2 million rows", "Removed full table scans on 2 million shipment rows by profiling the lookup query and adding PostgreSQL indexes", "ok", { why: "Puts the scale first" }),
     rw("b4", NW, "Experience", "Wrote 45 unit tests with pytest for the route validation module and set them to run in GitHub Actions on every pull request", "Wrote 45 unit tests with pytest for the route validation module and set them to run in GitHub Actions on every pull request", "unchanged"),
     rw("b5", NW, "Experience", "Worked with the team on various backend tasks and helped with code reviews", "Reviewed 40+ pull requests and shipped backend features with the routing team", "blocked", {
