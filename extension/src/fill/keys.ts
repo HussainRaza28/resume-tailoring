@@ -5,7 +5,7 @@
  * sites.ts) and by its label otherwise. The label rules are in order: the
  * first that matches wins, so "First name" is tried before plain "Name".
  */
-import { DECLINE, type Profile, graduationParts } from "../profile";
+import { DECLINE, type Profile, monthParts, today } from "../profile";
 
 export type FieldKey =
   | "firstName"
@@ -38,7 +38,60 @@ export type FieldKey =
   | "race"
   | "veteran"
   | "disability"
-  | "resume";
+  | "resume"
+  // Common questions.
+  | "heardFrom"
+  | "workedHereBefore"
+  | "over18"
+  | "phoneType"
+  | "phoneCountry"
+  | "skills"
+  | "currentCompany"
+  | "currentTitle"
+  | "todayDate"
+  | "todayMonth"
+  | "todayDay"
+  | "todayYear"
+  // One work entry's fields. The n-th field asking for one of these gets the n-th entry.
+  | "workTitle"
+  | "workCompany"
+  | "workLocation"
+  | "workCurrent"
+  | "workStart"
+  | "workStartMonth"
+  | "workStartYear"
+  | "workEnd"
+  | "workEndMonth"
+  | "workEndYear"
+  | "workDescription"
+  // Education beyond the first school's name, degree, major, minor, GPA and graduation.
+  | "eduStartMonth"
+  | "eduStartYear";
+
+/** Keys answered from one work or education entry. The n-th field asking for one gets entry n. */
+export const ENTRY_KEYS: Partial<Record<FieldKey, "work" | "education">> = {
+  workTitle: "work",
+  workCompany: "work",
+  workLocation: "work",
+  workCurrent: "work",
+  workStart: "work",
+  workStartMonth: "work",
+  workStartYear: "work",
+  workEnd: "work",
+  workEndMonth: "work",
+  workEndYear: "work",
+  workDescription: "work",
+  school: "education",
+  degree: "education",
+  major: "education",
+  minor: "education",
+  gpa: "education",
+  graduationDate: "education",
+  graduationMonth: "education",
+  graduationYear: "education",
+  eduStartMonth: "education",
+  eduStartYear: "education",
+};
 
 /** Label rules, most specific first. Tested against the label in lower case. */
 export const LABEL_RULES: [FieldKey, RegExp][] = [
@@ -46,6 +99,11 @@ export const LABEL_RULES: [FieldKey, RegExp][] = [
   ["firstName", /\b(first|given|legal first)[ -]?name\b|^first$/],
   ["lastName", /\b(last|family|legal last)[ -]?name\b|\bsurname\b/],
   ["email", /\be-?mail\b/],
+  ["heardFrom", /how did you (hear|find|learn)|where did you (hear|find|learn)|referral source|source of (application|referral)/],
+  ["workedHereBefore", /previously (worked|been employed)|ever (worked|been employed)|former employee|currently or previously (employed|worked)|worked (for|at|here)\b.*\bbefore\b/],
+  ["over18", /\b18\b|eighteen|legal working age|age of majority/],
+  ["phoneType", /phone (device )?type|type of phone/],
+  ["phoneCountry", /(country|phone) (phone )?code|dialing code/],
   ["phone", /\b(phone|mobile|cell)\b/],
   ["linkedin", /linkedin/],
   ["github", /github/],
@@ -72,6 +130,11 @@ export const LABEL_RULES: [FieldKey, RegExp][] = [
   ["country", /\bcountry\b/],
   ["street", /street|address( line)? ?1?\b|^address$/],
   ["location", /\blocation\b|where are you (located|based)|current city/],
+  ["currentCompany", /^(current|most recent|present) (company|employer)/],
+  ["currentTitle", /^(current|most recent|present) (job )?title/],
+  ["workCompany", /^(company|employer)( name)?$/],
+  ["workTitle", /^job title$|^title$|^position( title)?$/],
+  ["skills", /^(technical )?skills\b/],
   ["fullName", /^(full |legal |your )?name\b/],
 ];
 
@@ -90,20 +153,84 @@ export function looksLikeEssay(label: string): boolean {
   return ESSAY.test(text) || text.length > 140;
 }
 
-/** The profile's answer for a key, as plain text. "" when the profile doesn't have one. */
-export function valueFor(key: FieldKey, p: Profile): string {
-  const grad = graduationParts(p.graduationDate);
+/**
+ * The profile's answer for a key, as plain text. "" when the profile doesn't
+ * have one. ``index`` picks the work or education entry for entry keys.
+ */
+export function valueFor(key: FieldKey, p: Profile, index = 0): string {
+  const work = p.work[index];
+  const edu = p.education[index];
+  const now = today();
   switch (key) {
     case "fullName":
       return `${p.firstName} ${p.lastName}`.trim();
     case "location":
       return [p.city, p.state].filter(Boolean).join(", ");
+    case "school":
+      return edu?.school ?? "";
+    case "degree":
+      return edu?.degree ?? "";
+    case "major":
+      return edu?.field ?? "";
+    case "minor":
+      return edu?.minor ?? "";
+    case "gpa":
+      return edu?.gpa ?? "";
     case "graduationDate":
-      return grad.monthName && grad.year ? `${grad.month}/${grad.year}` : "";
+      return slashed(edu?.end ?? "");
     case "graduationMonth":
-      return grad.monthName;
+      return monthParts(edu?.end ?? "").monthName;
     case "graduationYear":
-      return grad.year;
+      return monthParts(edu?.end ?? "").year;
+    case "eduStartMonth":
+      return monthParts(edu?.start ?? "").monthName;
+    case "eduStartYear":
+      return monthParts(edu?.start ?? "").year;
+    case "workTitle":
+      return work?.title ?? "";
+    case "workCompany":
+      return work?.company ?? "";
+    case "workLocation":
+      return work?.location ?? "";
+    case "workCurrent":
+      return work ? (work.current ? "Yes" : "No") : "";
+    case "workStart":
+      return slashed(work?.start ?? "");
+    case "workStartMonth":
+      return monthParts(work?.start ?? "").monthName;
+    case "workStartYear":
+      return monthParts(work?.start ?? "").year;
+    case "workEnd":
+      return work && !work.current ? slashed(work.end) : "";
+    case "workEndMonth":
+      return work && !work.current ? monthParts(work.end).monthName : "";
+    case "workEndYear":
+      return work && !work.current ? monthParts(work.end).year : "";
+    case "workDescription":
+      return work ? work.bullets.join("\n") : "";
+    case "skills":
+      return p.skills.join(", ");
+    case "currentCompany":
+    case "currentTitle": {
+      // The role marked current, else the most recent one.
+      const role = p.work.find((w) => w.current) ?? p.work[0];
+      return (key === "currentCompany" ? role?.company : role?.title) ?? "";
+    }
+    case "heardFrom":
+    case "workedHereBefore":
+    case "over18":
+    case "phoneType":
+      return p.questions[key];
+    case "phoneCountry":
+      return p.questions.phoneCountry;
+    case "todayDate":
+      return now;
+    case "todayMonth":
+      return now.slice(0, 2);
+    case "todayDay":
+      return now.slice(3, 5);
+    case "todayYear":
+      return now.slice(6);
     case "gender":
     case "hispanicLatino":
     case "race":
@@ -115,6 +242,12 @@ export function valueFor(key: FieldKey, p: Profile): string {
     default:
       return p[key];
   }
+}
+
+/** "2027-05" as "05/2027", the way forms write a month and year. */
+export function slashed(value: string): string {
+  const { month, year } = monthParts(value);
+  return month && year ? `${month}/${year}` : "";
 }
 
 /** Plain lower-case words, for comparing a wanted answer with a form's choices. */

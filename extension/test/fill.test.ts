@@ -8,31 +8,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fillPage } from "../src/fill/engine";
 import { bestChoice, keyForLabel, looksLikeEssay } from "../src/fill/keys";
 import { ashby, greenhouse, lever, siteFor } from "../src/fill/sites";
-import { DECLINE, type Profile, emptyProfile } from "../src/profile";
+import { DECLINE } from "../src/profile";
+import { PROFILE } from "./sampleProfile";
 
-const PROFILE: Profile = {
-  ...emptyProfile(),
-  firstName: "Jordan",
-  lastName: "Sample",
-  email: "jordan.sample@example.com",
-  phone: "555-010-0199",
-  street: "100 Main St",
-  city: "Springfield",
-  state: "Illinois",
-  postalCode: "62701",
-  school: "State University",
-  degree: "Bachelor's Degree",
-  major: "Computer Science",
-  minor: "Statistics",
-  gpa: "3.8",
-  graduationDate: "2027-05",
-  linkedin: "https://linkedin.com/in/jordan-sample",
-  github: "https://github.com/jordan-sample",
-  portfolio: "https://jordan.example",
-  workAuthorized: "Yes",
-  needsSponsorship: "No",
-  startDate: "May 2027",
-};
 const RESUME = new File(["%PDF-1.7"], "Jordan_Sample_Resume.pdf", { type: "application/pdf" });
 
 function load(name: string): void {
@@ -87,8 +65,28 @@ describe("Greenhouse", () => {
 
     expect(value("#job_application_answers_attributes_4_text_value")).toBe("");
     const left = report.left.map((el) => el.id);
-    expect(left).toEqual(["cover_letter", "job_application_answers_attributes_4_text_value", "job_application_answers_attributes_5_text_value"]);
-    expect(report.filled).toHaveLength(18);
+    // Education dates and both employment blocks come from the profile's entries.
+    expect(selected("#education_start_date_month_0")).toBe("September");
+    expect(value("#education_start_date_year_0")).toBe("2023");
+    expect(selected("#education_end_date_month_0")).toBe("May");
+    expect(value("#education_end_date_year_0")).toBe("2027");
+    expect(value("#employment_company_name_0")).toBe("Northwind Logistics");
+    expect(value("#employment_title_0")).toBe("Software Engineering Intern");
+    expect(selected("#employment_start_date_month_0")).toBe("June");
+    expect(value("#employment_start_date_year_0")).toBe("2025");
+    expect(selected("#employment_end_date_month_0")).toBe("August");
+    expect(value("#employment_end_date_year_0")).toBe("2025");
+    expect($<HTMLInputElement>("#employment_current_0").checked).toBe(false);
+    expect(value("#employment_company_name_1")).toBe("Springfield Public Library");
+    expect(selected("#employment_start_date_month_1")).toBe("January");
+    expect(selected("#employment_end_date_month_1")).toBe("Month");
+    expect($<HTMLInputElement>("#employment_current_1").checked).toBe(true);
+
+    // "How did you hear about this job?" gets the profile's answer.
+    expect(value("#job_application_answers_attributes_5_text_value")).toBe("Job board");
+    expect(left).toEqual(["cover_letter", "job_application_answers_attributes_4_text_value"]);
+    // 19 contact, school and question fields, 4 education dates, 7 + 5 employment fields.
+    expect(report.filled).toHaveLength(19 + 4 + 12);
   });
 });
 
@@ -112,12 +110,15 @@ describe("Lever", () => {
     expect(selected("select[name='eeo[veteran]']")).toBe("Decline to self-identify");
     expect(selected("select[name='eeo[disability]']")).toBe("I don't wish to answer");
 
-    // Left: current company and Twitter (not in the profile), the open question,
-    // the cover letter box, and the marketing consent box.
+    // The current company is the role marked current.
+    expect(value("input[name='org']")).toBe("Springfield Public Library");
+
+    // Left: Twitter (not in the profile), the open question, the cover letter
+    // box, and the marketing consent box.
     const left = report.left.map((el) => el.getAttribute("name"));
-    expect(left).toEqual(["org", "urls[Twitter]", "cards[5b1c][field3]", "comments", "consent[marketing]"]);
+    expect(left).toEqual(["urls[Twitter]", "cards[5b1c][field3]", "comments", "consent[marketing]"]);
     expect($<HTMLInputElement>("input[name='consent[marketing]']").checked).toBe(false);
-    expect(report.filled).toHaveLength(15);
+    expect(report.filled).toHaveLength(16);
   });
 });
 

@@ -1,51 +1,199 @@
 <!--
   Workday application, page 2 of 5: My Experience.
-  Rebuilt by hand from Workday's structure (see page 1). The education block,
-  the resume upload (file-upload-input-ref) and the LinkedIn question.
+  Rebuilt by hand from Workday's structure (see page 1). Work, education,
+  languages and websites are lists of entries that start empty; each section's
+  Add button adds one. The <template> elements hold what Workday inserts for a
+  new entry, with {n} for the entry's number; the test wires each Add button to
+  insert one. Workday had already read an uploaded resume here, so the
+  education section starts with one entry it parsed: the school only.
+
+  Dates are Workday's split boxes (dateSectionMonth-input, dateSectionYear-input).
+  Degree and language are dropdown buttons; skills, school and field of study
+  are search boxes that list matches after Enter.
 -->
 <div data-automation-id="applyFlowPage">
   <div data-automation-id="progressBar"><span data-automation-id="progressBarActiveStep">My Experience</span></div>
   <h2>My Experience</h2>
-  <section aria-labelledby="work-title">
-    <h3 id="work-title">Work Experience</h3>
+
+  <div data-automation-id="workExperienceSection">
+    <h3>Work Experience</h3>
+    <div class="entries"></div>
     <button type="button" data-automation-id="Add" aria-label="Add Work Experience">Add</button>
-  </section>
-  <section aria-labelledby="education-title">
-    <h3 id="education-title">Education 1</h3>
-    <div data-automation-id="formField-school">
-      <label for="education-4--schoolName">School or University<abbr title="required">*</abbr></label>
-      <input id="education-4--schoolName" data-automation-id="school" type="text" />
+  </div>
+
+  <div data-automation-id="educationSection">
+    <h3>Education</h3>
+    <div class="entries">
+      <div role="group" aria-labelledby="Education-1-panel">
+        <h4 id="Education-1-panel">Education 1</h4>
+        <div data-automation-id="formField-schoolName">
+          <label for="education-1--schoolName">School or University<abbr title="required">*</abbr></label>
+          <input id="education-1--schoolName" data-automation-id="schoolName" type="text" value="State University" />
+        </div>
+        <div data-automation-id="formField-degree">
+          <label id="label-degree-1">Degree<abbr title="required">*</abbr></label>
+          <button type="button" aria-haspopup="listbox" id="education-1--degree" data-automation-id="degree" aria-labelledby="label-degree-1">Select One</button>
+        </div>
+        <div data-automation-id="formField-fieldOfStudy">
+          <label for="education-1--fieldOfStudy">Field of Study</label>
+          <input id="education-1--fieldOfStudy" data-automation-id="fieldOfStudy" type="text" />
+        </div>
+        <div data-automation-id="formField-gradeAverage">
+          <label for="education-1--gradeAverage">Overall Result (GPA)</label>
+          <input id="education-1--gradeAverage" data-automation-id="gradeAverage" type="text" />
+        </div>
+        <div data-automation-id="formField-firstYearAttended" id="education-1--firstYearAttended">
+          <label>From</label>
+          <input data-automation-id="dateSectionYear-input" type="text" aria-label="Year" />
+        </div>
+        <div data-automation-id="formField-lastYearAttended" id="education-1--lastYearAttended">
+          <label>To (Actual or Expected)</label>
+          <input data-automation-id="dateSectionYear-input" type="text" aria-label="Year" />
+        </div>
+        <button type="button" data-automation-id="panel-set-delete-button">Delete</button>
+      </div>
     </div>
-    <div data-automation-id="formField-degree">
-      <label id="label-degree">Degree<abbr title="required">*</abbr></label>
-      <button type="button" aria-haspopup="listbox" id="education-4--degree" data-automation-id="degree" aria-labelledby="label-degree">Select One</button>
-    </div>
-    <div data-automation-id="formField-field-of-study">
-      <label for="education-4--fieldOfStudy">Field of Study</label>
-      <input id="education-4--fieldOfStudy" data-automation-id="fieldOfStudy" type="text" />
-    </div>
-    <div data-automation-id="formField-gpa">
-      <label for="education-4--gradeAverage">Overall Result (GPA)</label>
-      <input id="education-4--gradeAverage" data-automation-id="gpa" type="text" />
-    </div>
-  </section>
-  <section aria-labelledby="resume-title">
-    <h3 id="resume-title">Resume/CV</h3>
+    <button type="button" data-automation-id="Add Another" aria-label="Add Another Education">Add Another</button>
+  </div>
+
+  <div data-automation-id="languageSection">
+    <h3>Languages</h3>
+    <div class="entries"></div>
+    <button type="button" data-automation-id="Add" aria-label="Add Languages">Add</button>
+  </div>
+
+  <div data-automation-id="formField-skills">
+    <h3 id="skills-title">Skills</h3>
+    <label for="skills-search">Type to Add Skills</label>
+    <div data-automation-id="selectedItemList"></div>
+    <input id="skills-search" data-automation-id="searchBox" type="text" placeholder="Search" />
+  </div>
+
+  <div data-automation-id="resumeSection">
+    <h3>Resume/CV</h3>
     <div data-automation-id="formField-resume">
       <label for="file-1">Upload a file (5MB max)</label>
       <input id="file-1" type="file" data-automation-id="file-upload-input-ref" style="display: none" />
       <button type="button" data-automation-id="select-files">Select files</button>
     </div>
-  </section>
-  <section aria-labelledby="web-title">
-    <h3 id="web-title">Websites</h3>
-    <div data-automation-id="formField-linkedinQuestion">
-      <label for="input-30">LinkedIn</label>
-      <input id="input-30" data-automation-id="linkedinQuestion" type="text" />
-    </div>
-  </section>
+  </div>
+
+  <div data-automation-id="websiteSection">
+    <h3>Websites</h3>
+    <div class="entries"></div>
+    <button type="button" data-automation-id="Add" aria-label="Add Websites">Add</button>
+  </div>
+
+  <div data-automation-id="formField-linkedinQuestion">
+    <h3>Social Network URLs</h3>
+    <label for="input-30">LinkedIn</label>
+    <input id="input-30" data-automation-id="linkedinQuestion" type="text" />
+  </div>
+
   <div data-automation-id="pageFooter">
     <button type="button" data-automation-id="bottom-navigation-previous-button">Back</button>
     <button type="button" data-automation-id="bottom-navigation-next-button">Save and Continue</button>
   </div>
 </div>
+
+<template data-entry="workExperienceSection">
+  <div role="group" aria-labelledby="Work-Experience-{n}-panel">
+    <h4 id="Work-Experience-{n}-panel">Work Experience {n}</h4>
+    <div data-automation-id="formField-jobTitle">
+      <label for="workExperience-{n}--jobTitle">Job Title<abbr title="required">*</abbr></label>
+      <input id="workExperience-{n}--jobTitle" data-automation-id="jobTitle" type="text" />
+    </div>
+    <div data-automation-id="formField-companyName">
+      <label for="workExperience-{n}--companyName">Company<abbr title="required">*</abbr></label>
+      <input id="workExperience-{n}--companyName" data-automation-id="company" type="text" />
+    </div>
+    <div data-automation-id="formField-location">
+      <label for="workExperience-{n}--location">Location</label>
+      <input id="workExperience-{n}--location" data-automation-id="location" type="text" />
+    </div>
+    <div data-automation-id="formField-currentlyWorkHere">
+      <input id="workExperience-{n}--currentlyWorkHere" data-automation-id="currentlyWorkHere" type="checkbox" />
+      <label for="workExperience-{n}--currentlyWorkHere">I currently work here</label>
+    </div>
+    <div data-automation-id="formField-startDate" id="workExperience-{n}--startDate">
+      <label>From<abbr title="required">*</abbr></label>
+      <input data-automation-id="dateSectionMonth-input" type="text" aria-label="Month" />
+      <input data-automation-id="dateSectionYear-input" type="text" aria-label="Year" />
+    </div>
+    <div data-automation-id="formField-endDate" id="workExperience-{n}--endDate">
+      <label>To<abbr title="required">*</abbr></label>
+      <input data-automation-id="dateSectionMonth-input" type="text" aria-label="Month" />
+      <input data-automation-id="dateSectionYear-input" type="text" aria-label="Year" />
+    </div>
+    <div data-automation-id="formField-roleDescription">
+      <label for="workExperience-{n}--roleDescription">Role Description</label>
+      <textarea id="workExperience-{n}--roleDescription" data-automation-id="description"></textarea>
+    </div>
+    <button type="button" data-automation-id="panel-set-delete-button">Delete</button>
+  </div>
+</template>
+
+<template data-entry="educationSection">
+  <div role="group" aria-labelledby="Education-{n}-panel">
+    <h4 id="Education-{n}-panel">Education {n}</h4>
+    <div data-automation-id="formField-schoolName">
+      <label for="education-{n}--schoolName">School or University<abbr title="required">*</abbr></label>
+      <input id="education-{n}--schoolName" data-automation-id="schoolName" type="text" />
+    </div>
+    <div data-automation-id="formField-degree">
+      <label id="label-degree-{n}">Degree<abbr title="required">*</abbr></label>
+      <button type="button" aria-haspopup="listbox" id="education-{n}--degree" data-automation-id="degree" aria-labelledby="label-degree-{n}">Select One</button>
+    </div>
+    <div data-automation-id="formField-fieldOfStudy">
+      <label for="education-{n}--fieldOfStudy">Field of Study</label>
+      <input id="education-{n}--fieldOfStudy" data-automation-id="fieldOfStudy" type="text" />
+    </div>
+    <div data-automation-id="formField-gradeAverage">
+      <label for="education-{n}--gradeAverage">Overall Result (GPA)</label>
+      <input id="education-{n}--gradeAverage" data-automation-id="gradeAverage" type="text" />
+    </div>
+    <div data-automation-id="formField-firstYearAttended" id="education-{n}--firstYearAttended">
+      <label>From</label>
+      <input data-automation-id="dateSectionYear-input" type="text" aria-label="Year" />
+    </div>
+    <div data-automation-id="formField-lastYearAttended" id="education-{n}--lastYearAttended">
+      <label>To (Actual or Expected)</label>
+      <input data-automation-id="dateSectionYear-input" type="text" aria-label="Year" />
+    </div>
+    <button type="button" data-automation-id="panel-set-delete-button">Delete</button>
+  </div>
+</template>
+
+<template data-entry="languageSection">
+  <div role="group" aria-labelledby="Languages-{n}-panel">
+    <h4 id="Languages-{n}-panel">Languages {n}</h4>
+    <div data-automation-id="formField-language">
+      <label id="label-lang-{n}">Language<abbr title="required">*</abbr></label>
+      <button type="button" aria-haspopup="listbox" id="language-{n}--language" data-automation-id="language" aria-labelledby="label-lang-{n}">Select One</button>
+    </div>
+    <div data-automation-id="formField-native">
+      <input id="language-{n}--native" type="checkbox" />
+      <label for="language-{n}--native">I am fluent in this language.</label>
+    </div>
+    <div data-automation-id="formField-reading">
+      <label id="label-read-{n}">Reading</label>
+      <button type="button" aria-haspopup="listbox" id="language-{n}--reading" data-automation-id="languageProficiency-0" aria-labelledby="label-read-{n}">Select One</button>
+    </div>
+    <div data-automation-id="formField-speaking">
+      <label id="label-speak-{n}">Speaking</label>
+      <button type="button" aria-haspopup="listbox" id="language-{n}--speaking" data-automation-id="languageProficiency-1" aria-labelledby="label-speak-{n}">Select One</button>
+    </div>
+    <button type="button" data-automation-id="panel-set-delete-button">Delete</button>
+  </div>
+</template>
+
+<template data-entry="websiteSection">
+  <div role="group" aria-labelledby="Websites-{n}-panel">
+    <h4 id="Websites-{n}-panel">Websites {n}</h4>
+    <div data-automation-id="formField-url">
+      <label for="webAddress-{n}--url">URL<abbr title="required">*</abbr></label>
+      <input id="webAddress-{n}--url" data-automation-id="url" type="text" />
+    </div>
+    <button type="button" data-automation-id="panel-set-delete-button">Delete</button>
+  </div>
+</template>

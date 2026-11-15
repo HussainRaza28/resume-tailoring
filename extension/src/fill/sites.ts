@@ -5,13 +5,21 @@
  * they're tried first. Anything a site doesn't name here, and every field on a
  * site not listed, is matched by its label instead (keys.ts).
  */
+import type { Profile } from "../profile";
+import type { FillReport } from "./engine";
 import type { FieldKey } from "./keys";
+import { workdayEntries } from "./workday";
 
 export interface Site {
   name: string;
   matches(url: URL): boolean;
   /** The key for a field, from its id, name or other attributes. Null to fall back to the label. */
   keyFor(el: HTMLElement): FieldKey | null;
+  /**
+   * Fill the parts of the page the general pass can't, before it runs, and add
+   * every field touched to ``handled`` so the general pass leaves them alone.
+   */
+  before?(root: ParentNode, profile: Profile, resume: File | null, report: FillReport, handled: Set<HTMLElement>): Promise<void>;
 }
 
 function idOrName(el: HTMLElement): string {
@@ -31,6 +39,18 @@ export const greenhouse: Site = {
   name: "Greenhouse",
   matches: (url) => url.hostname.endsWith("greenhouse.io"),
   keyFor: byPattern([
+    // Employment and education entries, classic names first, then the newer boards' ids.
+    [/employments\]\[\]\[company_name\]|employment_company_name|company-name-\d/, "workCompany"],
+    [/employments\]\[\]\[title\]|employment_title|(^|\s)title-\d/, "workTitle"],
+    [/employments\]\[\]\[start_date\]\[month\]|employment_start_date_month|start-date-month-\d/, "workStartMonth"],
+    [/employments\]\[\]\[start_date\]\[year\]|employment_start_date_year|start-date-year-\d/, "workStartYear"],
+    [/employments\]\[\]\[end_date\]\[month\]|employment_end_date_month|end-date-month-\d/, "workEndMonth"],
+    [/employments\]\[\]\[end_date\]\[year\]|employment_end_date_year|end-date-year-\d/, "workEndYear"],
+    [/employments\]\[\]\[current\]|employment_current|current-role-\d/, "workCurrent"],
+    [/educations\]\[\]\[start_date\]\[month\]|education_start_date_month|start-month--\d/, "eduStartMonth"],
+    [/educations\]\[\]\[start_date\]\[year\]|education_start_date_year|start-year--\d/, "eduStartYear"],
+    [/educations\]\[\]\[end_date\]\[month\]|education_end_date_month|end-month--\d/, "graduationMonth"],
+    [/educations\]\[\]\[end_date\]\[year\]|education_end_date_year|end-year--\d/, "graduationYear"],
     [/\bfirst_name\b/, "firstName"],
     [/\blast_name\b/, "lastName"],
     [/(^|\s)email\b|\[email\]/, "email"],
@@ -56,6 +76,7 @@ export const lever: Site = {
     const name = el.getAttribute("name") ?? "";
     const named: Record<string, FieldKey> = {
       name: "fullName",
+      org: "currentCompany",
       email: "email",
       phone: "phone",
       location: "location",
@@ -97,12 +118,16 @@ const WORKDAY_FIELDS: [RegExp, FieldKey][] = [
   [/legalnamesection_firstname|legalname--firstname/, "firstName"],
   [/legalnamesection_lastname|legalname--lastname/, "lastName"],
   [/^email$|emailaddress|--email$/, "email"],
+  [/phone-device-type|devicetype|phonetype/, "phoneType"],
+  [/countryphonecode|phonecode/, "phoneCountry"],
   [/phone-number|phonenumber--phonenumber|--phonenumber$/, "phone"],
   [/addresssection_addressline1|address--addressline1/, "street"],
   [/addresssection_city|address--city/, "city"],
   [/addresssection_postalcode|address--postalcode/, "postalCode"],
   [/addresssection_countryregion|address--countryregion/, "state"],
   [/countrydropdown|country--country/, "country"],
+  [/sourceprompt|source--source|howdidyouhear/, "heardFrom"],
+  [/candidateispreviousworker|previousworker/, "workedHereBefore"],
   [/file-upload-input-ref/, "resume"],
   [/linkedinquestion|linkedin/, "linkedin"],
   [/(^|--)school(name)?$|schoolname/, "school"],
@@ -115,13 +140,28 @@ const WORKDAY_FIELDS: [RegExp, FieldKey][] = [
   [/veteranstatus/, "veteran"],
 ];
 
+/** The parts of a date box Workday splits into month, day and year. */
+const DATE_PARTS: Record<string, FieldKey> = {
+  "datesectionmonth-input": "todayMonth",
+  "datesectionday-input": "todayDay",
+  "datesectionyear-input": "todayYear",
+};
+
 export const workday: Site = {
   name: "Workday",
   matches: (url) => /(^|\.)(myworkdayjobs|myworkday|myworkdaysite)\.com$/.test(url.hostname),
   keyFor: (el) => {
-    const names = [el.getAttribute("data-automation-id") ?? "", el.id].map((x) => x.toLowerCase());
-    for (const [pattern, key] of WORKDAY_FIELDS) {
-      if (names.some((n) => n && pattern.test(n))) return key;
+    const own = [el.getAttribute("data-automation-id") ?? "", el.id].map((x) => x.toLowerCase());
+    // The signature date on the disability form: today, whole or in parts.
+    if (el.closest("[id*='dateSignedOn' i], [data-automation-id*='dateSignedOn' i]")) {
+      return DATE_PARTS[own[0]] ?? (el instanceof HTMLInputElement && el.type !== "checkbox" ? "todayDate" : null);
+    }
+    // Then the field's own names, then its formField-* wrapper's (a search box has a generic name of its own).
+    const wrapper = el.closest("[data-automation-id^='formField-']")?.getAttribute("data-automation-id")?.slice("formField-".length).toLowerCase() ?? "";
+    for (const names of [own, [wrapper]]) {
+      for (const [pattern, key] of WORKDAY_FIELDS) {
+        if (names.some((n) => n && pattern.test(n))) return key;
+      }
     }
     // The disability form is a list of checkboxes under a generic question. Only the
     // checkboxes count: the page's name and date fields have "disability" in their ids too.
@@ -129,6 +169,7 @@ export const workday: Site = {
     if (isChoice && el.closest("[data-automation-id*='disability' i], [id*='disability' i]")) return "disability";
     return null;
   },
+  before: workdayEntries,
 };
 
 export const SITES: Site[] = [greenhouse, lever, ashby, workday];

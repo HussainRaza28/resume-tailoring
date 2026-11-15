@@ -1,7 +1,8 @@
 <!--
   Workday application, page 3 of 5: Application Questions.
   Rebuilt by hand from Workday's structure (see page 1). Yes/No questions are
-  dropdown buttons; open questions are text areas.
+  dropdown buttons (work authorization, sponsorship, age, worked here before);
+  open questions are text areas.
 -->
 <div data-automation-id="applyFlowPage">
   <div data-automation-id="progressBar"><span data-automation-id="progressBarActiveStep">Application Questions</span></div>
@@ -13,6 +14,14 @@
   <div data-automation-id="formField-q2">
     <label id="q2">Will you now or in the future require sponsorship for employment visa status?<abbr title="required">*</abbr></label>
     <button type="button" aria-haspopup="listbox" id="primaryQuestionnaire--q2" aria-labelledby="q2">Select One</button>
+  </div>
+  <div data-automation-id="formField-q5">
+    <label id="q5">Are you at least 18 years of age?<abbr title="required">*</abbr></label>
+    <button type="button" aria-haspopup="listbox" id="primaryQuestionnaire--q5" aria-labelledby="q5">Select One</button>
+  </div>
+  <div data-automation-id="formField-q6">
+    <label id="q6">Have you ever been employed by Larkspur Freight or any of its subsidiaries?<abbr title="required">*</abbr></label>
+    <button type="button" aria-haspopup="listbox" id="primaryQuestionnaire--q6" aria-labelledby="q6">Select One</button>
   </div>
   <div data-automation-id="formField-q3">
     <label for="primaryQuestionnaire--q3">When is your expected graduation date?</label>

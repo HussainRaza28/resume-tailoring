@@ -2,7 +2,8 @@
   A Greenhouse application form (classic boards.greenhouse.io/<company>/jobs/<id>).
   Rebuilt by hand from the structure Greenhouse forms use: ids such as first_name,
   the job_application[...] names, the answers_attributes custom questions, and
-  the EEOC selects. It isn't a capture of a live page, and the company is made up.
+  the EEOC selects. The education and employment blocks take dates as a month
+  select and a year box; the form shows two employment blocks. It isn't a capture of a live page, and the company is made up.
 -->
 <div id="application">
   <form id="application_form" action="/embed/job_app" method="post" enctype="multipart/form-data">
@@ -68,6 +69,73 @@
           <option value="11">Computer Science</option>
           <option value="12">Mathematics</option>
         </select>
+      </div>
+      <div class="field">
+        <label for="education_start_date_month_0">Start Date</label>
+        <select id="education_start_date_month_0" name="job_application[educations][][start_date][month]">
+          <option value="">Month</option><option value="1">January</option><option value="2">February</option><option value="3">March</option><option value="4">April</option><option value="5">May</option><option value="6">June</option><option value="7">July</option><option value="8">August</option><option value="9">September</option><option value="10">October</option><option value="11">November</option><option value="12">December</option>
+        </select>
+        <input type="text" id="education_start_date_year_0" name="job_application[educations][][start_date][year]" placeholder="YYYY" />
+      </div>
+      <div class="field">
+        <label for="education_end_date_month_0">End Date</label>
+        <select id="education_end_date_month_0" name="job_application[educations][][end_date][month]">
+          <option value="">Month</option><option value="1">January</option><option value="2">February</option><option value="3">March</option><option value="4">April</option><option value="5">May</option><option value="6">June</option><option value="7">July</option><option value="8">August</option><option value="9">September</option><option value="10">October</option><option value="11">November</option><option value="12">December</option>
+        </select>
+        <input type="text" id="education_end_date_year_0" name="job_application[educations][][end_date][year]" placeholder="YYYY" />
+      </div>
+    </div>
+
+    <div id="employment_section">
+      <div class="employment">
+        <div class="field">
+          <label for="employment_company_name_0">Company Name</label>
+          <input type="text" id="employment_company_name_0" name="job_application[employments][][company_name]" />
+        </div>
+        <div class="field">
+          <label for="employment_title_0">Title</label>
+          <input type="text" id="employment_title_0" name="job_application[employments][][title]" />
+        </div>
+        <div class="field">
+          <label for="employment_start_date_month_0">Start Date</label>
+        <select id="employment_start_date_month_0" name="job_application[employments][][start_date][month]">
+          <option value="">Month</option><option value="1">January</option><option value="2">February</option><option value="3">March</option><option value="4">April</option><option value="5">May</option><option value="6">June</option><option value="7">July</option><option value="8">August</option><option value="9">September</option><option value="10">October</option><option value="11">November</option><option value="12">December</option>
+        </select>
+          <input type="text" id="employment_start_date_year_0" name="job_application[employments][][start_date][year]" placeholder="YYYY" />
+        </div>
+        <div class="field">
+          <label for="employment_end_date_month_0">End Date</label>
+        <select id="employment_end_date_month_0" name="job_application[employments][][end_date][month]">
+          <option value="">Month</option><option value="1">January</option><option value="2">February</option><option value="3">March</option><option value="4">April</option><option value="5">May</option><option value="6">June</option><option value="7">July</option><option value="8">August</option><option value="9">September</option><option value="10">October</option><option value="11">November</option><option value="12">December</option>
+        </select>
+          <input type="text" id="employment_end_date_year_0" name="job_application[employments][][end_date][year]" placeholder="YYYY" />
+        </div>
+        <label><input type="checkbox" id="employment_current_0" name="job_application[employments][][current]" value="1" /> Current role</label>
+      </div>
+      <div class="employment">
+        <div class="field">
+          <label for="employment_company_name_1">Company Name</label>
+          <input type="text" id="employment_company_name_1" name="job_application[employments][][company_name]" />
+        </div>
+        <div class="field">
+          <label for="employment_title_1">Title</label>
+          <input type="text" id="employment_title_1" name="job_application[employments][][title]" />
+        </div>
+        <div class="field">
+          <label for="employment_start_date_month_1">Start Date</label>
+        <select id="employment_start_date_month_1" name="job_application[employments][][start_date][month]">
+          <option value="">Month</option><option value="1">January</option><option value="2">February</option><option value="3">March</option><option value="4">April</option><option value="5">May</option><option value="6">June</option><option value="7">July</option><option value="8">August</option><option value="9">September</option><option value="10">October</option><option value="11">November</option><option value="12">December</option>
+        </select>
+          <input type="text" id="employment_start_date_year_1" name="job_application[employments][][start_date][year]" placeholder="YYYY" />
+        </div>
+        <div class="field">
+          <label for="employment_end_date_month_1">End Date</label>
+        <select id="employment_end_date_month_1" name="job_application[employments][][end_date][month]">
+          <option value="">Month</option><option value="1">January</option><option value="2">February</option><option value="3">March</option><option value="4">April</option><option value="5">May</option><option value="6">June</option><option value="7">July</option><option value="8">August</option><option value="9">September</option><option value="10">October</option><option value="11">November</option><option value="12">December</option>
+        </select>
+          <input type="text" id="employment_end_date_year_1" name="job_application[employments][][end_date][year]" placeholder="YYYY" />
+        </div>
+        <label><input type="checkbox" id="employment_current_1" name="job_application[employments][][current]" value="1" /> Current role</label>
       </div>
     </div>
 

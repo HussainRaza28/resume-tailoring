@@ -194,6 +194,37 @@ export async function setCombobox(input: HTMLElement, wanted: string): Promise<b
   return true;
 }
 
+/**
+ * Workday's search box: type the answer, press Enter, wait for the matching
+ * options and click the best one. The typed text is cleared when nothing fits,
+ * so the box isn't left holding a search. Used for skills, the school and field
+ * of study lists, "How did you hear about us?" and the phone country code.
+ */
+export async function setSearchBox(input: HTMLInputElement, wanted: string): Promise<boolean> {
+  const doc = input.ownerDocument;
+  const before = new Set(Array.from(doc.querySelectorAll("[role='option'], [data-automation-id='promptOption']")));
+  setText(input, wanted);
+  input.focus();
+  for (const type of ["keydown", "keyup"] as const) {
+    input.dispatchEvent(new KeyboardEvent(type, { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
+  }
+  const options = await waitFor(() =>
+    Array.from(doc.querySelectorAll<HTMLElement>("[role='option'], [data-automation-id='promptOption']")).filter(
+      (o) => !before.has(o) && o.getAttribute("aria-disabled") !== "true",
+    ),
+  );
+  const index = bestChoice(options.map((o) => text(o)), wanted);
+  if (index < 0) {
+    setText(input, "");
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    return false;
+  }
+  // Workday listens on the option's radio or checkbox when there is one.
+  const target = options[index].querySelector<HTMLElement>("input[type='radio'], input[type='checkbox']") ?? options[index];
+  target.click();
+  return true;
+}
+
 /** Whether a field already holds an answer, so it isn't overwritten. */
 export function hasValue(el: Control, group: HTMLInputElement[] = []): boolean {
   if (el instanceof HTMLSelectElement) return el.selectedIndex > 0 && el.value !== "";
