@@ -42,7 +42,9 @@ export default function BulletCard(p: Props) {
   const r = p.rewrite;
   const ref = useRef<HTMLDivElement>(null);
   const unchanged = r.status === "unchanged";
+  // Only a claim the sources don't back up blocks. Style findings are warnings.
   const blocked = r.status === "blocked";
+  const warnings = r.warnings ?? [];
 
   useEffect(() => {
     if (p.focused) ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -66,6 +68,7 @@ export default function BulletCard(p: Props) {
             {p.decision === "accepted" && <span className="pill pill-positive">Accepted</span>}
             {p.decision === "rejected" && <span className="pill">Kept original</span>}
             {blocked && <span className="pill pill-negative">Blocked</span>}
+            {!blocked && !unchanged && warnings.length > 0 && <span className="pill pill-warning">Check style</span>}
           </div>
           <div className="col-text selectable">
             <DiffText oldText={r.old_text} newText={r.new_text} side="new" />
@@ -77,6 +80,14 @@ export default function BulletCard(p: Props) {
         <div className="reasons" role="note">
           {r.reasons.map((reason, i) => (
             <span key={i}>{reason}</span>
+          ))}
+        </div>
+      )}
+
+      {!blocked && !unchanged && warnings.length > 0 && (
+        <div className="reasons reasons-warning" role="note">
+          {warnings.map((w, i) => (
+            <span key={i}>{w}</span>
           ))}
         </div>
       )}

@@ -26,6 +26,7 @@ function rw(id: string, entry: string, section: string, old: string, next: strin
     style: [],
     reasons: [],
     dropped: [],
+    warnings: [],
     ...extra,
   };
 }
@@ -50,9 +51,9 @@ function rewrites(): CheckedRewrite[] {
     rw("b8", TM, "Projects", "Built a web app for logging hikes on an interactive map, used by 140 members of the university hiking club", "Built a web app for logging hikes on an interactive map, used by 140 members of the university hiking club", "unchanged"),
     rw("b9", TM, "Projects", "Designed a REST API in Node.js with JWT login and rate limiting", "Designed the Node.js REST API behind TrailMap, with JWT login and rate limiting", "ok", { why: "Names the API's job for a REST-heavy role" }),
     rw("b10", BB, "Projects", "Made a Discord bot that tracks shared expenses for roommates and posts a weekly summary", "Made a Discord bot that tracks shared expenses for roommates and posts a weekly summary", "unchanged"),
-    rw("b11", BB, "Projects", "Parsed bank CSV exports from 3 banks into one SQLite schema", "Seamlessly unified bank CSV exports from 3 banks into one SQLite schema", "blocked", {
+    rw("b11", BB, "Projects", "Parsed bank CSV exports from 3 banks into one SQLite schema", "Seamlessly unified bank CSV exports from 3 banks into one SQLite schema", "ok", {
       style: [{ rule: "stock_word", excerpt: "Seamlessly", message: '"Seamlessly" is a stock word. Say what actually happened.' }],
-      reasons: ['Stock word: "Seamlessly" is a stock word. Say what actually happened.'],
+      warnings: ['Stock word: "Seamlessly" is a stock word. Say what actually happened.'],
     }),
   ];
 }

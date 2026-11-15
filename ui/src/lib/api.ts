@@ -47,6 +47,8 @@ export interface CheckedRewrite {
   reasons: string[];
   /** Numbers, names and skills in the original that the rewrite left out. */
   dropped: string[];
+  /** Style findings and dropped details. Shown as a warning; they never block Accept. */
+  warnings: string[];
 }
 
 /** The first step: the base resume's ATS score and its top red flags. */

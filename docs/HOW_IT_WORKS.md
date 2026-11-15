@@ -13,7 +13,7 @@ You paste a job posting. The app reads your LaTeX resume into editable pieces ca
 | Template engine | `app/core/tex.py` | Find the editable text in the resume and change only that |
 | PDF compiler | `app/core/compile.py` | Run Tectonic and count pages |
 | Grounding check | `app/core/grounding.py` | Block claims that aren't in the sources |
-| Style rules | `app/core/style.py` | Block phrasing the app doesn't allow |
+| Style rules | `app/core/style.py` | Flag phrasing the app warns about |
 | Skills | `app/core/skills.py`, `skills.txt` | Find skills in text; count keyword coverage |
 | Facts bank | `app/core/facts.py` | Store answers to "How many…?" questions |
 | Pipeline | `app/core/pipeline.py` | The three model steps and the checks around them |
@@ -71,7 +71,7 @@ Each claim must appear in the sources. There's no exception for small numbers: "
 
 ### Never less specific: `dropped_specifics`
 
-The grounding check run the other way round. The original bullet is the text being checked and the rewrite is its only source, so every number, name and skill in the original has to still be in the rewrite. A rewrite that turns "Added PostgreSQL indexes" into "Sped up the query" is blocked with `Drops "PostgreSQL" from the original.` A rewrite may add detail from its sources but may not lose any.
+The grounding check run the other way round. The original bullet is the text being checked and the rewrite is its only source, so every number, name and skill in the original has to still be in the rewrite. A rewrite that turns "Added PostgreSQL indexes" into "Sped up the query" gets the warning `Drops "PostgreSQL" from the original.` A rewrite may add detail from its sources, and losing any is flagged.
 
 ### Style: `style.py`
 
@@ -105,7 +105,7 @@ A request has a fixed system prompt, a large context that repeats across steps (
 `Context` holds what doesn't change during a run: the parsed resume and its plain-text view, with bullet ids like `[b2]`. Each step builds a request around that.
 
 1. **Score.** A small, fast call: the base resume's ATS score out of 100 and the top three red flags a recruiter for this company spots in ten seconds, with the section each is in. The facts bank isn't sent, since the score is of the page as it stands. A Claude provider runs this step on Sonnet even when Opus is chosen for the rest (`SCORE_MODELS` in `bridge.py`). A red flag about adding a summary is dropped.
-2. **Rewrite.** Every Experience and Projects bullet goes to the model with the red flags, the missing keywords, the facts bank and the posting. Missing keywords aren't a model's opinion: `missing_keywords` reads them from the coverage count, as the posting's skills you can back up but don't show. The prompt asks for changes only where a red flag or missing keyword calls for one, plain and professional, leading with measurable impact in the Google XYZ form, and never less specific or technical. Each proposal comes back with its sources and a reason. `Context.check` runs grounding, the specifics check and style on each one and marks it `ok`, `blocked` or `unchanged`. Blocked ones go back to the model **once**, with the checker's reasons, and a second failure stays blocked so you can see why.
+2. **Rewrite.** Every Experience and Projects bullet goes to the model with the red flags, the missing keywords, the facts bank and the posting. Missing keywords aren't a model's opinion: `missing_keywords` reads them from the coverage count, as the posting's skills you can back up but don't show. The prompt asks for changes only where a red flag or missing keyword calls for one, plain and professional, leading with measurable impact in the Google XYZ form, and never less specific or technical. Each proposal comes back with its sources and a reason. `Context.check` runs grounding, the specifics check and style on each one and marks it `ok`, `blocked` or `unchanged`. Only grounding blocks: a claim the sources don't back up goes in `reasons`. Style findings and dropped details go in `warnings`, which show under the bullet with Accept still enabled. Rewrites that are blocked or have warnings go back to the model **once**, with the findings. A retry that is still blocked is thrown away, and one with warnings replaces the first attempt only if it has fewer.
 3. **Done.** One call scores the base resume and the tailored one (your accepted changes in place) with the same rubric as Score. Scoring them in separate calls let run-to-run noise decide the result: a resume could drop from 58 to 54 after changes that helped. In one call both numbers come from the same reading. `FinalScore.scored` records the texts that were scored, so the interface can tell when a later decision has made the numbers stale and offer to score again.
 
 Score and Done share one rubric (`RUBRIC`), so their numbers mean the same thing.

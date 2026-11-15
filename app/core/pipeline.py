@@ -119,8 +119,8 @@ RETRY_FEEDBACK = (
 # Results
 # ---------------------------------------------------------------------------
 
-OK = "ok"  # passes grounding and style, so it can be accepted
-BLOCKED = "blocked"  # fails a check, so it can't be accepted until fixed
+OK = "ok"  # every claim is backed up, so it can be accepted (style warnings may remain)
+BLOCKED = "blocked"  # a number, name or skill isn't backed up, so it can't be accepted until fixed
 UNCHANGED = "unchanged"  # same text as the original
 
 
@@ -137,10 +137,12 @@ class CheckedRewrite(BaseModel):
     status: str
     grounding: GroundingReport
     style: list[Violation]
-    # Plain-language reasons, grounding first.
+    # Why it's blocked: claims the sources don't back up. Empty when it isn't blocked.
     reasons: list[str]
     # Numbers, names and skills in the original that the rewrite left out.
     dropped: list[str] = []
+    # Style findings and dropped details. Shown next to the rewrite; they never block it.
+    warnings: list[str] = []
 
 
 class ScoreResult(BaseModel):
@@ -297,14 +299,15 @@ class Context:
         report = grounding.check(new_text, sources)
         violations = style.check_bullet(new_text, source_texts)
         dropped = dropped_specifics(old_text, new_text)
-        reasons = (
-            report.reasons()
-            + [f"{style.LABELS[v.rule]}: {v.message}" for v in violations]
-            + [f'Drops "{d}" from the original.' for d in dropped]
-        )
+        # Only a claim the sources don't back up blocks a rewrite. Style and lost
+        # detail are the person's call, so they show as warnings.
+        reasons = report.reasons()
+        warnings = [f"{style.LABELS[v.rule]}: {v.message}" for v in violations] + [
+            f'Drops "{d}" from the original.' for d in dropped
+        ]
         if _squash(new_text) == _squash(old_text):
             status = UNCHANGED
-        elif report.ok() and not violations and not dropped:
+        elif report.ok():
             status = OK
         else:
             status = BLOCKED
@@ -321,6 +324,7 @@ class Context:
             style=violations,
             reasons=reasons,
             dropped=dropped,
+            warnings=warnings,
         )
 
     def check_all(
@@ -416,8 +420,9 @@ def rewrite(
     """Rewrite the bullets the red flags and missing keywords call for, and check each one.
 
     ``keywords`` holds (skill, where it's backed up) for the posting's skills
-    the person has but doesn't show. Blocked rewrites go back to the model
-    once, with the checker's reasons.
+    the person has but doesn't show. Rewrites that are blocked or have
+    warnings go back to the model once, with the checker's findings; a retry
+    replaces the first attempt only when it isn't blocked and has fewer warnings.
     """
     targets = ctx.rewrite_targets()
     facts_text = facts_prompt_text(facts)
@@ -426,11 +431,11 @@ def rewrite(
     checked = ctx.check_all(completion.data.rewrites, facts, targets)
     stats = [step_stats("rewrite", completion, checked)]
 
-    blocked = [r for r in checked if r.status == BLOCKED]
+    blocked = [r for r in checked if r.status == BLOCKED or (r.status == OK and r.warnings)]
     if not blocked:
         return checked, stats
 
-    lines = "\n".join(f'[{r.bullet_id}] "{r.new_text}": {" ".join(r.reasons)}' for r in blocked)
+    lines = "\n".join(f'[{r.bullet_id}] "{r.new_text}": {" ".join(r.reasons + r.warnings)}' for r in blocked)
     blocked_ids = {r.bullet_id for r in blocked}
     retry_targets = [t for t in targets if t[0] in blocked_ids]
     user = rewrite_prompt(posting, flags, keywords, facts_text, retry_targets, RETRY_FEEDBACK.format(lines=lines))
@@ -442,7 +447,16 @@ def rewrite(
     retried = ctx.check_all(retry.data.rewrites, facts, retry_targets)
     stats.append(step_stats("rewrite_retry", retry, retried))
     by_id = {r.bullet_id: r for r in retried if r.status != BLOCKED}
-    return [by_id.get(r.bullet_id, r) for r in checked], stats
+
+    def better(first: CheckedRewrite) -> CheckedRewrite:
+        second = by_id.get(first.bullet_id)
+        if second is None:
+            return first
+        if first.status == BLOCKED or len(second.warnings) < len(first.warnings):
+            return second
+        return first
+
+    return [better(r) for r in checked], stats
 
 
 def rescore(

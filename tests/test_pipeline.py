@@ -79,9 +79,11 @@ def test_check_accepts_grounded_and_blocks_invented(ctx):
     bad = ctx.check(proposal("b2", "Cut mapping API calls 75% with a Python service, saving $40,000 a year", ["b2"]), facts)
     assert bad.status == BLOCKED
     assert any("75%" in r for r in bad.reasons)
+    # Style findings warn and never block.
     styled = ctx.check(proposal("b2", "Leveraged Python to cut mapping API calls from 12,000 to 3,000 per day", ["b2"]), facts)
-    assert styled.status == BLOCKED
-    assert any(r.startswith("Stock word") for r in styled.reasons)
+    assert styled.status == OK
+    assert styled.reasons == []
+    assert any(w.startswith("Stock word") for w in styled.warnings)
     same = ctx.check(proposal("b3", ctx.doc.text("b3"), ["b3"]), facts)
     assert same.status == UNCHANGED
 
@@ -117,12 +119,14 @@ def test_a_rewrite_may_not_drop_a_number_tool_or_name(ctx):
         "Python", "API", "12,000", "3,000"}
     vaguer = ctx.check(proposal("b2", "Cut mapping API calls by batching delivery route updates in a Python service",
                                 ["b2"]), FactsBank())
-    assert vaguer.status == BLOCKED
+    # Lost detail is a warning: the rewrite can still be accepted.
+    assert vaguer.status == OK
     assert set(vaguer.dropped) == {"12,000", "3,000"}
-    assert 'Drops "12,000" from the original.' in vaguer.reasons
+    assert 'Drops "12,000" from the original.' in vaguer.warnings
     less_technical = ctx.check(proposal("b3", "Sped up the shipment lookup query after profiling showed full table "
                                               "scans on 2 million rows", ["b3"]), FactsBank())
-    assert less_technical.status == BLOCKED and less_technical.dropped == ["PostgreSQL"]
+    assert less_technical.status == OK and less_technical.dropped == ["PostgreSQL"]
+    assert less_technical.warnings == ['Drops "PostgreSQL" from the original.']
 
 
 def test_adding_detail_from_a_fact_is_fine(ctx):

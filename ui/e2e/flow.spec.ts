@@ -29,10 +29,11 @@ test("paste, score, add a note, rewrite, done", async ({ page }) => {
   await expect(page.getByText("Added 2 facts ·")).toBeVisible();
   await page.getByRole("tab", { name: /Rewrite/ }).click();
 
-  // Only Accept or Keep original. A blocked rewrite says why and can't be accepted.
-  const blocked = page.locator(".bullet", { hasText: "Seamlessly unified" });
-  await expect(blocked.getByText(/Stock word/)).toBeVisible();
-  await expect(blocked.getByRole("button", { name: "Accept" })).toBeDisabled();
+  // Only Accept or Keep original. A style finding is a warning: Accept stays enabled.
+  const styled = page.locator(".bullet", { hasText: "Seamlessly unified" });
+  await expect(styled.getByText(/Stock word/)).toBeVisible();
+  await expect(styled.getByText("Check style")).toBeVisible();
+  await expect(styled.getByRole("button", { name: "Accept" })).toBeEnabled();
   await expect(page.getByRole("button", { name: /Edit/ })).toHaveCount(0);
 
   // keyboard: right arrow accepts the focused bullet

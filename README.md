@@ -74,7 +74,7 @@ Tailor removes `OPENAI_API_KEY` and `CODEX_API_KEY` when it starts `codex`, so a
 
 1. **Paste a posting** and press Tailor (Cmd+Enter on a Mac, Ctrl+Enter on Windows). The company is filled in for you, and you can change it.
 2. **Score.** Your base resume's ATS score out of 100 and the top three red flags. Add anything the resume is missing in "Anything to add?" (it's saved to your facts bank, and Undo takes it out again), then press Rewrite.
-3. **Rewrite.** Only the bullets a red flag or missing keyword calls for, old and new side by side. Accept with → or keep the original with ←. A rewrite that invents something, or drops a tool or number your bullet had, is blocked and says why.
+3. **Rewrite.** Only the bullets a red flag or missing keyword calls for, old and new side by side. Accept with → or keep the original with ←. A rewrite that invents a number, name or skill is blocked and says why. Style findings, or a tool or number the rewrite dropped, show as a warning and you can still accept it.
 4. **Done.** The score before and after, scored together so the difference is your changes, keyword coverage, and Export PDF. The PDF is named after you and the company, such as `Jordan_Sample_Resume_Larkspur_Freight.pdf`. A result longer than one page isn't exported; Tailor suggests which bullets to trim instead.
 
 Every step shows the company, the role and a link back to the posting.

@@ -935,6 +935,9 @@ button.chip:hover {
   color: var(--text);
   font-size: 13px;
 }
+.reasons-warning {
+  background: var(--warning-soft);
+}
 .reasons strong {
   color: var(--negative);
   font-weight: 600;
