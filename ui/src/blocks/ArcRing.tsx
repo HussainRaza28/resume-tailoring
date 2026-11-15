@@ -95,14 +95,17 @@ export default function ArcRing({ value, before = null, size = 184, label = "Mat
         )}
         {before != null && <line x1={tx0} y1={ty0} x2={tx1} y2={ty1} stroke="var(--text)" strokeWidth={2} strokeLinecap="round" />}
       </svg>
+      {/* The label box covers the whole circle, so the number sits on the ring's centre. */}
       <div
         style={{
           position: "absolute",
-          inset: 0,
+          left: 0,
+          top: 0,
+          width: size,
+          height: size,
           display: "grid",
           placeContent: "center",
           textAlign: "center",
-          paddingBottom: size * 0.08,
         }}
       >
         <div className="num" style={{ fontSize: 36, fontWeight: 600, lineHeight: 1, letterSpacing: "-0.02em" }}>

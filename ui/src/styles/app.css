@@ -577,7 +577,10 @@ button.chip:hover {
 .score-overview-ring {
   display: grid;
   justify-items: center;
+  align-content: center;
+  align-self: center;
   gap: 6px;
+  text-align: center;
 }
 .flag-list {
   list-style: none;
