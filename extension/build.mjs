@@ -8,7 +8,7 @@ mkdirSync("dist");
 cpSync("static", "dist", { recursive: true });
 
 await build({
-  entryPoints: { popup: "src/popup.ts", options: "src/options.ts" },
+  entryPoints: { content: "src/content.ts", popup: "src/popup.ts", options: "src/options.ts" },
   bundle: true,
   // Content scripts can't load modules, so each entry becomes one plain script.
   format: "iife",

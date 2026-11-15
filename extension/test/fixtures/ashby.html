@@ -1,0 +1,84 @@
+<!--
+  An Ashby application form (jobs.ashbyhq.com/<company>/<id>/application).
+  Rebuilt by hand from the structure Ashby forms use: the _systemfield_* names
+  for built-in fields, field entries with a question title label, Yes/No
+  answered with two buttons, and the voluntary EEO questions as radio groups.
+  It isn't a capture of a live page, and the company is made up.
+-->
+<div class="ashby-job-posting-right-pane">
+  <form class="ashby-application-form-container">
+    <div class="ashby-application-form-section-container">
+      <div class="ashby-application-form-field-entry">
+        <label class="ashby-application-form-question-title" for="_systemfield_name">Name<span>*</span></label>
+        <input id="_systemfield_name" name="_systemfield_name" type="text" placeholder="Type here..." required />
+      </div>
+      <div class="ashby-application-form-field-entry">
+        <label class="ashby-application-form-question-title" for="_systemfield_email">Email<span>*</span></label>
+        <input id="_systemfield_email" name="_systemfield_email" type="email" placeholder="hello@example.com..." required />
+      </div>
+      <div class="ashby-application-form-field-entry">
+        <label class="ashby-application-form-question-title" for="5f3a1d2e-phone">Phone Number</label>
+        <input id="5f3a1d2e-phone" name="5f3a1d2e-phone" type="tel" placeholder="1-415-555-1234..." />
+      </div>
+      <div class="ashby-application-form-field-entry">
+        <label class="ashby-application-form-question-title" for="_systemfield_resume">Resume<span>*</span></label>
+        <div class="ashby-application-form-file-upload">
+          <input id="_systemfield_resume" name="_systemfield_resume" type="file" style="display: none" />
+          <button type="button">Upload File</button>
+        </div>
+      </div>
+      <div class="ashby-application-form-field-entry">
+        <label class="ashby-application-form-question-title" for="9c1b-linkedin">LinkedIn Profile</label>
+        <input id="9c1b-linkedin" name="9c1b-linkedin" type="text" placeholder="Type here..." />
+      </div>
+      <div class="ashby-application-form-field-entry">
+        <label class="ashby-application-form-question-title" for="9c1b-github">GitHub</label>
+        <input id="9c1b-github" name="9c1b-github" type="text" placeholder="Type here..." />
+      </div>
+      <div class="ashby-application-form-field-entry">
+        <label class="ashby-application-form-question-title" for="9c1b-school">What school do you attend?</label>
+        <input id="9c1b-school" name="9c1b-school" type="text" placeholder="Type here..." />
+      </div>
+      <div class="ashby-application-form-field-entry">
+        <label class="ashby-application-form-question-title" for="9c1b-gpa">GPA</label>
+        <input id="9c1b-gpa" name="9c1b-gpa" type="text" placeholder="Type here..." />
+      </div>
+      <div class="ashby-application-form-field-entry">
+        <label class="ashby-application-form-question-title" id="q-auth-title">Are you authorized to work in the US?<span>*</span></label>
+        <div class="_yesno_container">
+          <button type="button" class="_option">Yes</button>
+          <button type="button" class="_option">No</button>
+        </div>
+      </div>
+      <div class="ashby-application-form-field-entry">
+        <label class="ashby-application-form-question-title" id="q-sponsor-title">Do you require visa sponsorship?<span>*</span></label>
+        <div class="_yesno_container">
+          <button type="button" class="_option">Yes</button>
+          <button type="button" class="_option">No</button>
+        </div>
+      </div>
+      <div class="ashby-application-form-field-entry">
+        <label class="ashby-application-form-question-title" for="9c1b-why">Why do you want to join Larkspur Freight?<span>*</span></label>
+        <textarea id="9c1b-why" name="9c1b-why" placeholder="Type here..."></textarea>
+      </div>
+    </div>
+
+    <div class="ashby-application-form-section-container">
+      <h3>Voluntary Self-Identification</h3>
+      <fieldset class="ashby-application-form-field-entry">
+        <legend class="ashby-application-form-question-title">Gender</legend>
+        <label><input type="radio" name="eeoc-gender" value="Male" /> Male</label>
+        <label><input type="radio" name="eeoc-gender" value="Female" /> Female</label>
+        <label><input type="radio" name="eeoc-gender" value="Decline to self-identify" /> Decline to self-identify</label>
+      </fieldset>
+      <fieldset class="ashby-application-form-field-entry">
+        <legend class="ashby-application-form-question-title">Veteran Status</legend>
+        <label><input type="radio" name="eeoc-veteran" value="I am not a protected veteran" /> I am not a protected veteran</label>
+        <label><input type="radio" name="eeoc-veteran" value="I identify as one or more" /> I identify as one or more of the classifications of protected veteran</label>
+        <label><input type="radio" name="eeoc-veteran" value="I don't wish to answer" /> I don't wish to answer</label>
+      </fieldset>
+    </div>
+
+    <button type="submit" class="ashby-application-form-submit-button">Submit Application</button>
+  </form>
+</div>

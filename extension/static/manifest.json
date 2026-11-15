@@ -3,7 +3,11 @@
   "name": "Tailor Autofill",
   "version": "0.1.0",
   "description": "Fills job applications from a profile kept in this browser. It never submits and never sends anything anywhere.",
-  "permissions": ["storage"],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
   "action": {
     "default_title": "Tailor Autofill",
     "default_popup": "popup.html"
@@ -11,5 +15,20 @@
   "options_ui": {
     "page": "options.html",
     "open_in_tab": true
-  }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://boards.greenhouse.io/*",
+        "https://job-boards.greenhouse.io/*",
+        "https://jobs.lever.co/*",
+        "https://jobs.ashbyhq.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
 }

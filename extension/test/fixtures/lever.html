@@ -1,0 +1,168 @@
+<!--
+  A Lever application form (jobs.lever.co/<company>/<id>/apply).
+  Rebuilt by hand from the structure Lever forms use: application-question list
+  items, named fields such as name, email and urls[LinkedIn], custom "cards"
+  questions as radio groups, and the eeo[...] selects. It isn't a capture of a
+  live page, and the company is made up.
+-->
+<div class="application-page">
+  <form id="application-form" method="POST" enctype="multipart/form-data">
+    <div class="section application-form">
+      <h4>Submit your application</h4>
+      <ul>
+        <li class="application-question resume">
+          <div class="application-label">Resume/CV<span class="required">✱</span></div>
+          <div class="application-field">
+            <a class="visible-resume-upload">
+              <input type="file" name="resume" id="resume-upload-input" />
+              <span>Attach resume/CV</span>
+            </a>
+          </div>
+        </li>
+        <li class="application-question">
+          <label>
+            <div class="application-label">Full name<span class="required">✱</span></div>
+            <div class="application-field"><input type="text" name="name" required /></div>
+          </label>
+        </li>
+        <li class="application-question">
+          <label>
+            <div class="application-label">Email<span class="required">✱</span></div>
+            <div class="application-field"><input type="email" name="email" required /></div>
+          </label>
+        </li>
+        <li class="application-question">
+          <label>
+            <div class="application-label">Phone</div>
+            <div class="application-field"><input type="text" name="phone" /></div>
+          </label>
+        </li>
+        <li class="application-question">
+          <label>
+            <div class="application-label">Current location</div>
+            <div class="application-field"><input type="text" name="location" id="location-input" /></div>
+          </label>
+        </li>
+        <li class="application-question">
+          <label>
+            <div class="application-label">Current company</div>
+            <div class="application-field"><input type="text" name="org" /></div>
+          </label>
+        </li>
+      </ul>
+    </div>
+
+    <div class="section application-form">
+      <h4>Links</h4>
+      <ul>
+        <li class="application-question">
+          <label><div class="application-label">LinkedIn URL</div><div class="application-field"><input type="text" name="urls[LinkedIn]" /></div></label>
+        </li>
+        <li class="application-question">
+          <label><div class="application-label">Twitter URL</div><div class="application-field"><input type="text" name="urls[Twitter]" /></div></label>
+        </li>
+        <li class="application-question">
+          <label><div class="application-label">GitHub URL</div><div class="application-field"><input type="text" name="urls[GitHub]" /></div></label>
+        </li>
+        <li class="application-question">
+          <label><div class="application-label">Portfolio URL</div><div class="application-field"><input type="text" name="urls[Portfolio]" /></div></label>
+        </li>
+      </ul>
+    </div>
+
+    <div class="section application-form">
+      <h4>Questions</h4>
+      <input type="hidden" name="cards[5b1c][baseTemplate]" value="{}" />
+      <ul>
+        <li class="application-question custom-question">
+          <div class="application-label"><div class="text">Are you authorized to work in the United States?<span class="required">✱</span></div></div>
+          <div class="application-field">
+            <ul data-qa="multiple-choice">
+              <li><label><input type="radio" name="cards[5b1c][field0]" value="Yes" /><span class="application-answer-alternative">Yes</span></label></li>
+              <li><label><input type="radio" name="cards[5b1c][field0]" value="No" /><span class="application-answer-alternative">No</span></label></li>
+            </ul>
+          </div>
+        </li>
+        <li class="application-question custom-question">
+          <div class="application-label"><div class="text">Will you require visa sponsorship now or in the future?<span class="required">✱</span></div></div>
+          <div class="application-field">
+            <ul data-qa="multiple-choice">
+              <li><label><input type="radio" name="cards[5b1c][field1]" value="Yes" /><span class="application-answer-alternative">Yes</span></label></li>
+              <li><label><input type="radio" name="cards[5b1c][field1]" value="No" /><span class="application-answer-alternative">No</span></label></li>
+            </ul>
+          </div>
+        </li>
+        <li class="application-question custom-question">
+          <div class="application-label"><div class="text">Expected graduation date</div></div>
+          <div class="application-field"><input type="text" name="cards[5b1c][field2]" /></div>
+        </li>
+        <li class="application-question custom-question">
+          <div class="application-label"><div class="text">What draws you to logistics software?<span class="required">✱</span></div></div>
+          <div class="application-field"><textarea name="cards[5b1c][field3]"></textarea></div>
+        </li>
+      </ul>
+    </div>
+
+    <div class="section application-form">
+      <h4>Additional information</h4>
+      <textarea name="comments" placeholder="Add a cover letter or anything else you want to share."></textarea>
+    </div>
+
+    <div class="section application-form eeo-section">
+      <h4>U.S. Equal Employment Opportunity information</h4>
+      <ul>
+        <li class="application-question">
+          <div class="application-label">Gender</div>
+          <div class="application-field">
+            <select name="eeo[gender]">
+              <option value="">Select ...</option>
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+              <option value="Decline to self-identify">Decline to self-identify</option>
+            </select>
+          </div>
+        </li>
+        <li class="application-question">
+          <div class="application-label">Race</div>
+          <div class="application-field">
+            <select name="eeo[race]">
+              <option value="">Select ...</option>
+              <option value="Asian (Not Hispanic or Latino)">Asian (Not Hispanic or Latino)</option>
+              <option value="Hispanic or Latino">Hispanic or Latino</option>
+              <option value="White (Not Hispanic or Latino)">White (Not Hispanic or Latino)</option>
+              <option value="Decline to self-identify">Decline to self-identify</option>
+            </select>
+          </div>
+        </li>
+        <li class="application-question">
+          <div class="application-label">Veteran status</div>
+          <div class="application-field">
+            <select name="eeo[veteran]">
+              <option value="">Select ...</option>
+              <option value="I am a veteran">I am a veteran</option>
+              <option value="I am not a veteran">I am not a veteran</option>
+              <option value="Decline to self-identify">Decline to self-identify</option>
+            </select>
+          </div>
+        </li>
+        <li class="application-question">
+          <div class="application-label">Disability status</div>
+          <div class="application-field">
+            <select name="eeo[disability]">
+              <option value="">Select ...</option>
+              <option value="Yes, I have a disability, or have a history/record of having a disability">Yes, I have a disability, or have a history/record of having a disability</option>
+              <option value="No, I don't have a disability, or a history/record of having a disability">No, I don't have a disability, or a history/record of having a disability</option>
+              <option value="I don't wish to answer">I don't wish to answer</option>
+            </select>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <div class="section application-form">
+      <label class="consent"><input type="checkbox" name="consent[marketing]" /> I'd like to hear about future roles</label>
+    </div>
+
+    <button type="submit" class="template-btn-submit postings-btn">Submit application</button>
+  </form>
+</div>

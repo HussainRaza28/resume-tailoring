@@ -1,0 +1,43 @@
+<!--
+  A company's own application form, not on any of the known job sites. Written
+  by hand to test matching by label alone: plain labels, a mix of <label for>,
+  wrapping labels and aria-label, a native select and a searchable dropdown
+  (role="combobox") that shows its options when typed into.
+-->
+<main>
+  <h1>Apply: Platform Intern</h1>
+  <form id="apply" action="/apply" method="post">
+    <p><label for="given">Given name</label> <input id="given" name="given" /></p>
+    <p><label for="surname">Surname</label> <input id="surname" name="surname" /></p>
+    <p><label>E-mail address <input type="email" name="contact_email" /></label></p>
+    <p><input type="tel" name="mobile" aria-label="Mobile number" /></p>
+    <p><label for="street">Street address</label> <input id="street" name="street" /></p>
+    <p><label for="city">City</label> <input id="city" name="city" /></p>
+    <p>
+      <label for="state">State</label>
+      <select id="state" name="state">
+        <option value="">Choose…</option>
+        <option>California</option>
+        <option>Illinois</option>
+        <option>New York</option>
+      </select>
+    </p>
+    <p><label for="zip">ZIP code</label> <input id="zip" name="zip" /></p>
+    <p><label for="uni">University</label> <input id="uni" name="uni" /></p>
+    <p><label for="major">Field of study</label> <input id="major" name="major" /></p>
+    <p><label for="gpa">GPA</label> <input id="gpa" name="gpa" /></p>
+    <p><label for="grad">Expected graduation</label> <input id="grad" name="grad" type="month" /></p>
+    <p><label for="li">LinkedIn URL</label> <input id="li" name="li" /></p>
+    <p><label for="start">Earliest start date</label> <input id="start" name="start" /></p>
+    <p>
+      <label id="sponsor-label">Do you require visa sponsorship?</label>
+      <input role="combobox" aria-labelledby="sponsor-label" aria-controls="sponsor-list" aria-expanded="false" autocomplete="off" />
+      <ul id="sponsor-list" role="listbox"></ul>
+    </p>
+    <p><label for="ref">Referral code</label> <input id="ref" name="ref" /></p>
+    <p><label for="why">Tell us about a project you're proud of.</label> <textarea id="why" name="why"></textarea></p>
+    <p><label><input type="checkbox" name="terms" /> I agree to the terms</label></p>
+    <p><label for="nick">Preferred name</label> <input id="nick" name="nick" value="Jo" /></p>
+    <button type="submit">Send application</button>
+  </form>
+</main>
