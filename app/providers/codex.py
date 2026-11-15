@@ -28,13 +28,13 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 from app.providers.base import CompletionRequest, DeltaSink, OtherError, Provider, ProviderError, RawReply, Usage
+from app.providers.cli_paths import find_command
 
 # Empty means Codex's own default model.
 DEFAULT_MODEL = ""
@@ -62,28 +62,8 @@ class NotSignedIn(ProviderError):
 
 
 def find_codex(configured: str | None = None) -> str | None:
-    """Where the ``codex`` command is, or None.
-
-    A Mac app opened from Finder doesn't get the shell's ``PATH``, so the usual
-    install folders are checked by hand too. On Windows, npm installs a
-    ``codex.cmd`` in the user's roaming npm folder.
-    """
-    candidates = [configured] if configured else []
-    on_path = shutil.which("codex")
-    if on_path:
-        candidates.append(on_path)
-    home = Path.home()
-    candidates += [
-        str(home / ".local" / "bin" / "codex"),
-        str(home / ".npm-global" / "bin" / "codex"),
-        "/opt/homebrew/bin/codex",
-        "/usr/local/bin/codex",
-    ]
-    if sys.platform == "win32":
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            candidates.append(str(Path(appdata) / "npm" / "codex.cmd"))
-    return next((c for c in candidates if c and Path(c).is_file()), None)
+    """Where the ``codex`` command is, or None. See cli_paths for where it looks."""
+    return find_command("codex", configured)
 
 
 def child_env() -> dict[str, str]:

@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -39,6 +38,7 @@ from app.providers.base import (
     RawReply,
     Usage,
 )
+from app.providers.cli_paths import find_command
 
 DEFAULT_MODEL = "sonnet"
 TIMEOUT_SECONDS = 600
@@ -62,23 +62,8 @@ class NotSignedIn(ProviderError):
 
 
 def find_claude(configured: str | None = None) -> str | None:
-    """Where the ``claude`` command is, or None.
-
-    A Mac app opened from Finder doesn't get the shell's ``PATH``, so the usual
-    install folders are checked by hand too.
-    """
-    candidates = [configured] if configured else []
-    on_path = shutil.which("claude")
-    if on_path:
-        candidates.append(on_path)
-    home = Path.home()
-    candidates += [
-        str(home / ".local" / "bin" / "claude"),
-        str(home / ".claude" / "local" / "claude"),
-        "/opt/homebrew/bin/claude",
-        "/usr/local/bin/claude",
-    ]
-    return next((c for c in candidates if c and Path(c).is_file()), None)
+    """Where the ``claude`` command is, or None. See cli_paths for where it looks."""
+    return find_command("claude", configured, extra=[Path.home() / ".claude" / "local"])
 
 
 def child_env() -> dict[str, str]:

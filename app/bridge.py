@@ -100,6 +100,8 @@ SETTING_KEYS = (
     "theme",
     "export_dir",
     "ollama_host",
+    "path.claude_code",
+    "path.codex",
 )
 
 NO_BASE_RESUME = "Choose your base resume .tex file first."
@@ -400,9 +402,9 @@ class Backend:
         if provider == "claude_api":
             return ClaudeApiProvider(self._key("claude_api"), model=model, effort=effort)
         if provider == "claude_code":
-            return ClaudeCodeProvider(model=model, effort=effort)
+            return ClaudeCodeProvider(model=model, effort=effort, command=self._setting("path.claude_code") or None)
         if provider == "codex":
-            return CodexProvider(model="" if model == "default" else model)
+            return CodexProvider(model="" if model == "default" else model, command=self._setting("path.codex") or None)
         if provider == "gemini":
             return GeminiProvider(self._key("gemini"), model=model)
         if provider == "ollama":
@@ -612,10 +614,10 @@ class Backend:
         return GeminiProvider(self._key("gemini")).list_models()
 
     def claude_code_status(self) -> dict:
-        return claude_code.status()
+        return claude_code.status(self._setting("path.claude_code") or None)
 
     def codex_status(self) -> dict:
-        return codex.status()
+        return codex.status(self._setting("path.codex") or None)
 
     # -- runs ----------------------------------------------------------------
 
@@ -1082,6 +1084,15 @@ class Backend:
         picked = self.window.create_file_dialog(webview.FileDialog.OPEN, file_types=("LaTeX files (*.tex)",))
         return picked[0] if picked else None
 
+    def pick_program(self) -> str | None:
+        """Let the person point at the claude or codex command when it isn't found."""
+        if self.window is None:
+            return None
+        import webview
+
+        picked = self.window.create_file_dialog(webview.FileDialog.OPEN)
+        return picked[0] if picked else None
+
     def reveal(self, path: str) -> None:
         """Show a file in Finder or Explorer."""
         if sys.platform == "darwin":
@@ -1101,7 +1112,7 @@ COMMANDS = (
     "list_runs", "delete_run", "list_applications", "add_application", "update_application",
     "delete_application", "list_facts", "save_fact", "delete_fact", "suggest_facts_from_file",
     "suggest_facts_from_url", "list_baseline", "add_baseline",
-    "delete_baseline", "get_settings", "set_setting", "pick_folder", "pick_tex_file", "reveal",
+    "delete_baseline", "get_settings", "set_setting", "pick_folder", "pick_tex_file", "pick_program", "reveal",
     "jobs_open", "jobs_refresh", "job_posting", "mark_applied", "open_url",
 )
 
