@@ -1,6 +1,9 @@
 /** The toolbar popup: who the profile is for, Autofill for the current tab, and a way to edit the profile. */
 import type { AutofillResult } from "./content";
 import { loadProfile, loadResume } from "./profile";
+import { applyTheme } from "./theme";
+
+applyTheme();
 
 const who = document.getElementById("who")!;
 const result = document.getElementById("result")!;
@@ -39,7 +42,10 @@ async function autofill(): Promise<void> {
 async function start(): Promise<void> {
   const [profile, resume] = await Promise.all([loadProfile(), loadResume()]);
   const name = `${profile.firstName} ${profile.lastName}`.trim();
-  who.textContent = name ? `${name}${resume ? " · resume attached" : " · no resume yet"}` : "Set up your profile first.";
+  who.textContent = name ? `${name} · ${profile.email || "no email yet"}` : "Set up your profile first.";
+  const pill = document.getElementById("resume-pill")!;
+  pill.textContent = resume ? "Resume attached" : "No resume";
+  pill.classList.toggle("positive", Boolean(resume));
   button.addEventListener("click", autofill);
   document.getElementById("edit")!.addEventListener("click", () => chrome.runtime.openOptionsPage());
 }

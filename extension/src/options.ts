@@ -1,6 +1,12 @@
 /** The profile page: load the saved profile, show it, save it, and keep the resume PDF. */
 import { loadProfile, loadResume, removeResume, saveProfile, saveResume, type StoredResume } from "./profile";
 import { readForm, renderForm } from "./profileForm";
+import { applyTheme, themeButton } from "./theme";
+import { mountWake } from "./wake";
+
+applyTheme();
+mountWake(document.getElementById("wake") as HTMLCanvasElement);
+themeButton(document.getElementById("theme") as HTMLButtonElement);
 
 const form = document.getElementById("profile") as HTMLFormElement;
 const saved = document.getElementById("saved")!;

@@ -8,7 +8,11 @@
 import type { FillReport } from "./fill/engine";
 
 const HOST_ID = "tailor-autofill-summary";
-const OUTLINE = "2px solid #f59e0b";
+// The app's warning amber, for fields left for the person.
+const OUTLINE = "2px solid #e5a93b";
+
+/** The app's font, for the button and banner drawn into job sites' pages. */
+export const PAGE_STYLE = `:host { --font: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif; }`;
 
 export function summaryText(report: Pick<FillReport, "filled" | "left">): string {
   const filled = report.filled.length;
@@ -43,13 +47,19 @@ export function showSummary(doc: Document, report: Pick<FillReport, "filled" | "
   host.id = HOST_ID;
   const root = host.attachShadow({ mode: "open" });
   root.innerHTML = `
-    <style>
-      .box { position: fixed; right: 20px; bottom: 84px; z-index: 2147483647; display: flex; gap: 12px; align-items: center;
-             padding: 12px 14px 12px 16px; border-radius: 12px; background: #17181a; color: #f4f4f2;
-             font: 600 14px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
-      .dot { width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; }
-      .done .dot { background: #4ade80; }
-      button { border: 0; background: transparent; color: inherit; font: inherit; font-size: 16px; cursor: pointer; padding: 0 2px; }
+    <style>${PAGE_STYLE}
+      .box { position: fixed; right: 20px; bottom: 76px; z-index: 2147483647; display: flex; gap: 12px; align-items: center;
+             padding: 12px 10px 12px 16px; border-radius: 12px; background: #171615; color: #f4f4f2;
+             border: 1px solid rgba(255, 255, 255, 0.08); font: 500 14px/1.3 var(--font);
+             box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(0, 0, 0, 0.2);
+             animation: rise 220ms cubic-bezier(0.22, 1, 0.36, 1); }
+      @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+      @media (prefers-reduced-motion: reduce) { .box { animation: none; } }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: #e5a93b; flex: none; }
+      .done .dot { background: #c6f24e; }
+      button { border: 0; border-radius: 999px; width: 26px; height: 26px; background: transparent; color: #b5b1aa;
+               font: inherit; font-size: 16px; cursor: pointer; }
+      button:hover { background: #242220; color: #f4f4f2; }
     </style>
     <div class="box" role="status"><span class="dot"></span><span class="text"></span><button type="button" aria-label="Close">×</button></div>`;
   const box = root.querySelector(".box")!;

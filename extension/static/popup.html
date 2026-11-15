@@ -4,18 +4,19 @@
     <meta charset="utf-8" />
     <title>Tailor Autofill</title>
     <link rel="stylesheet" href="page.css" />
-    <style>
-      body { width: 300px; }
-      .popup { padding: 16px; display: grid; gap: 12px; }
-    </style>
   </head>
   <body>
     <main class="popup">
-      <h1 style="font-size: 16px">Tailor Autofill</h1>
-      <p id="who" class="muted"></p>
-      <button type="button" id="autofill">Autofill this page</button>
-      <p id="result" class="muted" role="status"></p>
-      <button type="button" id="edit" class="secondary">Edit profile</button>
+      <div class="popup-head">
+        <h1 class="grow" style="font-size: 16px">Tailor Autofill</h1>
+        <span id="resume-pill" class="pill">No resume</span>
+      </div>
+      <div class="card">
+        <p id="who" class="muted"></p>
+      </div>
+      <button type="button" id="autofill" class="primary">Autofill this page</button>
+      <p id="result" class="result-line muted" role="status"></p>
+      <button type="button" id="edit">Edit profile</button>
     </main>
     <script src="popup.js"></script>
   </body>

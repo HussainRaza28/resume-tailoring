@@ -2,33 +2,54 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tailor Autofill profile</title>
     <link rel="stylesheet" href="page.css" />
   </head>
   <body>
     <main class="page">
-      <header>
-        <h1>Tailor Autofill</h1>
-        <p class="muted">Fill this in once. It stays in this browser and is only used when you press Autofill.</p>
+      <header class="masthead">
+        <canvas class="wake" id="wake" role="img" aria-label="A page of dots that the pointer drags a wake through"></canvas>
+        <div>
+          <h1>Tailor Autofill</h1>
+          <p class="muted">Fill this in once. It stays in this browser and is only used when you press Autofill.</p>
+        </div>
+        <div class="row">
+          <button type="button" id="import" class="sm" hidden>Import from Tailor</button>
+          <button type="button" id="theme" class="sm ghost">Theme: system</button>
+        </div>
       </header>
 
       <form id="profile" novalidate></form>
 
       <section class="card" aria-labelledby="resume-title">
         <h2 id="resume-title">Resume</h2>
-        <p class="muted" id="resume-status">No resume yet.</p>
+        <p class="muted" id="resume-status" style="margin: 4px 0 12px">No resume yet.</p>
         <div class="row">
           <label class="button" for="resume-file">Choose PDF</label>
           <input id="resume-file" type="file" accept="application/pdf" hidden />
-          <button type="button" id="resume-remove" class="secondary" hidden>Remove</button>
+          <button type="button" id="resume-remove" class="ghost danger" hidden>Remove</button>
         </div>
       </section>
 
       <div class="save-bar">
-        <span id="saved" class="muted" role="status"></span>
-        <button type="submit" form="profile">Save profile</button>
+        <span id="saved" class="saved" role="status"></span>
+        <button type="submit" form="profile" class="primary">Save profile</button>
       </div>
     </main>
+
+    <input id="import-file" type="file" accept="application/json,.json" hidden />
+    <dialog id="import-dialog" aria-labelledby="import-title">
+      <div class="dialog-body">
+        <h2 id="import-title">Import from Tailor</h2>
+        <p class="muted" id="import-summary"></p>
+        <div class="changes" id="import-changes"></div>
+        <div class="row" style="justify-content: flex-end">
+          <button type="button" id="import-cancel">Cancel</button>
+          <button type="button" id="import-apply" class="primary">Apply</button>
+        </div>
+      </div>
+    </dialog>
     <script src="options.js"></script>
   </body>
 </html>
