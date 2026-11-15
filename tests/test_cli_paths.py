@@ -57,8 +57,8 @@ def test_windows_folders(tmp_path):
 
 def test_mac_folders_include_homebrew_and_npm(tmp_path):
     dirs = [str(d) for d in search_dirs(windows=False, env={"NPM_CONFIG_PREFIX": "/opt/npm"}, home=tmp_path)]
-    assert "/opt/homebrew/bin" in dirs
-    assert "/usr/local/bin" in dirs
+    assert str(Path("/opt/homebrew/bin")) in dirs
+    assert str(Path("/usr/local/bin")) in dirs
     assert str(Path("/opt/npm") / "bin") in dirs
     assert str(tmp_path / ".npm-global" / "bin") in dirs
     assert dirs[0] == str(tmp_path / ".local" / "bin")
