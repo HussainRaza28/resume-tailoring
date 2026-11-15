@@ -19,6 +19,12 @@ export async function pickTexFile(): Promise<string | null> {
   return call<string | null>("pick_tex_file");
 }
 
+/** Pick a program file, such as the claude or codex command. Null in the browser mock. */
+export async function pickProgram(): Promise<string | null> {
+  if (!inDesktop) return null;
+  return call<string | null>("pick_program");
+}
+
 export async function writeClipboard(text: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);

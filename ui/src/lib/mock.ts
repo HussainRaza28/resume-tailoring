@@ -310,7 +310,7 @@ export async function installMock() {
       case "app_info":
         return { name: "Tailor", version: "0.1.0", data_dir: "~/Library/Application Support/Tailor/private", has_base_resume: db.hasBase, tectonic_path: "/Applications/Tailor.app/Contents/MacOS/tectonic" };
       case "get_settings":
-        return ["provider", "model.claude_api", "model.claude_code", "model.codex", "model.gemini", "model.ollama", "model.demo", "effort", "theme", "export_dir", "ollama_host"].map((key) => ({ key, value: db.settings[key] ?? null }));
+        return ["provider", "model.claude_api", "model.claude_code", "model.codex", "model.gemini", "model.ollama", "model.demo", "effort", "theme", "export_dir", "ollama_host", "path.claude_code", "path.codex"].map((key) => ({ key, value: db.settings[key] ?? null }));
       case "set_setting":
         db.settings[String(a.key)] = String(a.value);
         return null;
@@ -558,6 +558,8 @@ export async function installMock() {
       case "change_data_dir":
         return { name: "Tailor", version: "0.1.0", data_dir: String(a.path), has_base_resume: db.hasBase, tectonic_path: "/Applications/Tailor.app/Contents/MacOS/tectonic" };
       case "show_data_dir":
+        return null;
+      case "pick_program":
         return null;
       case "codex_status":
         return { installed: true, signed_in: true, path: "/opt/homebrew/bin/codex", version: "0.169.0", auth_method: "chatgpt" };

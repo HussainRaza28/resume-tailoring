@@ -4,7 +4,7 @@ import { IconTimer, IconTrash } from "../components/icons";
 import { type AppInfo, type BaselineEntry, type ClaudeCodeStatus, type KeyStatus, type OllamaModel, type Settings, api } from "../lib/api";
 import { clock, duration, median, shortDate } from "../lib/format";
 import { isCmdError } from "../lib/ipc";
-import { pickFolder } from "../lib/platform";
+import { pickFolder, pickProgram } from "../lib/platform";
 
 type Props = {
   info: AppInfo | null;
@@ -154,6 +154,62 @@ function Stopwatch() {
   );
 }
 
+/** The install and sign-in state of a command-line provider, where it was found, and a
+ *  way to point at it by hand. Apps opened from the Start menu or Finder don't get the
+ *  terminal's PATH, so the backend searches the usual folders; this covers the rest. */
+function CliStatusRow({
+  name,
+  status,
+  signedInLabel,
+  chosen,
+  onChoose,
+}: {
+  name: string;
+  status: ClaudeCodeStatus | null;
+  signedInLabel: string;
+  chosen: string;
+  onChoose: (path: string) => void;
+}) {
+  const choose = async () => {
+    const picked = await pickProgram();
+    if (picked) onChoose(picked);
+  };
+  return (
+    <>
+      <div className="row cli-status">
+        <span className="small muted">{name}</span>
+        {status === null ? (
+          <span className="pill">Checking…</span>
+        ) : !status.installed ? (
+          <span className="pill pill-negative">Not installed</span>
+        ) : status.signed_in ? (
+          <span className="pill pill-positive">{signedInLabel}</span>
+        ) : (
+          <span className="pill pill-negative">Installed · not signed in</span>
+        )}
+        {status?.path && (
+          <span className="grow small faint mono selectable cli-path" title={status.path}>
+            {status.path}
+            {status.version ? ` · ${status.version}` : ""}
+          </span>
+        )}
+        {!status?.path && <span className="grow" />}
+        <button className="btn btn-sm" onClick={choose}>
+          Choose path…
+        </button>
+      </div>
+      {chosen && (
+        <span className="small faint">
+          Using the path you chose.{" "}
+          <button className="link-button" onClick={() => onChoose("")}>
+            Search again
+          </button>
+        </span>
+      )}
+    </>
+  );
+}
+
 export default function SettingsScreen({ info, settings, setSetting, theme, setTheme, importResume, onInfo }: Props) {
   const toast = useToast();
   const moveData = async () => {
@@ -175,13 +231,15 @@ export default function SettingsScreen({ info, settings, setSetting, theme, setT
 
   useEffect(() => {
     if (provider !== "claude_code") return;
+    setClaudeCode(null);
     api.claudeCodeStatus().then(setClaudeCode).catch(() => setClaudeCode(null));
-  }, [provider]);
+  }, [provider, settings["path.claude_code"]]);
 
   useEffect(() => {
     if (provider !== "codex") return;
+    setCodex(null);
     api.codexStatus().then(setCodex).catch(() => setCodex(null));
-  }, [provider]);
+  }, [provider, settings["path.codex"]]);
 
   useEffect(() => {
     if (provider !== "gemini") return;
@@ -231,27 +289,21 @@ export default function SettingsScreen({ info, settings, setSetting, theme, setT
             </div>
             {provider === "claude_code" && (
               <>
-                <div className="row">
-                  <span className="grow small muted">Claude Code</span>
-                  {claudeCode === null ? (
-                    <span className="pill">Checking…</span>
-                  ) : !claudeCode.installed ? (
-                    <span className="pill pill-negative">Not installed</span>
-                  ) : claudeCode.signed_in ? (
-                    <span className="pill pill-positive">Installed · signed in</span>
-                  ) : (
-                    <span className="pill pill-negative">Installed · not signed in</span>
-                  )}
-                </div>
+                <CliStatusRow
+                  name="Claude Code"
+                  status={claudeCode}
+                  signedInLabel="Installed · signed in"
+                  chosen={settings["path.claude_code"] ?? ""}
+                  onChoose={(path) => setSetting("path.claude_code", path)}
+                />
+                {claudeCode && !claudeCode.installed && (
+                  <span className="small faint">
+                    Install Claude Code, or if it's installed, choose where the <span className="mono">claude</span> command is.
+                  </span>
+                )}
                 {claudeCode?.installed && !claudeCode.signed_in && (
                   <span className="small faint">
                     Run <span className="mono">claude auth login</span> in a terminal, then come back.
-                  </span>
-                )}
-                {claudeCode?.path && (
-                  <span className="small faint mono selectable">
-                    {claudeCode.path}
-                    {claudeCode.version ? ` · ${claudeCode.version}` : ""}
                   </span>
                 )}
                 <label className="field">
@@ -266,34 +318,23 @@ export default function SettingsScreen({ info, settings, setSetting, theme, setT
             )}
             {provider === "codex" && (
               <>
-                <div className="row">
-                  <span className="grow small muted">Codex</span>
-                  {codex === null ? (
-                    <span className="pill">Checking…</span>
-                  ) : !codex.installed ? (
-                    <span className="pill pill-negative">Not installed</span>
-                  ) : codex.signed_in ? (
-                    <span className="pill pill-positive">Installed · signed in with ChatGPT</span>
-                  ) : codex.auth_method === "api_key" ? (
-                    <span className="pill pill-negative">Signed in with an API key</span>
-                  ) : (
-                    <span className="pill pill-negative">Installed · not signed in</span>
-                  )}
-                </div>
+                <CliStatusRow
+                  name="Codex"
+                  status={codex}
+                  signedInLabel="Installed · signed in with ChatGPT"
+                  chosen={settings["path.codex"] ?? ""}
+                  onChoose={(path) => setSetting("path.codex", path)}
+                />
                 {codex && !codex.installed && (
                   <span className="small faint">
-                    Install with <span className="mono">npm install -g @openai/codex</span>, then run <span className="mono">codex login</span>.
+                    Install with <span className="mono">npm install -g @openai/codex</span>, then run <span className="mono">codex login</span>. If it's
+                    installed, choose where the <span className="mono">codex</span> command is.
                   </span>
                 )}
                 {codex?.installed && !codex.signed_in && (
                   <span className="small faint">
+                    {codex.auth_method === "api_key" ? "Codex is signed in with an API key. " : ""}
                     Run <span className="mono">codex login</span> in a terminal and sign in with ChatGPT, then come back.
-                  </span>
-                )}
-                {codex?.path && (
-                  <span className="small faint mono selectable">
-                    {codex.path}
-                    {codex.version ? ` · ${codex.version}` : ""}
                   </span>
                 )}
                 <label className="field">

@@ -2122,3 +2122,15 @@ ul.skills,
     grid-column: 1 / -1;
   }
 }
+
+/* Settings: a command-line provider's status, the path it was found at, and "Choose path…". */
+.cli-status {
+  gap: 10px;
+  min-width: 0;
+}
+.cli-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

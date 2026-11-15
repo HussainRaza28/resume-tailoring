@@ -269,7 +269,9 @@ export type Settings = Partial<
     | "effort"
     | "theme"
     | "export_dir"
-    | "ollama_host",
+    | "ollama_host"
+    | "path.claude_code"
+    | "path.codex",
     string
   >
 >;
