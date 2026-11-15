@@ -562,6 +562,25 @@ export async function installMock() {
         return null;
       case "pick_program":
         return null;
+      case "autofill_profile":
+        return {
+          format: "tailor-autofill-profile",
+          version: 1,
+          profile: {
+            firstName: "Jordan",
+            lastName: "Sample",
+            email: "jordan.sample@example.com",
+            phone: "555-010-0199",
+            linkedin: "https://www.linkedin.com/in/jordan-sample",
+            github: "https://github.com/jordan-sample",
+            portfolio: "",
+            websites: [],
+            education: [{ school: "State University", degree: "Bachelor of Science", field: "Computer Science", minor: "Statistics", gpa: "", start: "", end: "2027-05" }],
+            work: [{ title: "Software Engineering Intern, Routing Team", company: "Northwind Logistics", location: "Chicago, IL", current: false, start: "2025-06", end: "2025-08", bullets: ["Built a Python service that batches delivery route updates"] }],
+            skills: ["Python", "TypeScript", "PostgreSQL"],
+          },
+          facts: db.facts.map((f) => f.text),
+        };
       case "codex_status":
         return { installed: true, signed_in: true, path: "/opt/homebrew/bin/codex", version: "0.169.0", auth_method: "chatgpt" };
       case "claude_code_status":

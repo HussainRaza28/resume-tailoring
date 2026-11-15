@@ -215,3 +215,22 @@ test("settings: the ChatGPT (Codex) provider shows its sign-in", async ({ page }
   await expect(page.getByText("Installed · signed in with ChatGPT")).toBeVisible();
   await expect(page.getByLabel("Codex model")).toHaveAttribute("placeholder", "Codex's default");
 });
+
+test("settings: Export for Autofill downloads the profile for the extension", async ({ page }) => {
+  await page.goto("/?screen=settings");
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export for Autofill" }).click();
+  const file = await download;
+  expect(file.suggestedFilename()).toBe("Tailor_Autofill_Profile.json");
+  const data = JSON.parse(await (await import("node:fs/promises")).readFile((await file.path())!, "utf8"));
+  expect(data.format).toBe("tailor-autofill-profile");
+  expect(data.profile.work[0].company).toBe("Northwind Logistics");
+  await expect(page.getByText("Profile saved for Autofill")).toBeVisible();
+});
+
+test("settings: Choose path is offered next to the Claude Code status", async ({ page }) => {
+  await page.goto("/?screen=settings");
+  await page.getByRole("group", { name: "Provider" }).getByRole("button", { name: /Claude Code/ }).click();
+  await expect(page.getByText("/Users/you/.local/bin/claude · 2.1.325")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Choose path…" })).toBeVisible();
+});

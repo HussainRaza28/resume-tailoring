@@ -4,7 +4,7 @@ import { IconTimer, IconTrash } from "../components/icons";
 import { type AppInfo, type BaselineEntry, type ClaudeCodeStatus, type KeyStatus, type OllamaModel, type Settings, api } from "../lib/api";
 import { clock, duration, median, shortDate } from "../lib/format";
 import { isCmdError } from "../lib/ipc";
-import { pickFolder, pickProgram } from "../lib/platform";
+import { exportAutofill, pickFolder, pickProgram } from "../lib/platform";
 
 type Props = {
   info: AppInfo | null;
@@ -223,6 +223,14 @@ export default function SettingsScreen({ info, settings, setSetting, theme, setT
     }
   };
   const provider = settings.provider ?? "claude_code";
+  const exportForAutofill = async () => {
+    try {
+      const path = await exportAutofill();
+      if (path) toast.push({ tone: "success", title: "Profile saved for Autofill", body: `${path}. In the extension, open the profile and choose Import from Tailor.` });
+    } catch (err) {
+      toast.push({ tone: "error", title: "Could not export the profile", body: isCmdError(err) ? err.message : String(err) });
+    }
+  };
   const [claudeCode, setClaudeCode] = useState<ClaudeCodeStatus | null>(null);
   const [codex, setCodex] = useState<ClaudeCodeStatus | null>(null);
   const [ollama, setOllama] = useState<OllamaModel[] | null>(null);
@@ -434,6 +442,14 @@ export default function SettingsScreen({ info, settings, setSetting, theme, setT
               {info?.tectonic_path ? <span className="pill pill-positive">Found</span> : <span className="pill pill-negative">Not found</span>}
             </div>
             {info?.tectonic_path && <span className="small faint mono selectable">{info.tectonic_path}</span>}
+            <div className="row">
+              <span className="grow small muted">
+                Tailor Autofill: a profile for the browser extension, with your contact links, every role and school with dates and bullets, your skills and the facts bank.
+              </span>
+              <button className="btn btn-sm" onClick={exportForAutofill} disabled={!info?.has_base_resume}>
+                Export for Autofill
+              </button>
+            </div>
           </div>
         </section>
 

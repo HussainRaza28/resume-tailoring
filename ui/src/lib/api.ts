@@ -309,6 +309,10 @@ export const api = {
   appInfo: () => call<AppInfo>("app_info"),
   changeDataDir: (path: string) => call<AppInfo>("change_data_dir", { path }),
   showDataDir: () => call<void>("show_data_dir"),
+  /** The base resume and facts bank as a profile for the Tailor Autofill extension. */
+  autofillProfile: () => call<Record<string, unknown>>("autofill_profile"),
+  /** Save that profile as JSON where the person chooses. Null when they cancel. */
+  exportAutofill: () => call<string | null>("export_autofill"),
   importBaseResume: (path: string) => call<void>("import_base_resume", { path }),
   compileBase: async () => {
     const r = await call<{ pdf: string; pages: number; duration_ms: number }>("compile_base");

@@ -37,6 +37,7 @@ from pydantic import BaseModel, model_validator
 from app.core import compile as compiler
 from app.core import pricing, skills
 from app.core.db import Application, Db, DbError, RunRecord, StepLog
+from app.core.autofill import autofill_profile
 from app.core.export import export_file_name, person_name
 from app.core.fact_import import SuggestionResult, suggest_facts
 from app.core.facts import FactsBank, FactsError
@@ -582,6 +583,31 @@ class Backend:
         self.location.write_text(json.dumps({"data_dir": str(self.data_dir)}), encoding="utf-8")
         return self.app_info()
 
+    def autofill_profile(self) -> dict:
+        """The base resume and facts bank as a profile for the Tailor Autofill extension."""
+        return autofill_profile(self._base_tex(), self._facts())
+
+    def export_autofill(self, path: str = "") -> str | None:
+        """Save the autofill profile as JSON. Asks where when no path is given; None if cancelled."""
+        data = self.autofill_profile()
+        if not path:
+            if self.window is None:
+                return None
+            import webview
+
+            picked = self.window.create_file_dialog(
+                webview.FileDialog.SAVE, save_filename="Tailor_Autofill_Profile.json", file_types=("JSON files (*.json)",)
+            )
+            if not picked:
+                return None
+            path = picked if isinstance(picked, str) else picked[0]
+        target = Path(path)
+        try:
+            target.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        except OSError as e:
+            raise AppError("io", f"Could not save the file: {e}") from e
+        return str(target)
+
     def show_data_dir(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.reveal(str(self.data_dir))
@@ -1112,7 +1138,7 @@ COMMANDS = (
     "list_runs", "delete_run", "list_applications", "add_application", "update_application",
     "delete_application", "list_facts", "save_fact", "delete_fact", "suggest_facts_from_file",
     "suggest_facts_from_url", "list_baseline", "add_baseline",
-    "delete_baseline", "get_settings", "set_setting", "pick_folder", "pick_tex_file", "pick_program", "reveal",
+    "delete_baseline", "get_settings", "set_setting", "pick_folder", "pick_tex_file", "pick_program", "reveal", "autofill_profile", "export_autofill",
     "jobs_open", "jobs_refresh", "job_posting", "mark_applied", "open_url",
 )
 

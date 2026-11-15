@@ -25,6 +25,20 @@ export async function pickProgram(): Promise<string | null> {
   return call<string | null>("pick_program");
 }
 
+/**
+ * Save the profile for the Tailor Autofill extension. The desktop app asks where
+ * with a save dialog; the browser mock downloads it. The saved path, or null.
+ */
+export async function exportAutofill(): Promise<string | null> {
+  if (inDesktop) return call<string | null>("export_autofill");
+  const data = await call<Record<string, unknown>>("autofill_profile");
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: "Tailor_Autofill_Profile.json" });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return "Tailor_Autofill_Profile.json";
+}
+
 export async function writeClipboard(text: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
