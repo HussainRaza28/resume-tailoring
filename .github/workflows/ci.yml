@@ -70,6 +70,33 @@ jobs:
           npx playwright install --with-deps chromium
           npm run e2e
 
+  extension:
+    name: Autofill extension
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Typecheck and tests
+        run: |
+          npm run typecheck
+          npm test
+      - name: Build
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tailor-Autofill-extension
+          path: extension/dist/
+          if-no-files-found: error
+
   build:
     name: Build ${{ matrix.name }}
     needs: [test, interface]

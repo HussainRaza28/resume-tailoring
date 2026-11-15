@@ -83,13 +83,51 @@ Every step shows the company, the role and a link back to the posting.
 
 The preview on the right updates as you decide. Cmd+K or Ctrl+K opens the command bar to search history and switch screens. The sidebar has your history, an application tracker and the facts bank. In the facts bank you can drop a PDF, Word, text or Markdown file, or paste a link to your site, and Tailor suggests facts from it; nothing is saved until you accept it.
 
+## Tailor Autofill (Chrome extension)
+
+Tailor Autofill fills job applications on Workday, Greenhouse, Lever and Ashby from a profile you keep in Chrome, and matches fields by their labels on other sites. It lives in `extension/`.
+
+**Install it with Load unpacked.** Either download the built extension from the latest CI run (the `Tailor-Autofill-extension` artifact) and unzip it, or build it yourself:
+
+```bash
+cd extension
+```
+
+```bash
+npm ci
+```
+
+```bash
+npm run build
+```
+
+Then, in Chrome:
+
+1. Open `chrome://extensions`.
+2. Turn on **Developer mode** (top right).
+3. Click **Load unpacked** and choose the unzipped folder, or `extension/dist` if you built it.
+4. Pin Tailor Autofill from the puzzle-piece menu so its button stays in the toolbar.
+
+After an update, build again (or unzip the new artifact over the old folder) and click the reload arrow on the extension's card in `chrome://extensions`.
+
+**Set up your profile once.** Click the toolbar button, then Edit profile. Fill in your details, choose your resume PDF, and save. The demographic questions all default to "Decline to answer".
+
+**Fill an application.** On Workday, Greenhouse, Lever and Ashby an Autofill button appears in the bottom corner of the page. On any other site, use Autofill this page in the toolbar popup. Each press fills the page that's showing; on Workday, press it again on each page after Save and Continue. Autofill:
+
+- never submits, and never presses Next or Save and Continue
+- leaves open questions such as "Why do you want to work here?" blank
+- never ticks a consent or terms box, and never changes a field you've already filled
+- shows "Filled 14 fields, 3 left for you" and outlines what's left until you answer it
+
+Your profile and resume stay in Chrome's storage on your computer. The extension makes no network calls and has no tracking. It only runs in a page when you're on one of the four job sites or press Autofill in the popup.
+
 ## Privacy
 
 - Your resume, postings, outputs, facts bank and history stay in a private folder on your computer. You can see where it is, or move it, in Settings under Data.
 - A run sends your resume and the posting to the provider you chose, and only that provider. Ollama and the offline demo send nothing anywhere.
 - API keys live in the system keychain.
 - The Jobs screen downloads the three public listing files from GitHub. Nothing about you is sent.
-- The app has no account, no analytics and no server of its own.
+- The app has no account, no analytics and no server of its own. The Autofill extension sends nothing anywhere either.
 
 ## Development
 

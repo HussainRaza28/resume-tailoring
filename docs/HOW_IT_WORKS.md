@@ -23,6 +23,7 @@ You paste a job posting. The app reads your LaTeX resume into editable pieces ca
 | Storage | `app/core/db.py`, `app/core/secrets.py` | SQLite and the keychain |
 | Facts import | `app/core/fact_import.py`, `app/importers/` | Suggest facts from a file or page |
 | Jobs | `app/importers/jobs.py`, `places.py` | Internship listings from three GitHub repos |
+| Autofill extension | `extension/src/` | Fill job applications in Chrome from a saved profile |
 
 ## 1. Reading the resume: `tex.py`
 
@@ -152,6 +153,16 @@ Each listing carries two flags. `advanced_degree` marks a role only open to Mast
 `JobsCache` saves the result as `jobs.json` in the data folder, so the list opens offline. If one repo can't be reached, its listings from the last good fetch stay. Each listing records when the app first saw it. Opening the screen starts a visit and remembers the one before, and a listing first seen after that earlier visit gets a New badge. Nothing is new on the very first visit. The page refreshes by itself when the list is more than an hour old.
 
 "Tailor for this" tries to read the posting from its link with the same page reader as the facts import. Sites such as Workday build the posting in the browser, so the reader gets almost nothing back. Under 600 characters counts as a failure, and the Tailor screen opens with the company and role filled in and asks for a paste. "Mark applied" adds the listing to the tracker with its link, and a second click updates the same entry.
+
+## 8c. The Autofill extension: `extension/`
+
+A separate Chrome extension that fills job applications from a profile kept in the browser. It has three parts. `options.ts` is the profile page, built from one list of fields in `profileForm.ts` and saved with `chrome.storage.local`. `popup.ts` is the toolbar popup. `content.ts` runs in the job site's page and adds the floating Autofill button.
+
+The filling is in `src/fill/`. `engine.ts` walks every visible field in page order. For each one it asks what the field wants: the site's own field name first (`sites.ts`), then the label (`keys.ts`, ordered rules such as "first name" before "name"). It then answers from the profile. `dom.ts` does the setting in a way React forms notice: the browser's own value setter plus `input` and `change` events, a `DataTransfer` for the resume, and a click on the right option for dropdowns that open a list. Choices are picked by meaning, so "Decline to answer" in the profile matches "I don't wish to answer" or "Decline To Self Identify" on the form.
+
+What it leaves alone is as important. Open questions ("Why do you want to work here?"), single checkboxes (consents), fields that already have an answer, and the submit and Next buttons are never touched. Every field it didn't fill is counted, outlined and summed up in "Filled 14 fields, 3 left for you" (`summary.ts`). On Workday each press fills the page that's showing.
+
+The tests (Vitest with jsdom) load a saved form for each site, run the filler and check every field. The samples are rebuilt from each site's structure, since the real sites can't be reached from the build environment.
 
 ## 9. Packaging
 

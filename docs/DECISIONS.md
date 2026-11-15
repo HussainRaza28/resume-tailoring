@@ -133,6 +133,19 @@ Choices made while building Tailor, with the reason for each.
 - **Applications keep their link.** A new `url` column on the applications table (migration 3) holds it. Marking the same listing applied twice updates one entry.
 - **Links open in the default browser,** through an `open_url` command that only accepts `http` and `https`, so a link never opens inside the app window.
 
+## Autofill extension
+
+- **Its own folder, its own build.** The extension is in `extension/` with its own `package.json`, so the desktop app and the extension don't share build tools. It's Manifest V3, plain TypeScript and plain DOM: no framework for a profile page and a few buttons.
+- **esbuild bundles it.** Chrome loads a content script as a plain script, not a module, so each entry (content, popup, profile page) is bundled into one file. esbuild does that with no configuration beyond `build.mjs`. It's the only build dependency; `@types/chrome` and `@types/node` are for type checking only.
+- **Everything stays in `chrome.storage.local`.** The profile and the resume (as a data URL, capped at 5 MB) never leave the browser. The extension has no network calls, no analytics and no remote code.
+- **Few permissions.** `storage`, `activeTab` and `scripting`, plus a content script on the four job sites only. On any other site the popup adds the script to that one tab when the person clicks Autofill, which `activeTab` allows, so the extension never asks to read every site.
+- **The site's own field names first, labels second.** Greenhouse ids, Lever names, Ashby's `_systemfield_*` and Workday's `data-automation-id` are steadier than wording. Everything else, and every field on other sites, is matched by its label with ordered rules (`keys.ts`): "First name" is tried before "Name".
+- **Values are set the way typing sets them.** React forms ignore a value written straight onto an input, so the browser's own value setter is used and `input` and `change` events are fired. A resume goes in through a `DataTransfer` file list, the only way a page can set a file input.
+- **Choices are matched by meaning.** A select, a radio group, a pair of Yes/No buttons or a searchable dropdown gets the closest choice: exact text first, then any of the usual decline wordings for "Decline to answer", then a leading Yes or No, then shared words. A "no" answer ("I am not a protected veteran") can't match a "yes" choice.
+- **What it won't do.** It never submits or presses Next, never ticks a single checkbox (those are consents and agreements), never overwrites an answer already there, and leaves open questions blank. Everything it leaves is counted and outlined, so nothing is silently skipped.
+- **Workday one page at a time.** Each press fills the page that's showing. Moving on is Workday's own Save and Continue, so the person reviews each page before it's saved.
+- **Test samples are rebuilt, not captured.** The job sites are blocked from the development environment, and Workday only shows application pages after signing in. The samples in `extension/test/fixtures` are rebuilt from each site's known form structure, and each file says so. The built extension was also run in Chromium on those samples, with the content script loaded at each site's address. Saving a real application page from Chrome into the fixtures folder is the way to add a site's actual markup.
+
 ## Interface blocks
 
 - **Bencho's code and comments are kept as written.** `ui/src/blocks/SOURCE.md` lists each block, where it came from and its license, and whether the file is Bencho's original or a version written for this app from the public listing.
