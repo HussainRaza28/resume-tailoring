@@ -124,6 +124,12 @@ def _unclear_number(new_text: str) -> Violation | None:
         digits = "".join(c for c in token if c.isdigit())
         if len(digits) == 4 and digits.startswith(("19", "20")):
             continue  # a year
+        # A number joined to a word is part of a term, which gives it its context:
+        # best-of-3, 4-letter, 24/7, 3-stage, Top-10, EC2, Python3.
+        char_before = new_text[m.start() - 1] if m.start() > 0 else ""
+        char_after = new_text[m.end()] if m.end() < len(new_text) else ""
+        if (char_before and char_before in "-/") or char_before.isalpha() or (char_after and char_after in "-/"):
+            continue
         after = new_text[m.end() :]
         before = new_text[: m.start()].rstrip().lower()
         next_word = _first_word(after)

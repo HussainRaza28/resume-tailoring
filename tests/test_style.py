@@ -68,6 +68,17 @@ def test_unclear_numbers():
     assert UNCLEAR_NUMBER not in rules("Each simulation ran in 0.66 seconds")
     assert UNCLEAR_NUMBER not in rules("Saved $1,200 per month")
     assert UNCLEAR_NUMBER not in rules("Led 2 of 5 teams")
+
+
+def test_numbers_inside_hyphenated_terms_have_context():
+    bullet = "Built a match engine that supports best-of-3 or best-of-5 matches using a 4-letter code"
+    assert UNCLEAR_NUMBER not in rules(bullet)
+    assert UNCLEAR_NUMBER not in rules("Kept the service up 24/7 for the campus")
+    assert UNCLEAR_NUMBER not in rules("Designed a 3-stage pipeline")
+    assert UNCLEAR_NUMBER not in rules("Placed in the Top-10 and shipped it")
+    assert UNCLEAR_NUMBER not in rules("Moved the data to S3 and EC2 for the team")
+    # A bare number next to a hyphenated term still needs its own noun.
+    assert UNCLEAR_NUMBER in rules("Ran a best-of-3 bracket and improved it by 3")
     assert UNCLEAR_NUMBER not in rules("Tracked windows up to 10 times per second")
     assert UNCLEAR_NUMBER in rules("Improved the build 3 times")
     assert UNCLEAR_NUMBER not in rules("Selected as 1 of ~230 students")
