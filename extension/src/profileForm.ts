@@ -22,7 +22,7 @@ import {
 type TextKey = {
   [K in keyof Profile]: Profile[K] extends string ? K : never;
 }[keyof Profile];
-type ListKey = "skills" | "websites";
+type ListKey = "skills" | "websites" | "facts";
 
 type Field =
   | { key: TextKey; label: string; type?: "text" | "email" | "tel" | "url" | "month"; wide?: boolean; placeholder?: string }
@@ -71,6 +71,11 @@ export const SECTIONS: Section[] = [
     ],
   },
   { title: "Languages", list: "languages" },
+  {
+    title: "Facts from Tailor",
+    note: "Kept for reference when you answer questions yourself. Autofill doesn't type these anywhere.",
+    fields: [{ key: "facts", label: "One fact per line", type: "list" }],
+  },
   {
     title: "Work authorization",
     fields: [

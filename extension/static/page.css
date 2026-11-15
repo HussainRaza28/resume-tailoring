@@ -478,6 +478,9 @@ dialog::backdrop {
   border: 1px solid var(--border);
   border-radius: var(--radius-inner);
 }
+.changes:focus {
+  outline: none;
+}
 .change {
   display: grid;
   grid-template-columns: 150px 1fr;

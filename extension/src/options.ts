@@ -1,5 +1,6 @@
 /** The profile page: load the saved profile, show it, save it, and keep the resume PDF. */
 import { loadProfile, loadResume, removeResume, saveProfile, saveResume, type StoredResume } from "./profile";
+import { changes, mergeImport, parseTailorExport } from "./importTailor";
 import { readForm, renderForm } from "./profileForm";
 import { applyTheme, themeButton } from "./theme";
 import { mountWake } from "./wake";
@@ -53,6 +54,59 @@ async function start(): Promise<void> {
     } finally {
       resumeInput.value = "";
     }
+  });
+
+  // Import from Tailor: pick the exported file, preview what changes, apply.
+  const importInput = document.getElementById("import-file") as HTMLInputElement;
+  const dialog = document.getElementById("import-dialog") as HTMLDialogElement;
+  const summary = document.getElementById("import-summary")!;
+  const list = document.getElementById("import-changes")!;
+  const apply = document.getElementById("import-apply") as HTMLButtonElement;
+  let pending: typeof profile | null = null;
+  document.getElementById("import")!.addEventListener("click", () => importInput.click());
+  document.getElementById("import-cancel")!.addEventListener("click", () => dialog.close());
+  importInput.addEventListener("change", async () => {
+    const file = importInput.files?.[0];
+    importInput.value = "";
+    if (!file) return;
+    list.replaceChildren();
+    try {
+      const current = readForm(form, profile);
+      const merged = mergeImport(current, parseTailorExport(await file.text()));
+      const found = changes(current, merged);
+      pending = merged;
+      summary.textContent = found.length
+        ? `${found.length} change${found.length === 1 ? "" : "s"} from ${file.name}. Your address, answers and self-identification stay as they are.`
+        : "Nothing new in that file: the profile already matches it.";
+      for (const c of found) {
+        const row = document.createElement("div");
+        row.className = "change";
+        const label = Object.assign(document.createElement("strong"), { textContent: c.label });
+        const values = document.createElement("div");
+        if (c.was) values.append(Object.assign(document.createElement("div"), { className: "was", textContent: c.was }));
+        values.append(Object.assign(document.createElement("div"), { className: "now", textContent: c.now }));
+        row.append(label, values);
+        list.append(row);
+      }
+      list.hidden = !found.length;
+      apply.disabled = !found.length;
+    } catch (e) {
+      pending = null;
+      summary.textContent = e instanceof Error ? e.message : String(e);
+      list.hidden = true;
+      apply.disabled = true;
+    }
+    dialog.showModal();
+  });
+  apply.addEventListener("click", async () => {
+    if (!pending) return;
+    profile = pending;
+    pending = null;
+    renderForm(form, profile);
+    await saveProfile(profile);
+    dialog.close();
+    saved.textContent = "Imported and saved";
+    setTimeout(() => (saved.textContent = ""), 2500);
   });
 
   resumeRemove.addEventListener("click", async () => {

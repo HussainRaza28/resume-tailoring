@@ -85,6 +85,8 @@ export interface Profile {
   startDate: string;
   questions: Questions;
   demographics: Demographics;
+  /** Facts from Tailor's facts bank, kept for reference. Autofill doesn't type them anywhere. */
+  facts: string[];
 }
 
 export function emptyWork(): WorkEntry {
@@ -134,6 +136,7 @@ export function emptyProfile(): Profile {
     needsSponsorship: "",
     startDate: "",
     questions: { ...DEFAULT_QUESTIONS },
+    facts: [],
     // Every demographic question defaults to declining.
     demographics: { gender: DECLINE, hispanicLatino: DECLINE, race: DECLINE, veteran: DECLINE, disability: DECLINE },
   };
