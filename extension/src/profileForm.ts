@@ -23,13 +23,18 @@ type TextKey = {
   [K in keyof Profile]: Profile[K] extends string ? K : never;
 }[keyof Profile];
 type ListKey = "skills" | "websites" | "facts";
+type BoolKey = "hasPreferredName";
 
-type Field =
+/** ``shownWith``: the field shows only while that checkbox is ticked, as Workday's preferred name does. */
+type Field = (
   | { key: TextKey; label: string; type?: "text" | "email" | "tel" | "url" | "month"; wide?: boolean; placeholder?: string }
   | { key: TextKey; label: string; type: "select"; options: string[]; wide?: boolean }
+  | { key: BoolKey; label: string; type: "check" }
   | { key: ListKey; label: string; type: "list"; placeholder?: string }
-  | { key: keyof Questions; label: string; type: "question"; options?: string[]; placeholder?: string }
-  | { key: keyof Demographics; label: string; type: "demographic"; options: string[] };
+  | { key: keyof Questions; label: string; type: "question"; options?: string[]; placeholder?: string; input?: "date" }
+  | { key: keyof Demographics; label: string; type: "demographic"; options: string[] }
+  | { key: string; label: string; type: "heading" }
+) & { shownWith?: BoolKey };
 
 type Section =
   | { title: string; note?: string; fields: Field[] }
@@ -38,24 +43,43 @@ type Section =
 const YES_NO = ["", "Yes", "No"];
 export const LEVELS = ["Native", "Fluent", "Advanced", "Intermediate", "Beginner"];
 
+export const PHONE_TYPES = ["Mobile", "Home", "Work"];
+export const CLEARANCES = ["None", "Public Trust", "Confidential", "Secret", "Top Secret", "Top Secret/SCI"];
+
 export const SECTIONS: Section[] = [
   {
-    title: "Name and contact",
+    title: "Legal name",
+    note: "As on your ID. Workday's My Information page asks for these first.",
     fields: [
       { key: "firstName", label: "First name" },
+      { key: "middleName", label: "Middle name" },
       { key: "lastName", label: "Last name" },
-      { key: "email", label: "Email", type: "email" },
-      { key: "phone", label: "Phone", type: "tel" },
+      { key: "preferred", label: "Preferred name", type: "heading" },
+      { key: "hasPreferredName", label: "I have a preferred name", type: "check" },
+      { key: "preferredFirstName", label: "Preferred first name", shownWith: "hasPreferredName" },
+      { key: "preferredLastName", label: "Preferred last name", shownWith: "hasPreferredName" },
+    ],
+  },
+  {
+    title: "Contact",
+    fields: [
+      { key: "email", label: "Email", type: "email", wide: true },
+      { key: "phoneType", label: "Phone device type", type: "select", options: PHONE_TYPES },
+      { key: "phoneCountry", label: "Country phone code", placeholder: "United States (+1)" },
+      { key: "phone", label: "Phone number", type: "tel" },
+      { key: "phoneExtension", label: "Phone extension" },
     ],
   },
   {
     title: "Address",
     fields: [
-      { key: "street", label: "Street address", wide: true },
+      { key: "country", label: "Country", wide: true },
+      { key: "street", label: "Address line 1", wide: true },
+      { key: "street2", label: "Address line 2", wide: true, placeholder: "Apartment, suite, unit" },
       { key: "city", label: "City" },
       { key: "state", label: "State", placeholder: "e.g. Illinois" },
-      { key: "postalCode", label: "ZIP or postal code" },
-      { key: "country", label: "Country" },
+      { key: "postalCode", label: "Postal code" },
+      { key: "county", label: "County" },
     ],
   },
   { title: "Work experience", note: "Most recent first. Workday gets one entry per role, with the bullets as the description.", list: "work" },
@@ -79,19 +103,22 @@ export const SECTIONS: Section[] = [
   {
     title: "Work authorization",
     fields: [
-      { key: "workAuthorized", label: "Authorized to work in the US?", type: "select", options: YES_NO },
-      { key: "needsSponsorship", label: "Will you need visa sponsorship?", type: "select", options: YES_NO },
-      { key: "startDate", label: "Available to start", placeholder: "e.g. May 2027", wide: true },
+      { key: "workAuthorized", label: "Authorized to work in the country?", type: "select", options: YES_NO },
+      { key: "usCitizen", label: "U.S. citizen?", type: "select", options: YES_NO },
+      { key: "sponsorshipNow", label: "Need visa sponsorship now?", type: "select", options: YES_NO },
+      { key: "sponsorshipFuture", label: "Need visa sponsorship in the future?", type: "select", options: YES_NO },
+      { key: "securityClearance", label: "Security clearance", type: "select", options: CLEARANCES },
     ],
   },
   {
     title: "Common questions",
     fields: [
       { key: "heardFrom", label: "How did you hear about us?", type: "question", placeholder: "Job board" },
-      { key: "workedHereBefore", label: "Worked here before?", type: "question", options: ["No", "Yes"] },
+      { key: "workedHereBefore", label: "Previously worked for this company?", type: "question", options: ["No", "Yes"] },
       { key: "over18", label: "18 or older?", type: "question", options: ["Yes", "No"] },
-      { key: "phoneType", label: "Phone type", type: "question", options: ["Mobile", "Home", "Work"] },
-      { key: "phoneCountry", label: "Country for the phone code", type: "question", placeholder: "United States (+1)" },
+      { key: "willingToRelocate", label: "Willing to relocate?", type: "question", options: YES_NO },
+      { key: "availableFrom", label: "Available from", type: "question", input: "date" },
+      { key: "availableUntil", label: "Available until", type: "question", input: "date" },
     ],
   },
   {
@@ -155,8 +182,12 @@ function plainControl(field: Field, p: Profile): HTMLElement {
     case "question": {
       const value = p.questions[field.key];
       if (field.options) return select(field.options, value);
-      return el("input", { type: "text", value, placeholder: field.placeholder ?? "" });
+      return el("input", { type: field.input ?? "text", value, placeholder: field.placeholder ?? "" });
     }
+    case "check":
+      return el("input", { type: "checkbox", checked: p[field.key] });
+    case "heading":
+      return el("span");
     case "list":
       return el("textarea", { value: p[field.key].join("\n"), placeholder: field.placeholder ?? "", rows: 4 });
     default:
@@ -234,17 +265,26 @@ function workEntry(w: WorkEntry): HTMLDivElement {
 
 function educationEntry(e: EducationEntry): HTMLDivElement {
   const { entry, title } = entryShell("education");
+  const enrolled = el("input", { type: "checkbox", checked: e.current });
+  enrolled.dataset.field = "current";
+  const endLabel = labelled("Graduation (month and year)", input("end", e.end, "month"));
   entry.append(
     labelled("School", input("school", e.school), true),
     labelled("Degree", input("degree", e.degree, "text", "e.g. Bachelor of Science")),
     labelled("Field of study", input("field", e.field, "text", "e.g. Computer Science")),
     labelled("Minor", input("minor", e.minor)),
     labelled("GPA", input("gpa", e.gpa, "text", "e.g. 3.8")),
+    el("label", { className: "check wide" }, enrolled, "I'm currently enrolled here"),
     labelled("Start", input("start", e.start, "month")),
-    labelled("End or expected graduation", input("end", e.end, "month")),
+    endLabel,
   );
-  const sync = () => (title.textContent = headTitle("education", entry));
+  // Enrolled: the end date is the expected graduation.
+  const sync = () => {
+    title.textContent = headTitle("education", entry);
+    endLabel.firstChild!.textContent = enrolled.checked ? "Expected graduation (month and year)" : "Graduation (month and year)";
+  };
   entry.addEventListener("input", sync);
+  entry.addEventListener("change", sync);
   sync();
   return entry;
 }
@@ -288,12 +328,32 @@ export function renderForm(form: HTMLFormElement, profile: Profile): void {
       fieldset.append(listEditor(section.list, profile));
     } else {
       for (const field of section.fields) {
+        if (field.type === "heading") {
+          fieldset.append(el("h3", { className: "subhead", textContent: field.label }));
+          continue;
+        }
         const control = plainControl(field, profile);
         control.dataset.key = field.key;
-        control.dataset.group = field.type === "demographic" ? "demographics" : field.type === "question" ? "questions" : field.type === "list" ? "list" : "";
+        control.dataset.group =
+          field.type === "demographic" ? "demographics" : field.type === "question" ? "questions" : field.type === "list" ? "list" : field.type === "check" ? "check" : "";
+        if (field.type === "check") {
+          fieldset.append(el("label", { className: "check wide" }, control, field.label));
+          continue;
+        }
         const wide = ("wide" in field && field.wide) || field.type === "list";
-        fieldset.append(labelled(field.label, control, Boolean(wide)));
+        const label = labelled(field.label, control, Boolean(wide));
+        if (field.shownWith) label.dataset.shownWith = field.shownWith;
+        fieldset.append(label);
       }
+      // Fields that show only while their checkbox is ticked.
+      const sync = () => {
+        for (const label of Array.from(fieldset.querySelectorAll<HTMLElement>("[data-shown-with]"))) {
+          const box = fieldset.querySelector<HTMLInputElement>(`[data-key='${label.dataset.shownWith}']`);
+          label.hidden = !box?.checked;
+        }
+      };
+      fieldset.addEventListener("change", sync);
+      sync();
     }
     form.append(fieldset);
   }
@@ -309,7 +369,8 @@ export function readForm(form: HTMLFormElement, base: Profile): Profile {
   for (const node of Array.from(form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("[data-key]"))) {
     const key = node.dataset.key!;
     const value = node.value.trim();
-    if (node.dataset.group === "demographics") profile.demographics[key as keyof Demographics] = value || DECLINE;
+    if (node.dataset.group === "check") profile[key as BoolKey] = (node as HTMLInputElement).checked;
+    else if (node.dataset.group === "demographics") profile.demographics[key as keyof Demographics] = value || DECLINE;
     else if (node.dataset.group === "questions") profile.questions[key as keyof Questions] = value;
     else if (node.dataset.group === "list") profile[key as ListKey] = splitList(node.value);
     else (profile as unknown as Record<string, string>)[key] = value;
@@ -339,6 +400,7 @@ export function readForm(form: HTMLFormElement, base: Profile): Profile {
       field: fieldValue(e, "field"),
       minor: fieldValue(e, "minor"),
       gpa: fieldValue(e, "gpa"),
+      current: e.querySelector<HTMLInputElement>("[data-field='current']")?.checked ?? false,
       start: fieldValue(e, "start"),
       end: fieldValue(e, "end"),
     }))

@@ -5,6 +5,7 @@ import {
   type Store,
   emptyProfile,
   monthParts,
+  startOfMonth,
   today,
   loadProfile,
   loadResume,
@@ -102,15 +103,57 @@ describe("profile form", () => {
     expect(field(form, "phoneType").value).toBe("Mobile");
 
     field(form, "lastName").value = "  Sample ";
-    field(form, "needsSponsorship").value = "No";
+    field(form, "sponsorshipFuture").value = "No";
     field(form, "race").value = "Asian";
     field(form, "skills").value = "Python, SQL\nDocker, python";
     field(form, "websites").value = "https://a.example\n\nhttps://b.example";
     const read = readForm(form, emptyProfile());
-    expect(read).toMatchObject({ firstName: "Jordan", lastName: "Sample", needsSponsorship: "No" });
+    expect(read).toMatchObject({ firstName: "Jordan", lastName: "Sample", sponsorshipFuture: "No" });
     expect(read.skills).toEqual(["Python", "SQL", "Docker"]);
     expect(read.websites).toEqual(["https://a.example", "https://b.example"]);
     expect(read.demographics).toMatchObject({ race: "Asian", gender: DECLINE });
+  });
+
+  it("shows the preferred name fields only while the box is ticked, and reads them back", () => {
+    const form = document.createElement("form");
+    // A checkbox only fires change while it's in the page.
+    document.body.replaceChildren(form);
+    renderForm(form, emptyProfile());
+    const box = field(form, "hasPreferredName") as HTMLInputElement;
+    const first = field(form, "preferredFirstName");
+    expect(box.checked).toBe(false);
+    expect(first.closest("label")!.hidden).toBe(true);
+    box.click();
+    expect(first.closest("label")!.hidden).toBe(false);
+    first.value = "Jo";
+    expect(readForm(form, emptyProfile())).toMatchObject({ hasPreferredName: true, preferredFirstName: "Jo" });
+  });
+
+  it("orders the top like Workday's My Information: legal name, preferred name, contact, address", () => {
+    const form = document.createElement("form");
+    renderForm(form, emptyProfile());
+    const keys = Array.from(form.querySelectorAll<HTMLElement>("[data-key]")).map((el) => el.dataset.key);
+    expect(keys.slice(0, 18)).toEqual([
+      "firstName", "middleName", "lastName", "hasPreferredName", "preferredFirstName", "preferredLastName",
+      "email", "phoneType", "phoneCountry", "phone", "phoneExtension",
+      "country", "street", "street2", "city", "state", "postalCode", "county",
+    ]);
+    expect(field(form, "securityClearance").value).toBe("None");
+    expect(field(form, "availableFrom").getAttribute("type")).toBe("date");
+  });
+
+  it("marks a school as currently enrolled, which makes its end the expected graduation", () => {
+    const form = document.createElement("form");
+    // A checkbox only fires change while it's in the page.
+    document.body.replaceChildren(form);
+    renderForm(form, { ...emptyProfile(), education: [{ school: "State University", degree: "", field: "", minor: "", gpa: "", current: false, start: "", end: "2027-05" }] });
+    const entry = form.querySelector<HTMLElement>(".entry[data-kind='education']")!;
+    const enrolled = entry.querySelector<HTMLInputElement>("[data-field='current']")!;
+    const endLabel = entry.querySelector<HTMLInputElement>("[data-field='end']")!.closest("label")!;
+    expect(endLabel.textContent).toContain("Graduation");
+    enrolled.click();
+    expect(endLabel.textContent).toContain("Expected graduation");
+    expect(readForm(form, emptyProfile()).education[0]).toMatchObject({ current: true, end: "2027-05" });
   });
 
   it("has a field for every plain value the autofill uses", () => {
@@ -164,20 +207,35 @@ describe("profile form", () => {
     const form = document.createElement("form");
     renderForm(form, {
       ...emptyProfile(),
-      education: [{ school: "State University", degree: "BS", field: "CS", minor: "", gpa: "3.8", start: "2023-09", end: "2027-05" }],
+      education: [{ school: "State University", degree: "BS", field: "CS", minor: "", gpa: "3.8", current: true, start: "2023-09", end: "2027-05" }],
       languages: [{ language: "Spanish", level: "Advanced" }],
     });
     form.querySelector<HTMLButtonElement>("[data-list='education'] .entry-add")!.click();
     const read = readForm(form, emptyProfile());
-    expect(read.education).toEqual([{ school: "State University", degree: "BS", field: "CS", minor: "", gpa: "3.8", start: "2023-09", end: "2027-05" }]);
+    expect(read.education).toEqual([{ school: "State University", degree: "BS", field: "CS", minor: "", gpa: "3.8", current: true, start: "2023-09", end: "2027-05" }]);
     expect(read.languages).toEqual([{ language: "Spanish", level: "Advanced" }]);
   });
 });
 
 describe("older saved profiles", () => {
+  it("moves the phone details, splits the sponsorship answer and turns the start date into a date", () => {
+    const old = {
+      firstName: "Jordan",
+      needsSponsorship: "Yes",
+      startDate: "May 2027",
+      questions: { heardFrom: "Referral", workedHereBefore: "No", over18: "Yes", phoneType: "Home", phoneCountry: "Canada" },
+    };
+    const p = withDefaults(old as never);
+    expect(p).toMatchObject({ phoneType: "Home", phoneCountry: "Canada", sponsorshipNow: "Yes", sponsorshipFuture: "Yes", securityClearance: "None" });
+    expect(p.questions).toEqual({ heardFrom: "Referral", workedHereBefore: "No", over18: "Yes", willingToRelocate: "", availableFrom: "2027-05-01", availableUntil: "" });
+    expect("needsSponsorship" in p || "startDate" in p).toBe(false);
+    expect(startOfMonth("05/2027")).toBe("2027-05-01");
+    expect(startOfMonth("sometime soon")).toBe("");
+  });
+
   it("moves the single school into the education list", () => {
     const p = withDefaults({ firstName: "Jordan", school: "State University", major: "CS", gpa: "3.8", graduationDate: "2027-05" } as never);
-    expect(p.education).toEqual([{ school: "State University", degree: "", field: "CS", minor: "", gpa: "3.8", start: "", end: "2027-05" }]);
+    expect(p.education).toEqual([{ school: "State University", degree: "", field: "CS", minor: "", gpa: "3.8", current: false, start: "", end: "2027-05" }]);
     expect(p.questions.heardFrom).toBe("Job board");
     expect("school" in p).toBe(false);
   });

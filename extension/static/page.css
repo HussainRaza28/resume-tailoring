@@ -225,6 +225,13 @@ legend {
   font-weight: 600;
   font-size: 16px;
 }
+.subhead {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
 .section-note {
   grid-column: 1 / -1;
   margin-top: -6px;
