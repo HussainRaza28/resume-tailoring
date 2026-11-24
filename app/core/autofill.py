@@ -164,8 +164,10 @@ def education(doc: TexDoc) -> list[dict]:
         fields = [_plain(doc, f) for f in e.fields]
         dates = next((f for f in fields[1:] if _is_date(f)), "")
         detail = next((f for f in fields[1:] if f and f != dates and not _LOCATION.match(f)), "")
-        start, end, _ = date_range(dates)
-        entry = {"school": fields[0], **_degree(detail), "start": start, "end": end}
+        start, end, current = date_range(dates)
+        # "Expected May 2027" or "2023 -- Present": still enrolled, and the end is the expected graduation.
+        enrolled = current or bool(re.search(r"\b(expected|anticipated)\b", dates, re.I))
+        entry = {"school": fields[0], **_degree(detail), "current": enrolled, "start": start, "end": end}
         # A GPA written as a bullet ("GPA: 3.8/4.0") counts too.
         for b in e.bullets:
             m = re.search(r"\bgpa\b\s*:?\s*([0-9.]+(?:\s*/\s*[0-9.]+)?)", _plain(doc, b), re.I)

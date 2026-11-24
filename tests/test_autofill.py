@@ -49,7 +49,7 @@ def test_the_sample_resume():
     assert data["format"] == "tailor-autofill-profile" and data["version"] == 1
     assert p["education"] == [
         {"school": "State University", "degree": "Bachelor of Science", "field": "Computer Science", "minor": "Statistics",
-         "gpa": "", "start": "", "end": "2027-05"}
+         "gpa": "", "current": True, "start": "", "end": "2027-05"}
     ]
     assert [(w["company"], w["title"], w["start"], w["end"], w["current"]) for w in p["work"]] == [
         ("Northwind Logistics", "Software Engineering Intern, Routing Team", "2025-06", "2025-08", False),
