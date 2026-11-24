@@ -112,15 +112,26 @@ Then, in Chrome:
 
 After an update, build again (or unzip the new artifact over the old folder) and click the reload arrow on the extension's card in `chrome://extensions`.
 
-**Set up your profile once.** Click the toolbar button, then Edit profile. Fill in your details, choose your resume PDF, and save. The profile holds your roles (title, company, location, dates and bullets), schools, skills, languages and links, and the answers most applications ask for: how you heard about the job (Job board), whether you've worked there before (No), 18 or older (Yes), phone type (Mobile) and the phone's country. The demographic questions all default to "Decline to answer".
+**Set up your profile once.** Click the toolbar button, then Edit profile. Fill in your details, choose your resume PDF, and save. The top of the page follows Workday's My Information page:
+
+- **Legal name:** first, middle and last. Under it, **Preferred name**: tick "I have a preferred name" to show the preferred first and last name fields.
+- **Contact:** email, phone device type (Mobile by default), country phone code, phone number and extension.
+- **Address:** country, address lines 1 and 2, city, state, postal code and county.
+
+Below that are your roles (title, company, location, dates and bullets), schools (with "I'm currently enrolled here", which makes the end date your expected graduation), skills, languages and links. Then:
+
+- **Work authorization:** authorized to work in the country, sponsorship needed now, sponsorship needed in the future, U.S. citizen, and security clearance (None by default).
+- **Common questions:** how you heard about the job (Job board), previously worked for this company (No), 18 or older (Yes), willing to relocate, and the dates you're available from and until.
+
+The demographic questions all default to "Decline to answer". A profile saved by an older version keeps its answers: its one sponsorship answer fills both "now" and "in the future", and a start date such as "May 2027" becomes May 1, 2027.
 
 **Or import it from Tailor.** In the app, open Settings and press **Export for Autofill** under Base resume. It saves a `.json` profile built from your base resume: contact links, every role and school with dates and bullets, your skills, and your facts bank. In the extension's profile page press **Import from Tailor**, pick that file, check the list of changes, and press Apply. Your address, answers and self-identification stay as they were, and everything stays editable.
 
 **Fill an application.** On Workday, Greenhouse, Lever and Ashby an Autofill button appears in the bottom corner of the page. On any other site, use Autofill this page in the toolbar popup. Each press fills the page that's showing; on Workday, press it again on each page after Save and Continue:
 
-- **My Information:** name, address, email, phone with its type and country code, how you heard, and whether you've worked there before.
+- **My Information:** legal name with middle name, address with line 2 and county, email, phone with its type, country code and extension, how you heard, and whether you've worked there before. "I have a preferred name" is ticked, and the preferred name filled, only when your profile has a preferred name; otherwise the box is left as it is. Fields you have no answer for, such as a middle name or a second address line, are skipped rather than outlined.
 - **My Experience:** presses Add for each role, school, language and website and fills every field, with a role's bullets as its description, one per line. If Workday already read your resume into entries, it fills their blanks instead of adding copies. Skills are picked one by one from the skills list, and the resume and LinkedIn are added too.
-- **Application Questions:** work authorization, sponsorship, 18 or older and worked here before. Open questions are outlined for you.
+- **Application Questions:** work authorization, sponsorship (a question about now, the future, or both gets the matching answer), 18 or older, worked here before, U.S. citizen, security clearance, willing to relocate, currently enrolled, and your start date, including Workday's separate month, day and year boxes. Open questions are outlined for you.
 - **Voluntary Disclosures and Self Identify:** your answers, "Decline to answer" by default, plus your name and today's date on the disability form.
 
 On Greenhouse, each employment block and the education dates are filled from the same roles and schools.
