@@ -1,7 +1,9 @@
 <!--
   Workday application, page 3 of 5: Application Questions.
   Rebuilt by hand from Workday's structure (see page 1). Yes/No questions are
-  dropdown buttons (work authorization, sponsorship, age, worked here before);
+  dropdown buttons (work authorization, sponsorship now and in the future, age, worked here
+  before, citizenship, clearance, relocation, enrollment); the start date is
+  Workday's split month, day and year boxes;
   open questions are text areas.
 -->
 <div data-automation-id="applyFlowPage">
@@ -22,6 +24,36 @@
   <div data-automation-id="formField-q6">
     <label id="q6">Have you ever been employed by Larkspur Freight or any of its subsidiaries?<abbr title="required">*</abbr></label>
     <button type="button" aria-haspopup="listbox" id="primaryQuestionnaire--q6" aria-labelledby="q6">Select One</button>
+  </div>
+  <div data-automation-id="formField-q7">
+    <label id="q7">Do you currently require sponsorship to work in the United States?<abbr title="required">*</abbr></label>
+    <button type="button" aria-haspopup="listbox" id="primaryQuestionnaire--q7" aria-labelledby="q7">Select One</button>
+  </div>
+  <div data-automation-id="formField-q8">
+    <label id="q8">Will you require visa sponsorship at any time in the future?<abbr title="required">*</abbr></label>
+    <button type="button" aria-haspopup="listbox" id="primaryQuestionnaire--q8" aria-labelledby="q8">Select One</button>
+  </div>
+  <div data-automation-id="formField-q9">
+    <label id="q9">Are you a U.S. citizen?<abbr title="required">*</abbr></label>
+    <button type="button" aria-haspopup="listbox" id="primaryQuestionnaire--q9" aria-labelledby="q9">Select One</button>
+  </div>
+  <div data-automation-id="formField-q10">
+    <label id="q10">Do you currently hold an active security clearance?<abbr title="required">*</abbr></label>
+    <button type="button" aria-haspopup="listbox" id="primaryQuestionnaire--q10" aria-labelledby="q10">Select One</button>
+  </div>
+  <div data-automation-id="formField-q11">
+    <label id="q11">Are you willing to relocate for this position?<abbr title="required">*</abbr></label>
+    <button type="button" aria-haspopup="listbox" id="primaryQuestionnaire--q11" aria-labelledby="q11">Select One</button>
+  </div>
+  <div data-automation-id="formField-q12">
+    <label id="q12">Are you currently enrolled in a degree program?<abbr title="required">*</abbr></label>
+    <button type="button" aria-haspopup="listbox" id="primaryQuestionnaire--q12" aria-labelledby="q12">Select One</button>
+  </div>
+  <div data-automation-id="formField-q13" id="primaryQuestionnaire--q13">
+    <label>When are you available to start?<abbr title="required">*</abbr></label>
+    <input data-automation-id="dateSectionMonth-input" type="text" aria-label="Month" placeholder="MM" />
+    <input data-automation-id="dateSectionDay-input" type="text" aria-label="Day" placeholder="DD" />
+    <input data-automation-id="dateSectionYear-input" type="text" aria-label="Year" placeholder="YYYY" />
   </div>
   <div data-automation-id="formField-q3">
     <label for="primaryQuestionnaire--q3">When is your expected graduation date?</label>

@@ -36,7 +36,7 @@ describe("Import from Tailor", () => {
       ["Springfield Public Library", "2023-09", "2025-05"],
     ]);
     expect(next.work[0].bullets).toHaveLength(4);
-    expect(next.education[0]).toMatchObject({ school: "State University", degree: "Bachelor of Science", field: "Computer Science", minor: "Statistics", end: "2027-05" });
+    expect(next.education[0]).toMatchObject({ school: "State University", degree: "Bachelor of Science", field: "Computer Science", minor: "Statistics", current: true, end: "2027-05" });
     expect(next.skills).toContain("PostgreSQL");
     expect(next.facts).toEqual(["TrailMap is also used by 12 trail guides"]);
     // Untouched: address, authorization, languages, answers, self-identification.

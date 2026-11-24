@@ -1,0 +1,123 @@
+<!--
+  Workday application, My Information, as newer Workday sites build it.
+  Rebuilt by hand like page 1, but with the newer field ids that name the
+  section and the field (name--legalName--firstName, address--addressLine2,
+  phoneNumber--extension) and the page's own groups: Legal Name, Preferred
+  Name, Address, Phone. The preferred name fields appear once "I have a
+  preferred name" is ticked. Not a capture of a live page; the company is made up.
+-->
+<div data-automation-id="applyFlowPage">
+  <div data-automation-id="progressBar"><span data-automation-id="progressBarActiveStep">My Information</span></div>
+  <h2>My Information</h2>
+
+  <div data-automation-id="formField-source">
+    <label for="source--source">How Did You Hear About Us?<abbr title="required">*</abbr></label>
+    <div data-automation-id="selectedItemList"></div>
+    <input id="source--source" data-automation-id="searchBox" type="text" placeholder="Search" />
+  </div>
+  <fieldset data-automation-id="formField-candidateIsPreviousWorker">
+    <legend>Have you previously worked for Larkspur Freight?<abbr title="required">*</abbr></legend>
+    <div><input type="radio" id="prev-yes" name="candidateIsPreviousWorker" value="true" /><label for="prev-yes">Yes</label></div>
+    <div><input type="radio" id="prev-no" name="candidateIsPreviousWorker" value="false" /><label for="prev-no">No</label></div>
+  </fieldset>
+
+  <div data-automation-id="formField-country">
+    <label id="label-country--country">Country<abbr title="required">*</abbr></label>
+    <button type="button" aria-haspopup="listbox" id="country--country" aria-labelledby="label-country--country">Select One</button>
+  </div>
+
+  <section aria-labelledby="legal-name">
+    <h3 id="legal-name">Legal Name</h3>
+    <div data-automation-id="formField-legalName--firstName">
+      <label for="name--legalName--firstName">First Name<abbr title="required">*</abbr></label>
+      <input id="name--legalName--firstName" type="text" />
+    </div>
+    <div data-automation-id="formField-legalName--middleName">
+      <label for="name--legalName--middleName">Middle Name</label>
+      <input id="name--legalName--middleName" type="text" />
+    </div>
+    <div data-automation-id="formField-legalName--lastName">
+      <label for="name--legalName--lastName">Last Name<abbr title="required">*</abbr></label>
+      <input id="name--legalName--lastName" type="text" />
+    </div>
+  </section>
+
+  <section aria-labelledby="preferred-name">
+    <h3 id="preferred-name">Preferred Name</h3>
+    <div data-automation-id="formField-preferredCheck">
+      <input id="name--preferredCheck" type="checkbox" />
+      <label for="name--preferredCheck">I have a preferred name</label>
+    </div>
+    <div id="preferred-fields" hidden>
+      <div data-automation-id="formField-preferredName--firstName">
+        <label for="name--preferredName--firstName">First Name<abbr title="required">*</abbr></label>
+        <input id="name--preferredName--firstName" type="text" />
+      </div>
+      <div data-automation-id="formField-preferredName--lastName">
+        <label for="name--preferredName--lastName">Last Name<abbr title="required">*</abbr></label>
+        <input id="name--preferredName--lastName" type="text" />
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="address">
+    <h3 id="address">Address</h3>
+    <div data-automation-id="formField-addressLine1">
+      <label for="address--addressLine1">Address Line 1<abbr title="required">*</abbr></label>
+      <input id="address--addressLine1" type="text" />
+    </div>
+    <div data-automation-id="formField-addressLine2">
+      <label for="address--addressLine2">Address Line 2</label>
+      <input id="address--addressLine2" type="text" />
+    </div>
+    <div data-automation-id="formField-city">
+      <label for="address--city">City<abbr title="required">*</abbr></label>
+      <input id="address--city" type="text" />
+    </div>
+    <div data-automation-id="formField-countryRegion">
+      <label id="label-address--countryRegion">State<abbr title="required">*</abbr></label>
+      <button type="button" aria-haspopup="listbox" id="address--countryRegion" aria-labelledby="label-address--countryRegion">Select One</button>
+    </div>
+    <div data-automation-id="formField-postalCode">
+      <label for="address--postalCode">Postal Code<abbr title="required">*</abbr></label>
+      <input id="address--postalCode" type="text" />
+    </div>
+    <div data-automation-id="formField-regionSubdivision1">
+      <label for="address--regionSubdivision1">County</label>
+      <input id="address--regionSubdivision1" type="text" />
+    </div>
+  </section>
+
+  <section aria-labelledby="contact">
+    <h3 id="contact">Email Address</h3>
+    <div data-automation-id="formField-email">
+      <label for="emailAddress--emailAddress">Email Address<abbr title="required">*</abbr></label>
+      <input id="emailAddress--emailAddress" type="text" />
+    </div>
+  </section>
+
+  <section aria-labelledby="phone">
+    <h3 id="phone">Phone</h3>
+    <div data-automation-id="formField-phoneType">
+      <label id="label-phoneNumber--phoneType">Phone Device Type<abbr title="required">*</abbr></label>
+      <button type="button" aria-haspopup="listbox" id="phoneNumber--phoneType" aria-labelledby="label-phoneNumber--phoneType">Select One</button>
+    </div>
+    <div data-automation-id="formField-countryPhoneCode">
+      <label for="phoneNumber--countryPhoneCode">Country Phone Code<abbr title="required">*</abbr></label>
+      <div data-automation-id="selectedItemList"></div>
+      <input id="phoneNumber--countryPhoneCode" data-automation-id="searchBox" type="text" placeholder="Search" />
+    </div>
+    <div data-automation-id="formField-phoneNumber">
+      <label for="phoneNumber--phoneNumber">Phone Number<abbr title="required">*</abbr></label>
+      <input id="phoneNumber--phoneNumber" type="text" />
+    </div>
+    <div data-automation-id="formField-extension">
+      <label for="phoneNumber--extension">Phone Extension</label>
+      <input id="phoneNumber--extension" type="text" />
+    </div>
+  </section>
+
+  <div data-automation-id="pageFooter">
+    <button type="button" data-automation-id="bottom-navigation-next-button">Save and Continue</button>
+  </div>
+</div>

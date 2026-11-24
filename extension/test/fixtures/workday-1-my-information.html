@@ -2,7 +2,8 @@
   Workday application, page 1 of 5: My Information.
   Rebuilt by hand from the structure Workday applications use: formField-*
   wrappers, data-automation-id on each field, and dropdowns that are buttons
-  opening a list box. Not a capture of a live page (Workday only shows these
+  opening a list box. Ticking "I have a preferred name" shows the preferred
+  name fields, which start hidden. Not a capture of a live page (Workday only shows these
   pages after signing in); the company is made up.
 -->
 <div data-automation-id="applyFlowPage">
@@ -26,13 +27,35 @@
     <label for="input-4">First Name<abbr title="required">*</abbr></label>
     <input id="input-4" data-automation-id="legalNameSection_firstName" type="text" />
   </div>
+  <div data-automation-id="formField-legalNameSection_middleName">
+    <label for="input-4m">Middle Name</label>
+    <input id="input-4m" data-automation-id="legalNameSection_middleName" type="text" />
+  </div>
   <div data-automation-id="formField-legalNameSection_lastName">
     <label for="input-5">Last Name<abbr title="required">*</abbr></label>
     <input id="input-5" data-automation-id="legalNameSection_lastName" type="text" />
   </div>
+  <div data-automation-id="formField-preferredNameCheckbox">
+    <input id="input-pref" data-automation-id="preferredNameCheckbox" type="checkbox" />
+    <label for="input-pref">I have a preferred name</label>
+  </div>
+  <div data-automation-id="preferredNameSection" hidden>
+    <div data-automation-id="formField-preferredNameSection_firstName">
+      <label for="input-pf">Preferred First Name<abbr title="required">*</abbr></label>
+      <input id="input-pf" data-automation-id="preferredNameSection_firstName" type="text" />
+    </div>
+    <div data-automation-id="formField-preferredNameSection_lastName">
+      <label for="input-pl">Preferred Last Name<abbr title="required">*</abbr></label>
+      <input id="input-pl" data-automation-id="preferredNameSection_lastName" type="text" />
+    </div>
+  </div>
   <div data-automation-id="formField-addressSection_addressLine1">
     <label for="input-6">Address Line 1</label>
     <input id="input-6" data-automation-id="addressSection_addressLine1" type="text" />
+  </div>
+  <div data-automation-id="formField-addressSection_addressLine2">
+    <label for="input-6b">Address Line 2</label>
+    <input id="input-6b" data-automation-id="addressSection_addressLine2" type="text" />
   </div>
   <div data-automation-id="formField-addressSection_city">
     <label for="input-7">City</label>
@@ -45,6 +68,10 @@
   <div data-automation-id="formField-addressSection_postalCode">
     <label for="input-9">Postal Code</label>
     <input id="input-9" data-automation-id="addressSection_postalCode" type="text" />
+  </div>
+  <div data-automation-id="formField-addressSection_regionSubdivision1">
+    <label for="input-9c">County</label>
+    <input id="input-9c" data-automation-id="addressSection_regionSubdivision1" type="text" />
   </div>
   <div data-automation-id="formField-email">
     <label for="input-10">Email Address<abbr title="required">*</abbr></label>
@@ -62,6 +89,10 @@
   <div data-automation-id="formField-phone-number">
     <label for="input-12">Phone Number<abbr title="required">*</abbr></label>
     <input id="input-12" data-automation-id="phone-number" type="text" />
+  </div>
+  <div data-automation-id="formField-phone-extension">
+    <label for="input-13">Phone Extension</label>
+    <input id="input-13" data-automation-id="phone-extension" type="text" />
   </div>
   <div data-automation-id="pageFooter">
     <button type="button" data-automation-id="bottom-navigation-next-button">Save and Continue</button>

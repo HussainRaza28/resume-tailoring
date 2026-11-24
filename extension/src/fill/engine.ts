@@ -24,7 +24,7 @@ import {
   setSelect,
   setText,
 } from "./dom";
-import { ENTRY_KEYS, type FieldKey, keyForLabel, looksLikeEssay, normalize, valueFor } from "./keys";
+import { ENTRY_KEYS, type FieldKey, OPTIONAL_KEYS, keyForLabel, looksLikeEssay, normalize, valueFor } from "./keys";
 import type { Site } from "./sites";
 
 export interface FillReport {
@@ -166,6 +166,8 @@ export async function fillPage(root: ParentNode, profile: Profile, resume: File 
       done = Boolean(profile.work[index]);
     } else if (key) {
       const value = valueFor(key, profile, index);
+      // No middle name, no preferred name, no second address line: nothing to do here.
+      if (!value && OPTIONAL_KEYS.has(key)) continue;
       if (value) done = await answer(c, value);
     }
     // A current role has no end date, so its end date fields aren't the person's to fill either.
@@ -191,6 +193,13 @@ async function answer(c: Candidate, value: string): Promise<boolean> {
       if (el instanceof HTMLInputElement && el.type === "file") return false;
       // Workday's searchable lists are text inputs that open their options on Enter.
       if (el instanceof HTMLInputElement && isSearchBox(el)) return setSearchBox(el, value);
+      if (el instanceof HTMLInputElement && el.type === "date") {
+        // "05/18/2027" back to the date input's own "2027-05-18".
+        const [m, d, y] = value.split("/");
+        if (!y) return false;
+        setText(el, `${y}-${m}-${d}`);
+        return true;
+      }
       if (el instanceof HTMLInputElement && el.type === "month") {
         // "05/2027" back to the month input's own "2027-05".
         const [m, y] = value.split("/");

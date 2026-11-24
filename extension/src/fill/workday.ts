@@ -10,7 +10,7 @@
  * entry with Add for every profile entry that isn't there yet. It never
  * overwrites a field that has an answer, and never presses anything but Add.
  */
-import { type EducationEntry, type Language, type Profile, type WorkEntry, monthParts } from "../profile";
+import { type EducationEntry, type Language, type Profile, type WorkEntry, monthParts, preferredName } from "../profile";
 import { hasValue, isVisible, setCombobox, setSearchBox, setText, waitFor } from "./dom";
 import type { FillReport } from "./engine";
 import { normalize } from "./keys";
@@ -277,4 +277,33 @@ export async function workdayEntries(root: ParentNode, profile: Profile, _resume
   await fillLanguages(sectionFor(root, /^languages?/i, "language"), profile.languages, report, handled);
   await fillWebsites(sectionFor(root, /^websites?/i, "url"), websitesFor(profile), report, handled);
   await fillSkills(root, profile.skills, report, handled);
+}
+
+/**
+ * My Information's "I have a preferred name" box. It's ticked only when the
+ * profile has a preferred name; Workday then shows the preferred first and
+ * last name fields, which the general pass fills. Without one the box is left
+ * as it is and isn't counted as left for the person.
+ */
+export async function fillPreferredName(root: ParentNode, profile: Profile, report: FillReport, handled: Set<HTMLElement>): Promise<void> {
+  const box = root.querySelector<HTMLInputElement>(
+    "input[type='checkbox'][data-automation-id='preferredNameCheckbox'], input[type='checkbox'][id$='--preferredCheck'], input[type='checkbox'][id*='preferredName' i]",
+  );
+  if (!box) return;
+  handled.add(box);
+  if (!preferredName(profile) || box.checked) return;
+  box.click();
+  report.filled.push(box);
+  // Wait for Workday to show the preferred name fields.
+  await waitFor(() =>
+    Array.from(
+      root.querySelectorAll<HTMLElement>("[data-automation-id*='preferredNameSection' i] input, [id*='preferredName--' i]"),
+    ).filter((x) => x instanceof HTMLInputElement && x.type !== "checkbox" && isVisible(x)),
+  );
+}
+
+/** Workday's own step before the general pass: the preferred name, then My Experience's entries. */
+export async function workdayBefore(root: ParentNode, profile: Profile, resume: File | null, report: FillReport, handled: Set<HTMLElement>): Promise<void> {
+  await fillPreferredName(root, profile, report, handled);
+  await workdayEntries(root, profile, resume, report, handled);
 }

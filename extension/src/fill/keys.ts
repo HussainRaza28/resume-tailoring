@@ -5,15 +5,21 @@
  * sites.ts) and by its label otherwise. The label rules are in order: the
  * first that matches wins, so "First name" is tried before plain "Name".
  */
-import { DECLINE, type Profile, monthParts, today } from "../profile";
+import { DECLINE, type Profile, monthParts, preferredName, today, usDate } from "../profile";
 
 export type FieldKey =
   | "firstName"
+  | "middleName"
   | "lastName"
   | "fullName"
+  | "preferredFirstName"
+  | "preferredLastName"
   | "email"
   | "phone"
+  | "phoneExtension"
   | "street"
+  | "street2"
+  | "county"
   | "city"
   | "state"
   | "postalCode"
@@ -31,8 +37,22 @@ export type FieldKey =
   | "github"
   | "portfolio"
   | "workAuthorized"
+  /** "Now or in the future": yes when either is. */
   | "needsSponsorship"
-  | "startDate"
+  | "sponsorshipNow"
+  | "sponsorshipFuture"
+  | "usCitizen"
+  /** The clearance level. */
+  | "securityClearance"
+  /** Whether there is one: Yes unless it's None. */
+  | "hasClearance"
+  | "willingToRelocate"
+  | "currentlyEnrolled"
+  | "availableFrom"
+  | "availableUntil"
+  | "availableFromMonth"
+  | "availableFromDay"
+  | "availableFromYear"
   | "gender"
   | "hispanicLatino"
   | "race"
@@ -93,9 +113,28 @@ export const ENTRY_KEYS: Partial<Record<FieldKey, "work" | "education">> = {
   eduStartYear: "education",
 };
 
+/**
+ * Keys a person may simply not have an answer for: no middle name, no
+ * preferred name, no second address line. A field asking for one is skipped
+ * when the profile leaves it blank, instead of being left for the person.
+ */
+export const OPTIONAL_KEYS = new Set<FieldKey>([
+  "middleName",
+  "preferredFirstName",
+  "preferredLastName",
+  "street2",
+  "county",
+  "phoneExtension",
+  "availableUntil",
+]);
+
 /** Label rules, most specific first. Tested against the label in lower case. */
 export const LABEL_RULES: [FieldKey, RegExp][] = [
   ["resume", /\b(resume|résumé|cv)\b/],
+  // Preferred before legal: "Preferred first name" has "first name" in it.
+  ["preferredLastName", /preferred (last|family) name/],
+  ["preferredFirstName", /preferred (first |given )?name|nick ?name/],
+  ["middleName", /\bmiddle (name|initial)/],
   ["firstName", /\b(first|given|legal first)[ -]?name\b|^first$/],
   ["lastName", /\b(last|family|legal last)[ -]?name\b|\bsurname\b/],
   ["email", /\be-?mail\b/],
@@ -104,13 +143,24 @@ export const LABEL_RULES: [FieldKey, RegExp][] = [
   ["over18", /\b18\b|eighteen|legal working age|age of majority/],
   ["phoneType", /phone (device )?type|type of phone/],
   ["phoneCountry", /(country|phone) (phone )?code|dialing code/],
+  ["phoneExtension", /\bext(ension)?\b/],
   ["phone", /\b(phone|mobile|cell)\b/],
   ["linkedin", /linkedin/],
   ["github", /github/],
   ["portfolio", /portfolio|personal (web)?site|^website\b|\bwebsite url\b/],
+  // "Now or in the future" asks about either; a question about one of them says which.
+  ["needsSponsorship", /sponsor.*\bnow or (in the )?future|now or (in the )?future.*sponsor/],
+  ["sponsorshipFuture", /sponsor.*\bfuture|future.*sponsor/],
+  ["sponsorshipNow", /(currently|now|presently|at this time).*sponsor|sponsor.*\b(currently|now|at this time)\b/],
   ["needsSponsorship", /sponsor/],
   ["workAuthorized", /authori[sz]ed to work|eligible to work|work authori[sz]ation|legally (allowed|permitted) to work/],
-  ["startDate", /start date|available to start|earliest (possible )?start|when can you start/],
+  ["usCitizen", /\bu\.? ?s\.? citizen|citizen of the (united states|u\.? ?s)|united states citizen|\bcitizenship\b/],
+  ["hasClearance", /(do|have) you (currently )?(have|hold|held|possess|obtained).*clearance|active .*clearance/],
+  ["securityClearance", /clearance/],
+  ["willingToRelocate", /relocat/],
+  ["currentlyEnrolled", /currently enrolled|currently (a )?student|are you (a )?(current )?student|enrolled in (a|an) /],
+  ["availableUntil", /available until|availability end|end date of (your )?availab|until what date|last (day|date) (you are |you're )?available/],
+  ["availableFrom", /start date|available to start|earliest (possible )?start|when can you start|availab(le|ility) (start|from|date)|date available/],
   ["graduationMonth", /graduation month/],
   ["graduationYear", /graduation year|year of graduation/],
   ["graduationDate", /graduat(ion|e)( date)?|expected graduation|degree (completion|end) date/],
@@ -128,6 +178,8 @@ export const LABEL_RULES: [FieldKey, RegExp][] = [
   ["city", /\bcity\b|\btown\b/],
   ["state", /\bstate\b|province|\bregion\b/],
   ["country", /\bcountry\b/],
+  ["county", /\bcounty\b/],
+  ["street2", /address line 2|address 2|apartment|\bapt\b|suite|\bunit\b/],
   ["street", /street|address( line)? ?1?\b|^address$/],
   ["location", /\blocation\b|where are you (located|based)|current city/],
   ["currentCompany", /^(current|most recent|present) (company|employer)/],
@@ -164,6 +216,30 @@ export function valueFor(key: FieldKey, p: Profile, index = 0): string {
   switch (key) {
     case "fullName":
       return `${p.firstName} ${p.lastName}`.trim();
+    case "preferredFirstName":
+      return preferredName(p)?.first ?? "";
+    case "preferredLastName":
+      return preferredName(p)?.last ?? "";
+    case "needsSponsorship": {
+      const both = [p.sponsorshipNow, p.sponsorshipFuture];
+      return both.includes("Yes") ? "Yes" : both.includes("No") ? "No" : "";
+    }
+    case "hasClearance":
+      return !p.securityClearance ? "" : p.securityClearance === "None" ? "No" : "Yes";
+    case "currentlyEnrolled":
+      return edu ? (edu.current ? "Yes" : "No") : "";
+    case "willingToRelocate":
+      return p.questions.willingToRelocate;
+    case "availableFrom":
+      return usDate(p.questions.availableFrom);
+    case "availableUntil":
+      return usDate(p.questions.availableUntil);
+    case "availableFromMonth":
+      return usDate(p.questions.availableFrom).slice(0, 2);
+    case "availableFromDay":
+      return usDate(p.questions.availableFrom).slice(3, 5);
+    case "availableFromYear":
+      return usDate(p.questions.availableFrom).slice(6);
     case "location":
       return [p.city, p.state].filter(Boolean).join(", ");
     case "school":
@@ -219,10 +295,7 @@ export function valueFor(key: FieldKey, p: Profile, index = 0): string {
     case "heardFrom":
     case "workedHereBefore":
     case "over18":
-    case "phoneType":
       return p.questions[key];
-    case "phoneCountry":
-      return p.questions.phoneCountry;
     case "todayDate":
       return now;
     case "todayMonth":

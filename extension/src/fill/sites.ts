@@ -7,8 +7,8 @@
  */
 import type { Profile } from "../profile";
 import type { FillReport } from "./engine";
-import type { FieldKey } from "./keys";
-import { workdayEntries } from "./workday";
+import { type FieldKey, keyForLabel } from "./keys";
+import { workdayBefore } from "./workday";
 
 export interface Site {
   name: string;
@@ -115,13 +115,20 @@ export const ashby: Site = {
  * Dropdowns are buttons that open a list of options (handled in dom.ts).
  */
 const WORKDAY_FIELDS: [RegExp, FieldKey][] = [
+  // Older pages name fields legalNameSection_firstName, newer ones name--legalName--firstName.
+  [/preferrednamesection_firstname|preferredname--firstname/, "preferredFirstName"],
+  [/preferrednamesection_lastname|preferredname--lastname/, "preferredLastName"],
   [/legalnamesection_firstname|legalname--firstname/, "firstName"],
+  [/legalnamesection_middlename|legalname--middlename/, "middleName"],
   [/legalnamesection_lastname|legalname--lastname/, "lastName"],
   [/^email$|emailaddress|--email$/, "email"],
   [/phone-device-type|devicetype|phonetype/, "phoneType"],
   [/countryphonecode|phonecode/, "phoneCountry"],
+  [/phone-extension|phonenumber--extension|--extension$/, "phoneExtension"],
   [/phone-number|phonenumber--phonenumber|--phonenumber$/, "phone"],
   [/addresssection_addressline1|address--addressline1/, "street"],
+  [/addresssection_addressline2|address--addressline2/, "street2"],
+  [/regionsubdivision1|addresssection_county|address--county/, "county"],
   [/addresssection_city|address--city/, "city"],
   [/addresssection_postalcode|address--postalcode/, "postalCode"],
   [/addresssection_countryregion|address--countryregion/, "state"],
@@ -156,6 +163,15 @@ export const workday: Site = {
     if (el.closest("[id*='dateSignedOn' i], [data-automation-id*='dateSignedOn' i]")) {
       return DATE_PARTS[own[0]] ?? (el instanceof HTMLInputElement && el.type !== "checkbox" ? "todayDate" : null);
     }
+    // A split date box elsewhere, such as "When are you available to start?": the question decides.
+    if (DATE_PARTS[own[0]]) {
+      const field = el.closest("[data-automation-id^='formField-']");
+      const question = field?.querySelector("label, legend")?.textContent ?? "";
+      if (keyForLabel(question) !== "availableFrom") return null;
+      return ({ todayMonth: "availableFromMonth", todayDay: "availableFromDay", todayYear: "availableFromYear" } as const)[
+        DATE_PARTS[own[0]] as "todayMonth" | "todayDay" | "todayYear"
+      ];
+    }
     // Then the field's own names, then its formField-* wrapper's (a search box has a generic name of its own).
     const wrapper = el.closest("[data-automation-id^='formField-']")?.getAttribute("data-automation-id")?.slice("formField-".length).toLowerCase() ?? "";
     for (const names of [own, [wrapper]]) {
@@ -169,7 +185,7 @@ export const workday: Site = {
     if (isChoice && el.closest("[data-automation-id*='disability' i], [id*='disability' i]")) return "disability";
     return null;
   },
-  before: workdayEntries,
+  before: workdayBefore,
 };
 
 export const SITES: Site[] = [greenhouse, lever, ashby, workday];

@@ -28,6 +28,15 @@ const OPTIONS: Record<string, string[]> = {
   "primaryQuestionnaire--q2": ["Yes", "No"],
   "primaryQuestionnaire--q5": ["Yes", "No"],
   "primaryQuestionnaire--q6": ["Yes", "No"],
+  "primaryQuestionnaire--q7": ["Yes", "No"],
+  "primaryQuestionnaire--q8": ["Yes", "No"],
+  "primaryQuestionnaire--q9": ["Yes", "No"],
+  "primaryQuestionnaire--q10": ["Yes", "No"],
+  "primaryQuestionnaire--q11": ["Yes", "No"],
+  "primaryQuestionnaire--q12": ["Yes", "No"],
+  "country--country": ["Canada", "India", "United States of America"],
+  "address--countryRegion": ["Illinois", "Indiana", "Iowa"],
+  "phoneNumber--phoneType": ["Home", "Mobile", "Work"],
   gender: ["Female", "Male", "I do not wish to answer"],
   hispanicOrLatino: ["Yes", "No", "I do not wish to answer"],
   ethnicityDropdown: ["Asian (United States of America)", "White (United States of America)", "I do not wish to answer"],
@@ -37,6 +46,7 @@ const OPTIONS: Record<string, string[]> = {
 /** What each search box lists after Enter, by its formField wrapper. */
 const SEARCH: Record<string, string[]> = {
   sourcePrompt: ["Company Website", "Job Board", "Referral"],
+  source: ["Company Website", "Job Board", "Referral"],
   countryPhoneCode: ["Canada (+1)", "India (+91)", "United States of America (+1)"],
   skills: ["Docker", "Java", "PostgreSQL", "Python", "Python (Programming Language)"],
 };
@@ -86,6 +96,13 @@ function workdayBehaviour(): void {
       added.push(name);
     }
   });
+  // "I have a preferred name" shows the preferred name fields.
+  document.addEventListener("change", (e) => {
+    const box = e.target as HTMLInputElement;
+    if (box.dataset?.automationId !== "preferredNameCheckbox" && !box.id?.endsWith("--preferredCheck")) return;
+    const fields = document.querySelector<HTMLElement>("[data-automation-id='preferredNameSection'], #preferred-fields")!;
+    fields.hidden = !box.checked;
+  });
   document.addEventListener("keydown", (e) => {
     const input = e.target as HTMLInputElement;
     if (e.key === "Escape") document.querySelectorAll("[data-automation-widget='wd-popup']").forEach((p) => p.remove());
@@ -132,7 +149,11 @@ describe("Workday", () => {
     expect($<HTMLInputElement>("input[name='candidateIsPreviousWorker'][value='false']").checked).toBe(true);
     expect(shown("[data-automation-id='countryDropdown']")).toBe("United States of America");
     expect(auto("legalNameSection_firstName").value).toBe("Jordan");
+    expect(auto("legalNameSection_middleName").value).toBe("Lee");
     expect(auto("legalNameSection_lastName").value).toBe("Sample");
+    // No preferred name in the profile: the box stays unticked and its fields hidden and empty.
+    expect(auto("preferredNameCheckbox").checked).toBe(false);
+    expect(auto("preferredNameSection_firstName").value).toBe("");
     expect(auto("addressSection_addressLine1").value).toBe("100 Main St");
     expect(auto("addressSection_city").value).toBe("Springfield");
     expect(shown("[data-automation-id='addressSection_countryRegion']")).toBe("Illinois");
@@ -141,9 +162,69 @@ describe("Workday", () => {
     expect(shown("[data-automation-id='phone-device-type']")).toBe("Mobile");
     expect(chosen("countryPhoneCode")).toEqual(["United States of America (+1)"]);
     expect(auto("phone-number").value).toBe("555-010-0199");
-    expect(report.filled).toHaveLength(13);
+    // Blank optional fields (address line 2, county, extension) are skipped, not left for you.
+    expect(auto("addressSection_addressLine2").value).toBe("");
+    expect(auto("phone-extension").value).toBe("");
+    expect(report.filled).toHaveLength(14);
     expect(report.left).toHaveLength(0);
     expect(document.querySelector("[data-automation-widget='wd-popup']")).toBeNull();
+  });
+
+  it("page 1 with a preferred name: ticks the box, then fills the preferred name and the rest", async () => {
+    load("workday-1-my-information.html");
+    const profile = {
+      ...PROFILE,
+      hasPreferredName: true,
+      preferredFirstName: "Jo",
+      preferredLastName: "Sample",
+      street2: "Apt 4B",
+      county: "Sangamon",
+      phoneExtension: "12",
+    };
+    const report = await fillPage(document, profile, RESUME, workday);
+    expect(auto("preferredNameCheckbox").checked).toBe(true);
+    expect(auto("preferredNameSection_firstName").value).toBe("Jo");
+    expect(auto("preferredNameSection_lastName").value).toBe("Sample");
+    expect(auto("legalNameSection_firstName").value).toBe("Jordan");
+    expect(auto("addressSection_addressLine2").value).toBe("Apt 4B");
+    expect(auto("addressSection_regionSubdivision1").value).toBe("Sangamon");
+    expect(auto("phone-extension").value).toBe("12");
+    expect(report.left).toHaveLength(0);
+  });
+
+  it("page 1, the box stays unticked when it's ticked but the preferred name is blank", async () => {
+    load("workday-1-my-information.html");
+    await fillPage(document, { ...PROFILE, hasPreferredName: true, preferredFirstName: "", preferredLastName: "" }, RESUME, workday);
+    expect(auto("preferredNameCheckbox").checked).toBe(false);
+  });
+
+  it("page 1 on newer Workday ids: legal and preferred name, address, phone", async () => {
+    load("workday-1b-my-information-newer.html");
+    const profile = { ...PROFILE, hasPreferredName: true, preferredFirstName: "Jo", preferredLastName: "", street2: "Apt 4B", county: "Sangamon", phoneExtension: "12" };
+    const report = await fillPage(document, profile, RESUME, workday);
+    const v = (id: string) => $<HTMLInputElement>(`[id='${id}']`).value;
+    expect(chosen("source")).toEqual(["Job Board"]);
+    expect($<HTMLInputElement>("#prev-no").checked).toBe(true);
+    expect(shown("[id='country--country']")).toBe("United States of America");
+    expect([v("name--legalName--firstName"), v("name--legalName--middleName"), v("name--legalName--lastName")]).toEqual(["Jordan", "Lee", "Sample"]);
+    expect($<HTMLInputElement>("[id='name--preferredCheck']").checked).toBe(true);
+    expect(v("name--preferredName--firstName")).toBe("Jo");
+    // A preferred first name only: the preferred last name is skipped, not invented or left.
+    expect(v("name--preferredName--lastName")).toBe("");
+    expect([v("address--addressLine1"), v("address--addressLine2"), v("address--city"), v("address--postalCode"), v("address--regionSubdivision1")]).toEqual([
+      "100 Main St",
+      "Apt 4B",
+      "Springfield",
+      "62701",
+      "Sangamon",
+    ]);
+    expect(shown("[id='address--countryRegion']")).toBe("Illinois");
+    expect(v("emailAddress--emailAddress")).toBe("jordan.sample@example.com");
+    expect(shown("[id='phoneNumber--phoneType']")).toBe("Mobile");
+    expect(chosen("countryPhoneCode")).toEqual(["United States of America (+1)"]);
+    expect(v("phoneNumber--phoneNumber")).toBe("555-010-0199");
+    expect(v("phoneNumber--extension")).toBe("12");
+    expect(report.left).toHaveLength(0);
   });
 
   it("page 2, My Experience: adds each role and school, fills every field, picks the skills", async () => {
@@ -207,6 +288,15 @@ describe("Workday", () => {
     expect(shown("#primaryQuestionnaire--q2")).toBe("No");
     expect(shown("#primaryQuestionnaire--q5")).toBe("Yes");
     expect(shown("#primaryQuestionnaire--q6")).toBe("No");
+    // Sponsorship now and in the future, citizenship, clearance (none), relocation, enrollment.
+    expect(shown("#primaryQuestionnaire--q7")).toBe("No");
+    expect(shown("#primaryQuestionnaire--q8")).toBe("No");
+    expect(shown("#primaryQuestionnaire--q9")).toBe("No");
+    expect(shown("#primaryQuestionnaire--q10")).toBe("No");
+    expect(shown("#primaryQuestionnaire--q11")).toBe("Yes");
+    expect(shown("#primaryQuestionnaire--q12")).toBe("Yes");
+    const part = (p: string) => $<HTMLInputElement>(`[id='primaryQuestionnaire--q13'] [data-automation-id='dateSection${p}-input']`).value;
+    expect([part("Month"), part("Day"), part("Year")]).toEqual(["05", "17", "2027"]);
     expect($<HTMLInputElement>("#primaryQuestionnaire--q3").value).toBe("05/2027");
     expect($<HTMLTextAreaElement>("#primaryQuestionnaire--q4").value).toBe("");
     expect(report.left.map((el) => el.id)).toEqual(["primaryQuestionnaire--q4"]);
@@ -237,9 +327,10 @@ describe("Workday", () => {
   });
 
   it("never presses Save and Continue, and a second press changes nothing", async () => {
-    for (const page of [1, 2, 3, 4, 5]) {
-      const name = ["", "my-information", "my-experience", "application-questions", "voluntary-disclosures", "self-identify"][page];
-      load(`workday-${page}-${name}.html`);
+    const pages = ["1-my-information", "1b-my-information-newer", "2-my-experience", "3-application-questions", "4-voluntary-disclosures", "5-self-identify"];
+    for (const name of pages) {
+      const page = Number(name[0]);
+      load(`workday-${name}.html`);
       const next = vi.fn();
       $("[data-automation-id='bottom-navigation-next-button']").addEventListener("click", next);
       const first = await fillPage(document, PROFILE, RESUME, workday);

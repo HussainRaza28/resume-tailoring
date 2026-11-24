@@ -171,7 +171,7 @@ describe("any other site, by label", () => {
     expect(value("#gpa")).toBe("3.8");
     expect(value("#grad")).toBe("2027-05");
     expect(value("#li")).toBe("https://linkedin.com/in/jordan-sample");
-    expect(value("#start")).toBe("May 2027");
+    expect(value("#start")).toBe("05/17/2027");
     expect(combo.dataset.chosen).toBe("No");
     // Left: the referral code, the open question and the terms box. The preferred
     // name already had an answer, so it wasn't touched or counted.
@@ -216,6 +216,24 @@ describe("matching rules", () => {
     expect(keyForLabel("Full name")).toBe("fullName");
     expect(keyForLabel("Email address")).toBe("email");
     expect(keyForLabel("Will you now or in the future require sponsorship?")).toBe("needsSponsorship");
+    expect(keyForLabel("Do you currently require visa sponsorship?")).toBe("sponsorshipNow");
+    expect(keyForLabel("Will you require sponsorship in the future?")).toBe("sponsorshipFuture");
+    expect(keyForLabel("Preferred first name")).toBe("preferredFirstName");
+    expect(keyForLabel("Preferred name")).toBe("preferredFirstName");
+    expect(keyForLabel("Preferred last name")).toBe("preferredLastName");
+    expect(keyForLabel("Middle name")).toBe("middleName");
+    expect(keyForLabel("Address line 2")).toBe("street2");
+    expect(keyForLabel("Address line 1")).toBe("street");
+    expect(keyForLabel("County")).toBe("county");
+    expect(keyForLabel("Country")).toBe("country");
+    expect(keyForLabel("Phone extension")).toBe("phoneExtension");
+    expect(keyForLabel("Are you a U.S. citizen?")).toBe("usCitizen");
+    expect(keyForLabel("Do you hold an active security clearance?")).toBe("hasClearance");
+    expect(keyForLabel("Security clearance level")).toBe("securityClearance");
+    expect(keyForLabel("Are you willing to relocate?")).toBe("willingToRelocate");
+    expect(keyForLabel("Are you currently enrolled in a degree program?")).toBe("currentlyEnrolled");
+    expect(keyForLabel("Available start date")).toBe("availableFrom");
+    expect(keyForLabel("Available until")).toBe("availableUntil");
     expect(keyForLabel("Are you legally authorized to work in the United States?")).toBe("workAuthorized");
     expect(keyForLabel("Are you Hispanic/Latino?")).toBe("hispanicLatino");
     expect(keyForLabel("Race/Ethnicity")).toBe("race");

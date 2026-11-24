@@ -69,6 +69,7 @@ export function mergeImport(current: Profile, data: TailorExport): Profile {
       field: str(e.field),
       minor: str(e.minor),
       gpa: str(e.gpa),
+      current: Boolean(e.current),
       start: str(e.start),
       end: str(e.end),
     }));
