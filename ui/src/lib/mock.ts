@@ -6,7 +6,7 @@
  */
 import { emit as emitTo, installMockBackend } from "./ipc";
 import samplePosting from "../../../tests/fixtures/sample_posting.txt?raw";
-import type { Application, BaselineEntry, CheckedRewrite, Coverage, Fact, FinalScore, JobsView, Listing, RunRecord, RunState, ScoreResult, StepEvent } from "./api";
+import type { Application, BaselineEntry, CheckedRewrite, Coverage, Fact, FinalScore, JobsView, Listing, RewriteSummary, RunRecord, RunState, ScoreResult, StepEvent } from "./api";
 
 const SAMPLE_POSTING = samplePosting.trim();
 
@@ -35,6 +35,10 @@ const NW = "Northwind Logistics | Software Engineering Intern, Routing Team";
 const LIB = "Springfield Public Library | Student Technology Assistant";
 const TM = "**TrailMap** | *TypeScript, React, Node.js, PostgreSQL*";
 const BB = "**Budget Bot** | *Python, SQLite*";
+
+function summary(lines: number, changed: number, blocked: number, hadAdvice: boolean, message: string): RewriteSummary {
+  return { lines, changed, blocked, same_text: lines - changed - blocked, skipped: 0, bold_only: 0, reorder_only: 0, unknown_ids: [], retried: true, retry_error: "", had_advice: hadAdvice, block_reasons: [], message };
+}
 
 function rewrites(): CheckedRewrite[] {
   return [
@@ -212,6 +216,7 @@ function seedHistory() {
       posting_url: "",
       score: null,
       rewrites: [],
+      rewrite_summary: null,
       decisions: {},
       removed: [],
       final: null,
@@ -267,6 +272,7 @@ function seedSampleRun(stage: string) {
     posting_url: "https://jobs.larkspur.example/platform-intern",
     score: sampleScore("Larkspur Freight", "Software Engineer Intern, Platform"),
     rewrites: rewrites(),
+    rewrite_summary: null,
     decisions: { b2: { state: "accepted", origin: "rewrite" }, b3: { state: "accepted", origin: "rewrite" } },
     removed: [],
     final: null,
@@ -299,6 +305,7 @@ export async function installMock() {
   if (params.get("nobase") === "1") db.hasBase = false;
   if (params.get("run") === "sample") seedSampleRun(params.get("step") ?? "rewrite");
   const failStep = params.get("fail"); // e.g. ?fail=bad_key
+  const rewriteMode = params.get("rewrite"); // "same": every line comes back unchanged; "fail": the call fails
 
   const handle = async (cmd: string, args: Record<string, unknown>): Promise<unknown> => {
     const a = (args ?? {}) as Record<string, unknown>;
@@ -360,6 +367,7 @@ export async function installMock() {
           posting_url: String(a.postingUrl ?? ""),
           score: null,
           rewrites: [],
+          rewrite_summary: null,
           decisions: {},
           removed: [],
           final: null,
@@ -398,7 +406,31 @@ export async function installMock() {
           r.steps.push(step("score", 1210, 260, 3100));
         } else if (s === "rewrite") {
           await streamText(a.onEvent, s, JSON.stringify(rewrites().map((x) => ({ bullet_id: x.bullet_id, new_text: x.new_text })), null, 1));
+          if (rewriteMode === "fail") {
+            r.error = { kind: "server", message: "The provider is overloaded or returned a server error." };
+            throw r.error;
+          }
+          r.error = null;
+          if (rewriteMode === "same") {
+            r.rewrites = rewrites().map((x) => ({ ...x, new_text: x.old_text, status: "unchanged", reasons: [], warnings: [], unchanged_reason: "same_text" }));
+            r.rewrite_summary = summary(r.rewrites.length, 0, 0, true, "The model returned every line unchanged after a second try that listed the advice, so there is nothing to review.");
+            r.decisions = {};
+            r.final = null;
+            r.steps.push(step("rewrite", 3120, 1240, 14800), step("rewrite_retry", 1410, 220, 3900));
+            return structuredClone(r);
+          }
           r.rewrites = rewrites();
+          // A note that names a skill puts it on the skills line, backed up by the note's fact.
+          const skill = db.facts.find((f) => r.note_fact_ids.includes(f.id) && f.text.startsWith("Skills: "));
+          if (skill) {
+            const named = skill.text.slice("Skills: ".length);
+            r.rewrites.push(
+              rw("s2", "Technical Skills | Frameworks & Libraries", "Technical Skills", "React, Express, pytest, pandas", `React, ${named}, Express, pytest, pandas`, "ok", {
+                why: `Shows ${named} from your note`,
+                sources: ["s2", skill.id],
+              }),
+            );
+          }
           // A note that says how many pull requests unblocks b5, the way a fact does in the real checker.
           const prs = db.facts.find((f) => r.note_fact_ids.includes(f.id) && /\d+ pull requests/.test(f.text));
           if (prs) {
@@ -409,6 +441,15 @@ export async function installMock() {
           }
           r.decisions = {};
           r.final = null;
+          const changed = r.rewrites.filter((x) => x.status !== "unchanged");
+          const blocked = changed.filter((x) => x.status === "blocked");
+          r.rewrite_summary = summary(
+            r.rewrites.length,
+            changed.length - blocked.length,
+            blocked.length,
+            true,
+            blocked.length ? `${blocked.length} rewrite${blocked.length === 1 ? " was" : "s were"} blocked because the sources don't back up every claim. ${blocked[0].reasons[0] ?? ""}`.trim() : "",
+          );
           r.steps.push(step("rewrite", 3120, 1240, 14800), step("rewrite_retry", 1410, 220, 3900));
         } else if (s === "rescore") {
           await streamText(a.onEvent, s, JSON.stringify({ base_ats_score: 57, tailored_ats_score: 69 }).repeat(3));
@@ -444,7 +485,9 @@ export async function installMock() {
         const pieces = String(a.note)
           .split(/\n|(?<=[.!?])\s+/)
           .map((x) => x.replace(/^[-*•\s]+/, "").trim().replace(/\.$/, ""))
-          .filter((x) => x.split(/\s+/).length >= 3);
+          // "add Node.js to my skills" is saved as the skill it names, as the backend does.
+          .map((x) => x.replace(/^(?:please\s+)?(?:add|include|mention|list|show|put)\s+(.+?)(?:\s+to\b.*)?$/i, "Skills: $1"))
+          .filter((x) => x.startsWith("Skills: ") || x.split(/\s+/).length >= 3);
         for (const text of pieces) {
           if (db.facts.some((f) => f.text.toLowerCase() === text.toLowerCase())) continue;
           const id = `f${db.facts.length + 1}`;

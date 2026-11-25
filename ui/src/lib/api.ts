@@ -49,6 +49,25 @@ export interface CheckedRewrite {
   dropped: string[];
   /** Style findings and dropped details. Shown as a warning; they never block Accept. */
   warnings: string[];
+  /** For an unchanged line: "same_text", "skipped", "bold_only" or "reorder_only". */
+  unchanged_reason?: string;
+}
+
+/** What the last rewrite did, so the interface can say why nothing changed. */
+export interface RewriteSummary {
+  lines: number;
+  changed: number;
+  blocked: number;
+  same_text: number;
+  skipped: number;
+  bold_only: number;
+  reorder_only: number;
+  unknown_ids: string[];
+  retried: boolean;
+  retry_error: string;
+  had_advice: boolean;
+  block_reasons: string[];
+  message: string;
 }
 
 /** The first step: the base resume's ATS score and its top red flags. */
@@ -119,6 +138,8 @@ export interface RunState {
   posting_url: string;
   score: ScoreResult | null;
   rewrites: CheckedRewrite[];
+  /** Null until a rewrite has finished. */
+  rewrite_summary?: RewriteSummary | null;
   decisions: Record<string, { state: DecisionState; origin: string }>;
   removed: string[];
   final: FinalScore | null;

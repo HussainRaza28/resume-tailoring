@@ -5,6 +5,7 @@ import type { Coverage, Fact, RunState, SkillStatus } from "../lib/api";
 import { finalIsStale, modelLabel, providerLabel, runTotals } from "../lib/api";
 import { duration, money, pct, tokens } from "../lib/format";
 import { modKey } from "../lib/platform";
+import { rewriteNote } from "../lib/rewriteNote";
 import BulletCard from "./BulletCard";
 import { IconCheck, IconDownload } from "./icons";
 
@@ -126,10 +127,15 @@ type RewriteProps = {
 
 export function RewriteStep(p: RewriteProps) {
   const changed = p.run.rewrites.filter((r) => r.status !== "unchanged");
+  const note = rewriteNote(p.run);
   let lastEntry = "";
   return (
     <div className="bullet-list">
-      {changed.length === 0 && <div className="card muted">No changes needed.</div>}
+      {note && (
+        <div className={changed.length ? "card muted small rewrite-note" : "card muted rewrite-note"} role="status">
+          {note}
+        </div>
+      )}
       {changed.map((r, i) => {
         const head = r.entry !== lastEntry ? r.entry : null;
         lastEntry = r.entry;

@@ -234,3 +234,38 @@ test("settings: Choose path is offered next to the Claude Code status", async ({
   await expect(page.getByText("/Users/you/.local/bin/claude · 2.1.325")).toBeVisible();
   await expect(page.getByRole("button", { name: "Choose path…" })).toBeVisible();
 });
+
+async function scoreSample(page: import("@playwright/test").Page, query: string) {
+  await page.goto(`/?speed=10${query}`);
+  await page.getByLabel("Job posting").fill(posting);
+  await page.getByLabel("Job posting").press(`${mod}+Enter`);
+  await expect(page.getByRole("meter", { name: "ATS score" })).toBeVisible({ timeout: 20_000 });
+}
+
+test("rewrite: a note that names a skill puts it on the Technical Skills line", async ({ page }) => {
+  await scoreSample(page, "");
+  await page.getByLabel("Anything to add?").fill("add Node.js");
+  await page.getByRole("button", { name: /^Rewrite/ }).click();
+  const skillsLine = page.locator(".bullet", { hasText: "React, Node.js, Express, pytest, pandas" });
+  await expect(skillsLine).toBeVisible({ timeout: 20_000 });
+  await expect(skillsLine.getByRole("button", { name: "Accept" })).toBeEnabled();
+  await expect(page.locator(".entry-head", { hasText: "Technical Skills" })).toContainText("Frameworks & Libraries");
+  await page.getByRole("tab", { name: /Score/ }).click();
+  await expect(page.getByText("Added 1 fact ·")).toBeVisible();
+});
+
+test("rewrite: lines that come back unchanged are reported, not called no changes needed", async ({ page }) => {
+  await scoreSample(page, "&rewrite=same");
+  await page.getByRole("button", { name: /^Rewrite/ }).click();
+  const note = page.locator(".rewrite-note");
+  await expect(note).toContainText("returned every line unchanged after a second try", { timeout: 20_000 });
+  await expect(page.getByText("No changes needed.")).toHaveCount(0);
+});
+
+test("rewrite: a failed call shows the error and a way to try again", async ({ page }) => {
+  await scoreSample(page, "&rewrite=fail");
+  await page.getByRole("button", { name: /^Rewrite/ }).click();
+  await expect(page.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("No changes needed.")).toHaveCount(0);
+  await expect(page.locator(".rewrite-note")).toHaveCount(0);
+});
