@@ -87,7 +87,7 @@ The preview on the right updates as you decide. Cmd+K or Ctrl+K opens the comman
 
 ## Tailor Autofill (Chrome extension)
 
-Tailor Autofill fills job applications on Workday, Greenhouse, Lever and Ashby from a profile you keep in Chrome, and matches fields by their labels on other sites. It lives in `extension/`.
+Tailor Autofill fills job applications on Workday, Greenhouse, Lever, Ashby and SAP SuccessFactors from a profile you keep in Chrome, and matches fields by their labels on other sites. It lives in `extension/`.
 
 **Install it with Load unpacked.** Either download the built extension from the latest CI run (the `Tailor-Autofill-extension` artifact) and unzip it, or build it yourself:
 
@@ -127,7 +127,7 @@ The demographic questions all default to "Decline to answer". A profile saved by
 
 **Or import it from Tailor.** In the app, open Settings and press **Export for Autofill** under Base resume. It saves a `.json` profile built from your base resume: contact links, every role and school with dates and bullets, your skills, and your facts bank. In the extension's profile page press **Import from Tailor**, pick that file, check the list of changes, and press Apply. Your address, answers and self-identification stay as they were, and everything stays editable.
 
-**Fill an application.** On Workday, Greenhouse, Lever and Ashby an Autofill button appears in the bottom corner of the page. On any other site, use Autofill this page in the toolbar popup. Each press fills the page that's showing; on Workday, press it again on each page after Save and Continue:
+**Fill an application.** On Workday, Greenhouse, Lever, Ashby and SuccessFactors an Autofill button appears in the bottom corner of the page. On any other site, use Autofill this page in the toolbar popup. Each press fills the page that's showing; on Workday, press it again on each page after Save and Continue:
 
 - **My Information:** legal name with middle name, address with line 2 and county, email, phone with its type, country code and extension, how you heard, and whether you've worked there before. "I have a preferred name" is ticked, and the preferred name filled, only when your profile has a preferred name; otherwise the box is left as it is. Fields you have no answer for, such as a middle name or a second address line, are skipped rather than outlined.
 - **My Experience:** presses Add for each role, school, language and website and fills every field, with a role's bullets as its description, one per line. If Workday already read your resume into entries, it fills their blanks instead of adding copies. Skills are picked one by one from the skills list, and the resume and LinkedIn are added too.
@@ -136,14 +136,17 @@ The demographic questions all default to "Decline to answer". A profile saved by
 
 On Greenhouse, each employment block and the education dates are filled from the same roles and schools.
 
+On SuccessFactors career sites (such as `<company>.jobs.hr.cloud.sap`), Autofill first presses "Add new row" in Work Experience and Education until there's a row for each role and school, then fills row by row: title, company, school, degree, and the start and end dates. Those date fields want a day, and your profile keeps a month and year, so a start date becomes the 1st of its month and an end date the last day of its month (February 29 in a leap year). A date with a day keeps it, and a current role's end date stays blank. Dates are written the way the field asks, such as MM/DD/YYYY.
+
 Autofill:
 
 - never submits, and never presses Next, Save and Continue or Review; on Workday the only button it presses is Add
 - leaves open questions such as "Why do you want to work here?" blank
 - never ticks a consent or terms box, and never changes a field you've already filled
-- shows "Filled 14 fields, 3 left for you" and outlines what's left until you answer it
+- reads every value back after setting it, sets it once more if the page dropped it, and pauses briefly between fields so a page that redraws itself keeps what was filled
+- shows "Filled 14 fields, 3 left for you" and outlines what's left until you answer it. Details in that box lists each field by its label under Filled, Skipped (nothing to put there, such as a current role's end date), Didn't stick (the page wouldn't keep the value) and Left for you. The same list is in the browser console as "Tailor Autofill: …".
 
-Your profile and resume stay in Chrome's storage on your computer. The extension makes no network calls and has no tracking. It only runs in a page when you're on one of the four job sites or press Autofill in the popup.
+Your profile and resume stay in Chrome's storage on your computer. The extension makes no network calls and has no tracking. It only runs in a page when you're on one of the job sites above or press Autofill in the popup.
 
 ## Privacy
 
