@@ -8,6 +8,7 @@
 import type { Profile } from "../profile";
 import type { FillReport } from "./engine";
 import { type FieldKey, keyForLabel } from "./keys";
+import { addSuccessFactorsRows } from "./successfactors";
 import { workdayBefore } from "./workday";
 
 export interface Site {
@@ -20,6 +21,8 @@ export interface Site {
    * every field touched to ``handled`` so the general pass leaves them alone.
    */
   before?(root: ParentNode, profile: Profile, resume: File | null, report: FillReport, handled: Set<HTMLElement>): Promise<void>;
+  /** The part of the page that holds the application, when the page has more forms (a job search box). */
+  formRoot?(root: ParentNode): ParentNode | null;
 }
 
 function idOrName(el: HTMLElement): string {
@@ -188,7 +191,38 @@ export const workday: Site = {
   before: workdayBefore,
 };
 
-export const SITES: Site[] = [greenhouse, lever, ashby, workday];
+/**
+ * SAP SuccessFactors career sites: <company>.jobs.hr.cloud.sap and the older
+ * successfactors.com and sapsf hosts. Built-in fields carry a name (firstName,
+ * cellPhone, zip); the company's own fields are numbered (VFLD2 is the company
+ * in Work Experience and the degree in Education), so those go by their labels.
+ * Dates are SAP UI5 date picker web components (dom.ts).
+ */
+export const successFactors: Site = {
+  name: "SuccessFactors",
+  matches: (url) => /(^|\.)(jobs\.hr\.cloud\.sap|successfactors\.(com|eu)|sapsf\.(com|eu))$/.test(url.hostname),
+  keyFor: (el) => {
+    const named: Record<string, FieldKey> = {
+      firstName: "firstName",
+      middleName: "middleName",
+      lastName: "lastName",
+      knownAs: "preferredFirstName",
+      cellPhone: "phone",
+      homePhone: "phone",
+      contactEmail: "email",
+      address: "street",
+      address2: "street2",
+      city: "city",
+      zip: "postalCode",
+    };
+    return named[el.getAttribute("name") ?? ""] ?? null;
+  },
+  before: addSuccessFactorsRows,
+  // The application is form#careerform; the page's job search and language picker sit outside it.
+  formRoot: (root) => root.querySelector("form#careerform, form[name='careerform'], #rcmJobApplicationCtr"),
+};
+
+export const SITES: Site[] = [greenhouse, lever, ashby, workday, successFactors];
 
 /** The known site for a page address, or null for "match by label only". */
 export function siteFor(href: string): Site | null {

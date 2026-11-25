@@ -25,7 +25,10 @@
         "https://jobs.ashbyhq.com/*",
         "https://*.myworkdayjobs.com/*",
         "https://*.myworkday.com/*",
-        "https://*.myworkdaysite.com/*"
+        "https://*.myworkdaysite.com/*",
+        "https://*.jobs.hr.cloud.sap/*",
+        "https://*.successfactors.com/*",
+        "https://*.successfactors.eu/*"
       ],
       "js": [
         "content.js"
