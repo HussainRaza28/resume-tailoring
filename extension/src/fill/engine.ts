@@ -8,6 +8,12 @@
  *
  * The report lists what was filled and what was left for the person: fields
  * it couldn't match, open questions, and fields the profile has no answer for.
+ * It also lists fields skipped on purpose (nothing to put there, such as the
+ * end date of a current role) and fields whose value didn't stick when read
+ * back.
+ *
+ * Fields are filled one at a time with a short pause between them, so a page
+ * that re-renders as it goes (SuccessFactors adding a row) doesn't drop values.
  */
 import type { Profile } from "../profile";
 import {
@@ -21,10 +27,24 @@ import {
   setCombobox,
   setFile,
   setSearchBox,
+  setDatePicker,
   setSelect,
-  setText,
+  setTextChecked,
+  datePickerValue,
+  isDatePicker,
 } from "./dom";
-import { ENTRY_KEYS, type FieldKey, OPTIONAL_KEYS, keyForLabel, looksLikeEssay, normalize, valueFor } from "./keys";
+import { dateForField, patternFor, wantsFullDate } from "./dates";
+import {
+  ENTRY_KEYS,
+  type FieldKey,
+  OPTIONAL_KEYS,
+  keyForLabel,
+  keyInSection,
+  looksLikeEssay,
+  normalize,
+  profileDate,
+  valueFor,
+} from "./keys";
 import type { Site } from "./sites";
 
 export interface FillReport {
@@ -33,13 +53,26 @@ export interface FillReport {
   left: HTMLElement[];
   /** Fields that already had an answer and were left as they were. */
   already: number;
+  /** Fields skipped on purpose: nothing to put there (a current role's end date, no middle name). */
+  skipped?: HTMLElement[];
+  /** Fields that were set but didn't keep the value when read back. Also in ``left``. */
+  failed?: HTMLElement[];
+  /** The label each reported field was matched by, for the summary. */
+  labels?: Map<HTMLElement, string>;
+}
+
+export interface FillOptions {
+  /** Pause between fields, in milliseconds, so a page that re-renders can catch up. */
+  pauseMs?: number;
 }
 
 type Candidate =
   | { kind: "control"; el: Control }
   | { kind: "group"; el: HTMLElement; inputs: HTMLInputElement[] }
   | { kind: "buttons"; el: HTMLElement; buttons: HTMLButtonElement[] }
-  | { kind: "combobox"; el: HTMLElement };
+  | { kind: "combobox"; el: HTMLElement }
+  /** A SAP UI5 date picker web component. */
+  | { kind: "datepicker"; el: HTMLElement };
 
 const YES_NO = new Set(["yes", "no"]);
 
@@ -47,9 +80,14 @@ const YES_NO = new Set(["yes", "no"]);
 export function candidates(root: ParentNode): Candidate[] {
   const out: Candidate[] = [];
   const seen = new Set<Element>();
-  const nodes = root.querySelectorAll<HTMLElement>("input, select, textarea, button, [role='combobox']");
+  const nodes = root.querySelectorAll<HTMLElement>("input, select, textarea, button, [role='combobox'], [ui5-date-picker], ui5-date-picker");
   for (const el of Array.from(nodes)) {
     if (seen.has(el) || !isVisible(el)) continue;
+    if (isDatePicker(el) || el.hasAttribute("ui5-date-picker")) {
+      seen.add(el);
+      out.push({ kind: "datepicker", el });
+      continue;
+    }
     // A searchable dropdown: an input or button with role combobox, or a button that opens a list box.
     if (el.getAttribute("role") === "combobox" || (el instanceof HTMLButtonElement && el.getAttribute("aria-haspopup") === "listbox")) {
       seen.add(el);
@@ -99,12 +137,35 @@ function groupOf(input: HTMLInputElement, root: ParentNode): HTMLInputElement[] 
   return box ? Array.from(box.querySelectorAll<HTMLInputElement>(`input[type='${input.type}']`)) : [input];
 }
 
-/** What a field asks for: the site's own naming first, then the label. Null for an open question. */
+/**
+ * What a field asks for: the site's own naming first, then the label, read in
+ * the light of its section ("Start Date" under Work Experience is the role's
+ * start). Null for an open question.
+ */
 function keyOf(el: HTMLElement, label: string, site: Site | null): FieldKey | null {
   const named = site?.keyFor(el) ?? null;
   if (named) return named;
   if (el instanceof HTMLTextAreaElement || looksLikeEssay(label)) return null;
-  return keyForLabel(label);
+  return keyInSection(label, sectionOf(el)) ?? keyForLabel(label);
+}
+
+/**
+ * Whether a field sits in a work or education section, from the nearest
+ * heading above it: an h2 to h4, a legend, or an element styled as a section
+ * title (SuccessFactors' "Work Experience" and "Education").
+ */
+export function sectionOf(el: HTMLElement): "work" | "education" | null {
+  for (let node = el.parentElement; node && node !== el.ownerDocument.body; node = node.parentElement) {
+    const heading = node.querySelector(
+      ":scope > h2, :scope > h3, :scope > h4, :scope > legend, :scope > [class*='sectionTitle' i], :scope > [class*='section-title' i]",
+    );
+    if (!heading || heading.contains(el)) continue;
+    const text = (heading.textContent ?? "").toLowerCase();
+    if (/work experience|employment|work history|professional experience|^\s*experience/.test(text)) return "work";
+    if (/education|academic|school/.test(text)) return "education";
+    return null;
+  }
+  return null;
 }
 
 function comboboxHasValue(el: HTMLElement): boolean {
@@ -120,18 +181,40 @@ function comboboxHasValue(el: HTMLElement): boolean {
   return false;
 }
 
-export async function fillPage(root: ParentNode, profile: Profile, resume: File | null, site: Site | null): Promise<FillReport> {
-  const report: FillReport = { filled: [], left: [], already: 0 };
+export async function fillPage(
+  root: ParentNode,
+  profile: Profile,
+  resume: File | null,
+  site: Site | null,
+  options: FillOptions = {},
+): Promise<FillReport> {
+  const pauseMs = options.pauseMs ?? 25;
+  const report: FillReport = { filled: [], left: [], already: 0, skipped: [], failed: [], labels: new Map() };
   // A site may fill parts of the page itself first, such as Workday's work and
   // education entries. Fields it handled are skipped below.
   const handled = new Set<HTMLElement>();
+  // Only the application itself, on a site that says where it is.
+  root = site?.formRoot?.(root) ?? root;
   if (site?.before) await site.before(root, profile, resume, report, handled);
   // The n-th field asking for a work or education field gets the n-th entry.
   const seenKeys = new Map<FieldKey, number>();
   for (const c of candidates(root)) {
     if (handled.has(c.el) || (c.kind === "group" && c.inputs.some((x) => handled.has(x)))) continue;
-    const target = c.kind === "control" || c.kind === "combobox" ? c.el : c.kind === "group" ? c.inputs[0] : c.buttons[0];
+    const target = c.kind === "control" || c.kind === "combobox" || c.kind === "datepicker" ? c.el : c.kind === "group" ? c.inputs[0] : c.buttons[0];
     const label = c.kind === "buttons" ? labelOf(c.el) : labelOf(target);
+    report.labels!.set(c.el, label);
+
+    // A single checkbox is a consent or an agreement, so it's left for the person.
+    // The one exception is a site's own "I currently work here" box.
+    const isSingleBox = c.kind === "control" && c.el instanceof HTMLInputElement && c.el.type === "checkbox";
+    const key = isSingleBox ? (site?.keyFor(target) === "workCurrent" ? "workCurrent" : null) : keyOf(target, label, site);
+    // The n-th field asking for an entry's company gets the n-th role, counting
+    // fields that are already answered, so row 2 still gets the second role.
+    let index = 0;
+    if (key && ENTRY_KEYS[key]) {
+      index = seenKeys.get(key) ?? 0;
+      seenKeys.set(key, index + 1);
+    }
 
     // Already answered: leave it.
     const answered =
@@ -141,73 +224,90 @@ export async function fillPage(root: ParentNode, profile: Profile, resume: File 
           ? c.inputs.some((x) => x.checked)
           : c.kind === "combobox"
             ? comboboxHasValue(c.el)
-            : c.buttons.some((b) => b.getAttribute("aria-pressed") === "true" || /active|selected/.test(b.className));
+            : c.kind === "datepicker"
+              ? datePickerValue(c.el) !== ""
+              : c.buttons.some((b) => b.getAttribute("aria-pressed") === "true" || /active|selected/.test(b.className));
     if (answered) {
       report.already++;
       continue;
     }
 
-    // A single checkbox is a consent or an agreement, so it's left for the person.
-    // The one exception is a site's own "I currently work here" box.
-    const isSingleBox = c.kind === "control" && c.el instanceof HTMLInputElement && c.el.type === "checkbox";
-    const key = isSingleBox ? (site?.keyFor(target) === "workCurrent" ? "workCurrent" : null) : keyOf(target, label, site);
-    let done = false;
-    let index = 0;
-    if (key && ENTRY_KEYS[key]) {
-      index = seenKeys.get(key) ?? 0;
-      seenKeys.set(key, index + 1);
-    }
+    let outcome: "filled" | "left" | "skipped" | "failed" = "left";
+    const whole = key ? profileDate(key, profile, index) : null;
     if (key === "resume") {
-      done = !!resume && c.kind === "control" && c.el instanceof HTMLInputElement && c.el.type === "file" && setFile(c.el, resume);
+      const ok = !!resume && c.kind === "control" && c.el instanceof HTMLInputElement && c.el.type === "file" && setFile(c.el, resume);
+      outcome = ok ? "filled" : "left";
     } else if (key === "workCurrent" && isSingleBox) {
       const box = c.el as HTMLInputElement;
       if (profile.work[index]?.current) box.click();
       // Not current is answered by leaving it unticked; no entry leaves it for the person.
-      done = Boolean(profile.work[index]);
-    } else if (key) {
+      outcome = profile.work[index] ? "filled" : "left";
+    } else if (whole && (c.kind === "datepicker" || wantsFullDate(target))) {
+      // A field that wants a day: resolve it (the 1st for a start, the month's last day for an end).
+      const text = dateForField(whole.text, whole.role, patternFor(target));
+      if (!text) {
+        // "Present", or a date the profile doesn't have for an entry it does have.
+        const entry = ENTRY_KEYS[key!] === "work" ? profile.work[index] : ENTRY_KEYS[key!] === "education" ? profile.education[index] : null;
+        outcome = (entry && whole.role === "end") || OPTIONAL_KEYS.has(key!) ? "skipped" : "left";
+      } else if (c.kind === "datepicker") {
+        outcome = (await setDatePicker(c.el, text)) ? "filled" : "failed";
+      } else {
+        outcome = (await setTextChecked(target as HTMLInputElement, text)) ? "filled" : "failed";
+      }
+    } else if (key && c.kind !== "datepicker") {
       const value = valueFor(key, profile, index);
-      // No middle name, no preferred name, no second address line: nothing to do here.
-      if (!value && OPTIONAL_KEYS.has(key)) continue;
-      if (value) done = await answer(c, value);
+      if (!value && OPTIONAL_KEYS.has(key)) outcome = "skipped";
+      else if (value) outcome = await answer(c, value);
+      // A current role has no end date, so its end date fields aren't the person's to fill either.
+      if (outcome === "left" && /^workEnd/.test(key) && profile.work[index]?.current) outcome = "skipped";
     }
-    // A current role has no end date, so its end date fields aren't the person's to fill either.
-    if (!done && key && /^workEnd/.test(key) && profile.work[index]?.current) continue;
+
     // A field with nothing to put in it for a missing entry (a second role the
-    // profile doesn't have) is the person's, like any other.
-    (done ? report.filled : report.left).push(c.el);
+    // profile doesn't have) is the person's, like any other. A field whose value
+    // didn't stick is the person's too, and is also reported as failed.
+    if (outcome === "filled") report.filled.push(c.el);
+    else if (outcome === "skipped") report.skipped!.push(c.el);
+    else {
+      report.left.push(c.el);
+      if (outcome === "failed") report.failed!.push(c.el);
+    }
+    if (outcome !== "skipped" && outcome !== "left" && pauseMs) await pause(pauseMs);
   }
   return report;
 }
 
-async function answer(c: Candidate, value: string): Promise<boolean> {
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Answer one field. "failed" when a text field didn't keep the value even after a retry. */
+async function answer(c: Candidate, value: string): Promise<"filled" | "left" | "failed"> {
+  const done = (ok: boolean) => (ok ? "filled" : "left");
   switch (c.kind) {
     case "group":
-      return setChoice(c.inputs, value);
+      return done(setChoice(c.inputs, value));
     case "buttons":
-      return setButtonChoice(c.buttons, value);
+      return done(setButtonChoice(c.buttons, value));
     case "combobox":
-      return setCombobox(c.el, value);
+      return done(await setCombobox(c.el, value));
+    case "datepicker":
+      return "left";
     case "control": {
       const el = c.el;
-      if (el instanceof HTMLSelectElement) return setSelect(el, value);
-      if (el instanceof HTMLInputElement && el.type === "file") return false;
+      if (el instanceof HTMLSelectElement) return done(setSelect(el, value));
+      if (el instanceof HTMLInputElement && el.type === "file") return "left";
       // Workday's searchable lists are text inputs that open their options on Enter.
-      if (el instanceof HTMLInputElement && isSearchBox(el)) return setSearchBox(el, value);
+      if (el instanceof HTMLInputElement && isSearchBox(el)) return done(await setSearchBox(el, value));
       if (el instanceof HTMLInputElement && el.type === "date") {
         // "05/18/2027" back to the date input's own "2027-05-18".
         const [m, d, y] = value.split("/");
-        if (!y) return false;
-        setText(el, `${y}-${m}-${d}`);
-        return true;
+        if (!y) return "left";
+        return (await setTextChecked(el, `${y}-${m}-${d}`)) ? "filled" : "failed";
       }
       if (el instanceof HTMLInputElement && el.type === "month") {
         // "05/2027" back to the month input's own "2027-05".
         const [m, y] = value.split("/");
-        setText(el, `${y}-${m}`);
-        return true;
+        return (await setTextChecked(el, `${y}-${m}`)) ? "filled" : "failed";
       }
-      setText(el, value);
-      return true;
+      return (await setTextChecked(el as HTMLInputElement | HTMLTextAreaElement, value)) ? "filled" : "failed";
     }
   }
 }

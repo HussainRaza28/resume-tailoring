@@ -54,6 +54,11 @@ export function labelOf(el: HTMLElement): string {
   }
   const aria = el.getAttribute("aria-label");
   if (aria?.trim()) return aria.trim();
+  // Web components (SAP UI5's date picker) name themselves with accessible-name, and a
+  // custom element's title is its name too. A plain input's title is often its value.
+  const accessible = el.getAttribute("accessible-name");
+  if (accessible?.trim()) return accessible.trim();
+  if (el.tagName.includes("-") && el.getAttribute("title")?.trim()) return el.getAttribute("title")!.trim();
   const isChoice = el instanceof HTMLInputElement && (el.type === "radio" || el.type === "checkbox");
   if (isChoice) {
     // A radio's own label is its choice; the question is the group's.
@@ -98,7 +103,12 @@ function fire(el: Element, ...types: string[]): void {
   for (const type of types) el.dispatchEvent(new Event(type, { bubbles: true }));
 }
 
-/** Set a text field's value so React and plain pages both see it. */
+/**
+ * Set a text field's value so React, SuccessFactors and plain pages all see it:
+ * through the browser's own value setter (a page's framework may have replaced
+ * the element's), then "input" and "change" and a blur, as typing and leaving
+ * the field would. SuccessFactors saves a field in its onchange handler.
+ */
 export function setText(el: HTMLInputElement | HTMLTextAreaElement, value: string): void {
   const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
@@ -106,7 +116,107 @@ export function setText(el: HTMLInputElement | HTMLTextAreaElement, value: strin
   if (setter) setter.call(el, value);
   else el.value = value;
   fire(el, "input", "change");
-  el.blur();
+  blur(el);
+}
+
+/** Leave a field: blur() when it has focus, else a blur event of its own (some pages save on blur). */
+function blur(el: HTMLElement): void {
+  const focused = el.getRootNode() instanceof ShadowRoot ? (el.getRootNode() as ShadowRoot).activeElement === el : el.ownerDocument.activeElement === el;
+  if (focused) el.blur();
+  else {
+    el.dispatchEvent(new FocusEvent("blur"));
+    el.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+  }
+}
+
+const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** How long to wait after setting a field before reading it back, and before the one retry. */
+export const READ_BACK_MS = 30;
+export const RETRY_MS = 150;
+
+/**
+ * Set a text field and check it kept the value. A page that re-renders (a
+ * controlled input, a row being added) can drop or cut a value, so a value
+ * that didn't stick is set once more after a short wait. False when it still
+ * doesn't match: the field is then reported as failed.
+ */
+export async function setTextChecked(el: HTMLInputElement | HTMLTextAreaElement, value: string): Promise<boolean> {
+  setText(el, value);
+  await settle(READ_BACK_MS);
+  if (el.value === value) return true;
+  await settle(RETRY_MS);
+  setText(el, value);
+  await settle(READ_BACK_MS);
+  return el.value === value;
+}
+
+// ── SAP UI5 date pickers ─────────────────────────────────────────
+
+/** A SAP UI5 date picker web component, such as <ui5-date-picker-xweb-calendar-widget> on SuccessFactors. */
+export function isDatePicker(el: Element): boolean {
+  return el.tagName.toLowerCase().startsWith("ui5-date-picker");
+}
+
+/** The text input inside a web component, through as many shadow roots as it takes. */
+export function innerInput(host: Element): HTMLInputElement | null {
+  const search = (root: ParentNode): HTMLInputElement | null => {
+    const direct = root.querySelector<HTMLInputElement>("input:not([type='hidden'])");
+    if (direct) return direct;
+    for (const el of Array.from(root.querySelectorAll("*"))) {
+      if (el.shadowRoot) {
+        const found = search(el.shadowRoot);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  return host.shadowRoot ? search(host.shadowRoot) : null;
+}
+
+/** What a date picker shows: its inner input's text, else its value. */
+export function datePickerValue(host: HTMLElement): string {
+  const inner = innerInput(host);
+  if (inner && inner.value) return inner.value;
+  return ((host as HTMLElement & { value?: string }).value ?? host.getAttribute("value") ?? "").trim();
+}
+
+/** Whether a date picker refused what it was given (UI5 marks an unreadable date as an error). */
+function rejected(host: HTMLElement): boolean {
+  return host.getAttribute("value-state") === "Error" || (host as HTMLElement & { valueState?: string }).valueState === "Error";
+}
+
+/**
+ * Fill a SAP UI5 date picker. Setting .value from an extension doesn't reach
+ * the component: content scripts can't see properties the page's own code
+ * defines. What both sides share is the DOM, so the value goes on the host's
+ * value attribute (UI5 copies attributes into its properties) and into the
+ * input inside its shadow root, through the native setter, followed by input,
+ * change and blur from that input, which is what UI5 listens to when someone
+ * types a date. Then it's read back, and set once more if it didn't stick.
+ */
+export async function setDatePicker(host: HTMLElement, text: string): Promise<boolean> {
+  const apply = () => {
+    host.setAttribute("value", text);
+    (host as HTMLElement & { value?: string }).value = text;
+    const inner = innerInput(host);
+    if (inner) {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      inner.focus();
+      if (setter) setter.call(inner, text);
+      else inner.value = text;
+      for (const type of ["input", "change"]) inner.dispatchEvent(new Event(type, { bubbles: true, composed: true }));
+      blur(inner);
+    }
+    host.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+  apply();
+  await settle(READ_BACK_MS);
+  if (datePickerValue(host) === text && !rejected(host)) return true;
+  await settle(RETRY_MS);
+  apply();
+  await settle(READ_BACK_MS);
+  return datePickerValue(host) === text && !rejected(host);
 }
 
 /** Pick the option that best fits ``wanted``. False when none fits. */

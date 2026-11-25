@@ -7,7 +7,7 @@
 import { fillPage } from "./fill/engine";
 import { siteFor } from "./fill/sites";
 import { loadProfile, loadResume, resumeFile } from "./profile";
-import { PAGE_STYLE, highlight, showSummary } from "./summary";
+import { PAGE_STYLE, highlight, logReport, showSummary } from "./summary";
 
 declare global {
   interface Window {
@@ -28,6 +28,7 @@ async function autofill(): Promise<AutofillResult | null> {
   // A frame with no form at all (an ad, a video) stays quiet.
   if (!report.filled.length && !report.left.length) return null;
   highlight(report.left);
+  logReport(report);
   const banner = showSummary(document, report);
   return { filled: report.filled.length, left: report.left.length, text: banner.shadowRoot!.querySelector(".text")!.textContent ?? "" };
 }
