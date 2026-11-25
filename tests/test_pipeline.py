@@ -52,7 +52,7 @@ def test_prompts_keep_the_original_wording():
     assert "top 3 red flags a hiring manager spots in under 10 seconds" in sp
     assert "Be brutally honest, with no compliments or padding." in sp
     assert "(Acme)" in sp and "()" not in score_prompt("", "p")
-    rw = rewrite_prompt("p", [FLAG], [], "", [], "")
+    rw = rewrite_prompt("p", [("a1", "Vague teamwork bullet (Experience): Says nothing")], [], "", [], "")
     assert "Rewrite my experience section to kill those red flags." in rw
     assert "Lead every line with measurable impact using the Google XYZ formula" in rw
     assert "strip out every generic phrase" in rw
@@ -69,7 +69,7 @@ def test_base_plain_lists_bullets_with_ids(ctx):
     assert "### Northwind Logistics | Software Engineering Intern, Routing Team" in ctx.base_plain
     assert "Languages: Python, TypeScript" in ctx.base_plain
     targets = ctx.rewrite_targets()
-    assert len(targets) == 13, "10 bullets and the 3 skills lines"
+    assert len(targets) == 16, "11 bullets (coursework included), 2 tech stacks and 3 skills lines"
     assert targets[-2] == ("s2", "Technical Skills | Frameworks & Libraries", "React, Node.js, Express, pytest, pandas")
 
 
@@ -106,9 +106,11 @@ def test_facts_unlock_numbers(ctx):
     assert ok.status == OK, ok.reasons
 
 
-def test_ids_of_lines_the_rewrite_cannot_change_are_ignored(ctx):
-    assert ctx.check(proposal("h2.0", "Acme"), FactsBank()) is None
+def test_ids_that_are_not_lines_are_ignored_and_protected_lines_are_blocked(ctx):
     assert ctx.check(proposal("b999", "x"), FactsBank()) is None
+    employer = ctx.check(proposal("h2.0", "Acme"), FactsBank())
+    assert employer.status == BLOCKED
+    assert 'Changes "Northwind Logistics", a protected fact (employer).' in employer.reasons[-1]
 
 
 # -- never less specific ------------------------------------------------------
@@ -199,14 +201,19 @@ def test_a_note_splits_into_facts():
 # -- Rewrite -----------------------------------------------------------------------
 
 
-def test_rewrite_gets_the_flags_and_missing_keywords_and_only_changes_what_they_call_for(ctx):
+def test_rewrite_works_through_advice_then_notes_then_its_own_improvements(ctx):
     p = FakeProvider().reply("rewrite", {"rewrites": []})
     rewrite(p, ctx, "posting", [FLAG], [("Redis", "f1"), ("Docker", "base resume")], FactsBank())
     user = p.calls[0].user
-    assert "1. Vague teamwork bullet (Experience): Says nothing" in user
-    assert "- Redis (shown by f1)" in user and "- Docker (shown by base resume)" in user
-    assert "Only change a bullet if one of the red flags or missing keywords below calls for it." in user
-    assert "Never make a bullet less specific or less technical" in user
+    assert "[a1] Vague teamwork bullet (Experience): Says nothing" in user
+    assert "[a2] Show Redis, backed up by f1. Add it to the line where it fits." in user
+    assert "[a3] Show Docker, backed up by base resume." in user
+    assert user.index("1. Every advice item from the score.") < user.index("2. Every note I added.") < user.index(
+        "3. Then the obvious improvements you find yourself")
+    assert "Never make a line less specific or less technical" in user
+    assert "`items`: one entry per advice item and note id" in user
+    # Protected parts are listed, so the model knows what it may not touch.
+    assert '[h4.0] "TrailMap"' in user and '[b1] "Relevant Coursework:"' in user
 
 
 def test_rewrite_retries_blocked_bullets_once(ctx):
@@ -220,7 +227,7 @@ def test_rewrite_retries_blocked_bullets_once(ctx):
          "sources": ["b2"], "why": "scale"}]}
     p = FakeProvider().reply("rewrite", first).reply("rewrite_retry", second)
     out, stats, summary = rewrite(p, ctx, "posting", [FLAG], [], FactsBank())
-    assert len(out) == 13, "one entry per target line"
+    assert len(out) == 16, "one entry per target line"
     assert summary.retried and summary.changed == 2
     b2 = next(r for r in out if r.bullet_id == "b2")
     assert b2.status == OK, b2.reasons

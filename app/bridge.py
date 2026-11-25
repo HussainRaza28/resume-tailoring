@@ -56,7 +56,8 @@ from app.core.pipeline import (
     export_edits,
     rescore,
     score,
-    split_note,
+    SAME_TEXT,
+    split_note_parts,
     rewrite,
     trim_hints,
 )
@@ -159,6 +160,8 @@ class RunState(BaseModel):
     final: FinalScore | None = None
     # Facts saved from this run's "Anything to add?" note, so they can be undone.
     note_fact_ids: list[str] = []
+    # Changes this run's notes asked for ("change graduation date to 2027"), as typed.
+    note_asks: list[str] = []
     posting_skills: PostingSkills = PostingSkills()
     coverage_before: Coverage | None = None
     coverage_after: Coverage | None = None
@@ -727,12 +730,16 @@ class Backend:
             elif step == "rewrite":
                 flags = run.score.red_flags if run.score else []
                 checked, all_stats, summary = rewrite(
-                    provider, ctx, run.posting, flags, missing_keywords(run), facts, sink, run.note_fact_ids
+                    provider, ctx, run.posting, flags, missing_keywords(run), facts, sink, run.note_fact_ids,
+                    run.note_asks,
                 )
                 for stats in all_stats:
                     self._record_step(run, stats)
                 self._log_blocks(run, checked)
-                updates = {"rewrites": checked, "rewrite_summary": summary, "decisions": {}, "final": None}
+                # A change the person asked for is theirs already: it starts accepted, and Undo keeps the original.
+                decisions = {r.bullet_id: Decision(state="accepted", origin="note") for r in checked
+                             if r.asked and r.status == OK}
+                updates = {"rewrites": checked, "rewrite_summary": summary, "decisions": decisions, "final": None}
             elif step == "rescore":
                 scored, stats = rescore(provider, ctx, run.posting, run.current(), sink)
                 self._record_step(run, stats)
@@ -791,7 +798,7 @@ class Backend:
                 decision.state = "pending"
             elif action == "edit":
                 proposal = Proposal(bullet_id=bullet_id, new_text=text or "", sources=current.sources, why=current.why)
-                checked = ctx.check(proposal, facts, run.note_fact_ids)
+                checked = ctx.check(proposal, facts, run.note_fact_ids, asked=current.asked)
                 if checked is None:
                     raise AppError("not_found", "Unknown bullet.")
                 if checked.status == UNCHANGED:
@@ -824,13 +831,17 @@ class Backend:
         return self._change_run(run_id, change)
 
     def add_note(self, run_id: str, note: str) -> RunState:
-        """Save the "Anything to add?" note as facts, one per sentence, for the rewrite and the checker.
+        """Save the "Anything to add?" note for the rewrite and the checker.
 
-        A fact the bank already has keeps its id and isn't counted as added, so
-        undoing the note never removes a fact saved before it.
+        Facts go to the facts bank, one per sentence. A fact the bank already
+        has keeps its id and isn't counted as added, so undoing the note never
+        removes a fact saved before it. A sentence that asks for a change
+        ("change graduation date to 2027") is kept on the run instead; the
+        rewrite applies it.
         """
-        pieces = split_note(note)
-        if not pieces:
+        ctx = self._run_context(run_id)
+        pieces, asks = split_note_parts(note, ctx.lines)
+        if not pieces and not asks:
             return self._get_run(run_id)
         bank = self._facts()
         known = {f.id for f in bank.facts}
@@ -840,10 +851,10 @@ class Backend:
             if fact_id and fact_id not in known and fact_id not in added:
                 added.append(fact_id)
         bank.save(self.facts_path)
-        ctx = self._run_context(run_id)
 
         def change(run: RunState) -> None:
             run.note_fact_ids = run.note_fact_ids + added
+            run.note_asks = run.note_asks + [a for a in asks if a not in run.note_asks]
             # A skill named in the note now counts as one the person has.
             self._recompute_coverage(run, ctx, bank)
 
@@ -853,7 +864,8 @@ class Backend:
         """Remove the facts this run's note added, and check its rewrites again without them.
 
         A rewrite that leaned on one of those facts is blocked again, and an
-        accepted one goes back to undecided.
+        accepted one goes back to undecided. A change the note asked for goes
+        back to the original text.
         """
         bank = self._facts()
         run = self._get_run(run_id)
@@ -865,6 +877,13 @@ class Backend:
 
         def change(r: RunState) -> None:
             for i, item in enumerate(r.rewrites):
+                if item.asked:
+                    r.rewrites[i] = item.model_copy(update={
+                        "new_text": item.old_text, "status": UNCHANGED, "asked": "", "reasons": [],
+                        "warnings": [], "unchanged_reason": SAME_TEXT,
+                    })
+                    r.decisions.pop(item.bullet_id, None)
+                    continue
                 if item.status == UNCHANGED or not gone:
                     continue
                 proposal = Proposal(bullet_id=item.bullet_id, new_text=item.new_text, sources=item.sources, why=item.why)
@@ -876,6 +895,7 @@ class Backend:
                 if checked.status != OK and r.decisions.get(item.bullet_id, Decision()).state == "accepted":
                     r.decisions[item.bullet_id] = Decision()
             r.note_fact_ids = []
+            r.note_asks = []
             self._recompute_coverage(r, ctx, bank)
 
         return self._change_run(run_id, change)

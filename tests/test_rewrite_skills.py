@@ -122,9 +122,9 @@ def test_the_note_reaches_the_prompt(ctx, noted):
     p = FakeProvider().reply("rewrite", skills_reply(["s2"]))
     rewrite(p, ctx, POSTING, [FLAG], [("Node.js", ids[0])], bank, added=ids)
     user = p.calls[0].user
-    assert f"Facts I added for this posting. Each one is true and you may use it; cite its id:\n[{ids[0]}] Skills: Node.js" in user
+    assert f"Notes I added for this posting. Each one is true and you may use it; cite its fact id:\n[n1] (fact {ids[0]}) Skills: Node.js" in user
     assert f"[s2] (Technical Skills | Frameworks & Libraries) {FRAMEWORKS}" in user
-    assert f"- Node.js (shown by {ids[0]})" in user
+    assert f"[a2] Show Node.js, backed up by {ids[0]}. Add it to the line where it fits." in user
     assert f"[{ids[0]}] Skills: Node.js" in user.split("<facts_bank>")[1]
 
 
@@ -135,7 +135,11 @@ def test_the_rewrite_adds_node_js_to_the_skills_line(ctx, noted):
     s2 = next(r for r in out if r.bullet_id == "s2")
     assert s2.status == OK, s2.reasons
     assert s2.entry == "Technical Skills | Frameworks & Libraries"
-    assert summary.changed == 1 and not summary.retried and summary.message == ""
+    assert summary.changed == 1 and not summary.retried
+    results = {i.id: i for i in summary.items}
+    assert results["a2"].status == "applied" and results["a2"].lines == ["s2"], "the keyword is now shown"
+    assert results["n1"].status == "applied" and results["n1"].lines == ["s2"], "the note's fact is used"
+    assert results["a1"].status == "couldnt_act" and results["a1"].why == "The model didn't report on this item."
     assert p.call_count("rewrite_retry") == 0
 
     # Accepted, it's on the page: in the exported file and in the keyword count.
@@ -156,9 +160,11 @@ def test_identical_text_is_no_edit_and_is_retried_once_with_the_advice(ctx, note
     out, stats, summary = rewrite(p, ctx, POSTING, [FLAG], [("Node.js", ids[0])], bank, added=ids)
     assert p.call_count("rewrite_retry") == 1
     retry_user = p.calls[1].user
-    assert "returned these lines with the same text, so nothing changed" in retry_user
-    assert "1. No Node.js anywhere (Technical Skills): The posting prefers it" in retry_user
-    assert f"2. Show Node.js, backed up by {ids[0]}. Add it to the skills line where it fits." in retry_user
+    assert "returned these lines with the same text, so nothing changed. That counts as a failed attempt" in retry_user
+    checklist = retry_user.split("Work through this checklist")[1]
+    assert "[a1] No Node.js anywhere (Technical Skills): The posting prefers it" in checklist
+    assert f"[a2] Show Node.js, backed up by {ids[0]}. Add it to the line where it fits." in checklist
+    assert f"[n1] (fact {ids[0]}) Skills: Node.js" in checklist
     assert "[s2] (Technical Skills | Frameworks & Libraries)" in retry_user
     assert next(r for r in out if r.bullet_id == "s2").status == OK
     assert summary.retried and summary.changed == 1 and len(stats) == 2
@@ -170,9 +176,12 @@ def test_nothing_changed_twice_says_so_instead_of_no_changes_needed(ctx, noted):
     out, _, summary = rewrite(p, ctx, POSTING, [FLAG], [("Node.js", ids[0])], bank, added=ids)
     assert all(r.status == UNCHANGED and r.unchanged_reason == SAME_TEXT for r in out)
     assert summary.same_text == len(out) and summary.had_advice
-    assert summary.message == "The model returned every line unchanged after a second try that listed the advice, " \
-                              "so there is nothing to review."
+    assert summary.message.startswith("The model returned every line unchanged after a second try with the advice "
+                                      "and your notes as a checklist, so there is nothing to review.")
     assert "No changes needed" not in summary.message
+    # Every advice item and note still gets a visible result.
+    assert [(i.id, i.status) for i in summary.items] == [("a1", "couldnt_act"), ("a2", "couldnt_act"),
+                                                         ("n1", "couldnt_act")]
 
 
 def test_no_changes_needed_only_when_there_was_no_advice(ctx):
@@ -190,11 +199,11 @@ def test_a_failed_second_try_is_reported(ctx, noted):
     assert summary.message.endswith("The second try failed: The provider is overloaded or returned a server error.")
 
 
-def test_answers_for_lines_that_cannot_change_are_reported(ctx):
-    reply = {"rewrites": [{"bullet_id": "h1.0", "new_text": "x", "sources": [], "why": ""}]}
+def test_answers_for_ids_that_are_not_lines_are_reported(ctx):
+    reply = {"rewrites": [{"bullet_id": "h9.9", "new_text": "x", "sources": [], "why": ""}]}
     _, _, summary = rewrite(FakeProvider().reply("rewrite", reply), ctx, POSTING, [], [], FactsBank())
-    assert summary.unknown_ids == ["h1.0"]
-    assert "1 answer pointed at lines Tailor can't edit (h1.0)." in summary.message
+    assert summary.unknown_ids == ["h9.9"]
+    assert "1 answer pointed at lines Tailor can't edit (h9.9)." in summary.message
 
 
 # -- through the app's bridge --------------------------------------------------------

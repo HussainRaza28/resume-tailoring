@@ -36,6 +36,9 @@ class FakeProvider(Provider):
         nxt = queue.pop(0) if len(queue) > 1 else queue[0]
         if isinstance(nxt, ProviderError):
             raise nxt
+        if request.schema.__name__ == "RewritesReply" and isinstance(nxt, dict) and "items" not in nxt:
+            # Most scripted rewrite replies only care about the lines; an empty report is a valid answer.
+            nxt = {**nxt, "items": []}
         text = json.dumps(nxt)
         on_delta(text)
         return RawReply(text=text, usage=Usage(input_tokens=len(request.user) // 4, output_tokens=len(text) // 4))

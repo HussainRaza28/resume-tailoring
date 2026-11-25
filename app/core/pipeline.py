@@ -24,7 +24,9 @@ from app.core import grounding, skills, style
 from app.core.bold import keep_bold, strip_bold
 from app.core.facts import FactsBank
 from app.core.grounding import GroundingReport, Source
-from app.core.schemas import Proposal, RedFlag, RescoreReply, RewritesReply, ScoreReply
+from app.core.instructions import ADD, ASK, CHANGE, NOT_FOUND, Instruction, parse_instruction
+from app.core.lines import BULLET_LINE, SKILLS, Line, protected_changes, resume_lines
+from app.core.schemas import ItemReport, Proposal, RedFlag, RescoreReply, RewritesReply, ScoreReply
 from app.core.style import Violation
 from app.core.tex import BULLET, SKILLS_LINE, Remove, ReorderSkills, SetText, TexDoc, split_skills, tex_to_plain
 from app.providers.base import Completion, CompletionRequest, DeltaSink, Provider, ProviderError, Usage, ignore_deltas
@@ -70,38 +72,59 @@ def score_prompt(company: str, posting: str) -> str:
 
 def rewrite_prompt(
     posting: str,
-    flags: list[RedFlag],
-    keywords: list[tuple[str, str]],
+    advice: list[tuple[str, str]],
+    notes: list[tuple[str, str]],
     facts: str,
-    bullets: list[tuple[str, str, str]],
+    lines: list[tuple[str, str, str]],
     feedback: str,
-    added: list[tuple[str, str]] = (),
+    protected: list[tuple[str, list[str]]] = (),
+    asked: list[str] = (),
 ) -> str:
-    flags_text = "".join(f"{i}. {f.flag} ({f.section}): {f.why}\n" for i, f in enumerate(flags, 1)) or "(none)\n"
-    keywords_text = "".join(f"- {k} (shown by {src})\n" for k, src in keywords) or "(none)\n"
-    bullets_text = "".join(f"[{bid}] ({entry}) {text}\n" for bid, entry, text in bullets)
-    added_text = "".join(f"[{fid}] {text}\n" for fid, text in added) or "(none)\n"
+    """The rewrite request.
+
+    ``advice`` and ``notes`` are (item id, text): the score's red flags and
+    missing keywords, then the facts the person added for this posting. The
+    model works through them in that order, then makes its own obvious
+    improvements, and reports on every item.
+    """
+    advice_text = "".join(f"[{iid}] {text}\n" for iid, text in advice) or "(none)\n"
+    notes_text = "".join(f"[{iid}] {text}\n" for iid, text in notes) or "(none)\n"
+    lines_text = "".join(f"[{lid}] ({where}) {text}\n" for lid, where, text in lines)
+    protected_text = "".join(f"[{lid}] " + "; ".join(f'"{p}"' for p in keep) + "\n" for lid, keep in protected if keep)
+    asked_text = "".join(f"- {a}\n" for a in asked)
     return (
-        "Rewrite my experience section to kill those red flags. Lead every line with measurable impact using the "
-        "Google XYZ formula and strip out every generic phrase. Write plainly and professionally.\n\n"
-        "Only change a bullet if one of the red flags or missing keywords below calls for it. Return every other "
-        "bullet unchanged. Never make a bullet less specific or less technical: keep every tool, number, name and "
-        "detail it already has. A program checks this and blocks a rewrite that drops one.\n\n"
-        f"Red flags:\n{flags_text}\n"
-        f"Keywords from the posting that I can back up but don't show:\n{keywords_text}\n"
-        f"Facts I added for this posting. Each one is true and you may use it; cite its id:\n{added_text}\n"
-        "Lines with an id like [s1] are lines of my Technical Skills section: a comma-separated list under the "
-        "label in parentheses. To show a skill I have but don't list, add it to the line where it fits, keep every "
-        "skill already there, and cite the fact or bullet that backs it up. Don't add sentences to a skills line.\n\n"
-        "Return one entry per bullet id, in the same order. For each:\n"
-        "- `new_text`: the bullet, rewritten or unchanged. Only use numbers that appear in the cited sources. Keep "
-        "roughly the same length so the resume stays one page. Bold is written **like this**. Keep a phrase bold if "
-        "it was bold and is still in the bullet. You may bold the one short phrase that states the key result, "
-        "using only words already in the original bullet. No other Markdown.\n"
-        "- `sources`: the ids you drew on, always including the bullet's own id, plus any facts-bank ids (f1, f2, ...) "
-        "you used.\n"
-        "- `why`: a few words on which red flag or keyword this fixes, or empty if unchanged.\n\n"
-        f"<bullets>\n{bullets_text}</bullets>\n\n"
+        "Rewrite my experience section to kill those red flags. Treat the rest of my resume the same way. "
+        "Work through these, in this order:\n"
+        "1. Every advice item from the score.\n"
+        "2. Every note I added.\n"
+        "3. Then the obvious improvements you find yourself: a weak or vague verb, a redundant phrase, a keyword "
+        "from the posting that my resume or facts back up but don't show, a number I've already given that a line "
+        "leaves out.\n"
+        "Lead every line with measurable impact using the Google XYZ formula and strip out every generic phrase. "
+        "Write plainly and professionally. Return any line that none of these call for unchanged. Never make a line "
+        "less specific or less technical: keep every tool, number, name and detail it already has. A program checks "
+        "this and blocks a rewrite that drops one.\n\n"
+        f"Advice from the score:\n{advice_text}\n"
+        f"Notes I added for this posting. Each one is true and you may use it; cite its fact id:\n{notes_text}\n"
+        + (f"Changes I asked for, already made by the app. Leave those lines alone:\n{asked_text}\n" if asked else "")
+        + "The lines below are every line you may change. Ids like [s1] are Technical Skills lines: a comma-separated "
+        "list under the label in parentheses. To show a skill I have but don't list, add it to the line where it "
+        "fits, keep every skill already there, and cite the fact or line that backs it up. Don't add sentences to a "
+        "list. A project heading is its name, then \"|\", then its tech stack; only the stack may change.\n\n"
+        "Protected facts: dates, GPA, school, degree, employer, job title, location, and an honor's name and its "
+        "numbers. Keep these word for word. A program blocks any change to them that I didn't ask for:\n"
+        f"{protected_text or '(none)'}\n\n"
+        "Return:\n"
+        "- `rewrites`: one entry per line id, in the same order. `new_text`: the line, rewritten or unchanged. "
+        "Only use numbers that appear in the cited sources. Keep roughly the same length so the resume stays one "
+        "page. Bold is written **like this**. Keep a phrase bold if it was bold and is still in the line. You may "
+        "bold the one short phrase that states the key result, using only words already in the original line. No "
+        "other Markdown. `sources`: the ids you drew on, always including the line's own id, plus any facts-bank "
+        "ids (f1, f2, ...) you used. `why`: a few words on which item this addresses, or empty if unchanged.\n"
+        "- `items`: one entry per advice item and note id, in order. `item_id`; `applied`: true only if a line you "
+        "changed addresses it; `line_ids`: the ids you changed for it; `why`: one short sentence, what you changed, "
+        "or why no line could address it with what my resume and facts back up.\n\n"
+        f"<lines>\n{lines_text}</lines>\n\n"
         f"<facts_bank>\n{facts}\n</facts_bank>\n"
         f"{feedback}\n"
         f"<job_posting>\n{posting.strip()}\n</job_posting>"
@@ -126,9 +149,9 @@ RETRY_FEEDBACK = (
 )
 
 NO_EDIT_FEEDBACK = (
-    "\nYour previous answer returned these lines with the same text, so nothing changed. These advice items still "
-    "need a change. Address each one in the line it belongs to, using only what the sources support. A line returned "
-    "unchanged counts as no edit.\n{items}\n"
+    "\nYour previous answer returned these lines with the same text, so nothing changed. That counts as a failed "
+    "attempt. Work through this checklist: address each item in the line it belongs to, using only what the sources "
+    "support, and report on each one in `items`. A line returned unchanged counts as no edit.\n{items}\n"
 )
 
 # ---------------------------------------------------------------------------
@@ -167,6 +190,30 @@ class CheckedRewrite(BaseModel):
     warnings: list[str] = []
     # For an unchanged line: SAME_TEXT, SKIPPED, BOLD_ONLY or REORDER_ONLY.
     unchanged_reason: str = ""
+    # What the line is ("Bullet", "Graduation date", "Tech stack").
+    label: str = ""
+    # The note that asked for this change, when the person asked for it.
+    asked: str = ""
+
+
+# Outcome of one advice item or note.
+APPLIED = "applied"
+ITEM_BLOCKED = "blocked"
+COULDNT_ACT = "couldnt_act"
+ASKED = "ask"  # a note that could mean more than one line: the person is asked which
+
+
+class ItemResult(BaseModel):
+    """What the rewrite did with one advice item from the score or one note."""
+
+    id: str
+    # "advice" or "note".
+    kind: str
+    text: str
+    status: str
+    # The lines it changed, or the lines a note could mean.
+    lines: list[str] = []
+    why: str = ""
 
 
 class RewriteSummary(BaseModel):
@@ -188,6 +235,12 @@ class RewriteSummary(BaseModel):
     had_advice: bool = True
     # The reasons blocked rewrites were blocked, most common first.
     block_reasons: list[str] = []
+    # Model changes to protected facts that no note asked for, all blocked.
+    protected_blocked: int = 0
+    # Lines changed because a note asked for it.
+    asked: int = 0
+    # One result per advice item and note, advice first.
+    items: list[ItemResult] = []
     message: str = ""
 
 
@@ -237,7 +290,8 @@ def clean_model_text(s: str) -> str:
 
     The template's bullets have no final period.
     """
-    t = s.strip().lstrip("-*•").strip()
+    # Only a bullet mark followed by a space: "**Bold** start" keeps its bold.
+    t = re.sub(r"^[-*•]\s+", "", s.strip()).strip()
     if len(t) >= 2 and t.startswith('"') and t.endswith('"'):
         t = t[1:-1]
     return _squash(t.rstrip("."))
@@ -258,6 +312,16 @@ def dropped_specifics(old_text: str, new_text: str) -> list[str]:
     return out
 
 
+def _entry_title(doc: TexDoc, entry: int, replaced: dict[str, str]) -> str:
+    """``doc.entry_title`` with any changed heading fields."""
+    if not any(f in replaced for f in doc.entries[entry].fields):
+        return doc.entry_title(entry)
+    e = doc.entries[entry]
+    picks = [0, 2] if e.kind == "subheading" else [0]
+    parts = [replaced.get(e.fields[k]) or doc.text(e.fields[k]) for k in picks if k < len(e.fields)]
+    return " | ".join(p for p in parts if p)
+
+
 def resume_plain(doc: TexDoc, replaced: dict[str, str], with_ids: bool) -> str:
     """The resume as plain text: sections, role headings, bullets and skills lines.
 
@@ -274,7 +338,7 @@ def resume_plain(doc: TexDoc, replaced: dict[str, str], with_ids: bool) -> str:
             last_entry = None
         if slot.kind == BULLET:
             if slot.entry is not None and slot.entry != last_entry:
-                lines.append(f"### {doc.entry_title(slot.entry)}")
+                lines.append(f"### {_entry_title(doc, slot.entry, replaced)}")
                 last_entry = slot.entry
             text = replaced.get(slot.id, doc.text(slot.id) or "")
             if not text:
@@ -302,71 +366,68 @@ class Context:
 
     def __init__(self, base_tex: str) -> None:
         self.doc = TexDoc.parse(base_tex)
+        self.lines = resume_lines(self.doc)
+        self._lines = {line.id: line for line in self.lines}
         # Sent as the cached context on every call.
         self.base_plain = resume_plain(self.doc, {}, with_ids=True)
 
-    def skills_label(self, slot_id: str) -> str:
-        slot = self.doc.slot(slot_id)
-        label = (slot.label or "") if slot is not None else ""
-        return tex_to_plain(label) or label
+    def line(self, line_id: str) -> Line | None:
+        return self._lines.get(line_id)
 
-    def editable_skills_lines(self) -> list:
-        """Skills lines the rewrite may add to. An honors or awards line is left alone."""
-        out = []
-        for slot in self.doc.skills_lines():
-            label = self.skills_label(slot.id).lower()
-            if "honor" not in label and "award" not in label:
-                out.append(slot)
-        return out
+    def rewrite_targets(self, leave: set[str] | frozenset[str] = frozenset()) -> list[tuple[str, str, str]]:
+        """(id, heading, text) for every line the model may change on its own, in page order.
 
-    def rewrite_targets(self) -> list[tuple[str, str, str]]:
-        """(id, heading, text) for every line the rewrite step covers.
-
-        The Experience and Projects bullets, with their role or project as the
-        heading, then the Technical Skills lines, with "Section | Label".
+        Bullets in every section (coursework and honors included), skills
+        lines and project tech stacks. Lines in ``leave`` (ones a note already
+        changed) aren't sent.
         """
-        out = []
-        for b in self.doc.bullets_in(REWRITE_SECTIONS):
-            entry = self.doc.entry_title(b.entry) if b.entry is not None else ""
-            out.append((b.id, entry, self.doc.text(b.id) or ""))
-        for slot in self.editable_skills_lines():
-            out.append((slot.id, f"{slot.section} | {self.skills_label(slot.id)}", self.doc.text(slot.id) or ""))
-        return out
+        return [(ln.id, ln.heading, ln.text) for ln in self.lines if ln.editable and ln.id not in leave]
+
+    def protected_parts(self, ids: list[str]) -> list[tuple[str, list[str]]]:
+        """The protected pieces of the given lines, for the prompt."""
+        return [(i, self._lines[i].protected) for i in ids if i in self._lines and self._lines[i].protected]
 
     def sources_for(self, bullet_id: str, cited: list[str], facts: FactsBank) -> list[Source]:
-        """The cited lines and facts, plus the heading of the bullet's own role or project."""
+        """The cited lines and facts, plus the heading of the line's own role or project."""
         sources = []
         for sid in cited:
             fact = facts.get(sid)
-            slot = self.doc.slot(sid)
+            line = self._lines.get(sid)
             if fact is not None:
                 sources.append(Source(id=sid, text=fact.text))
-            elif slot is not None and slot.kind in (BULLET, SKILLS_LINE):
-                sources.append(Source(id=sid, text=self.doc.text(sid) or ""))
+            elif line is not None:
+                sources.append(Source(id=sid, text=line.text))
         own = self.doc.slot(bullet_id)
         if own is not None and own.entry is not None:
             sources.append(Source(id="heading", text=self.doc.entry_title(own.entry)))
         return sources
 
     def check(
-        self, proposal: Proposal, facts: FactsBank, added: list[str] | tuple[str, ...] = ()
+        self,
+        proposal: Proposal,
+        facts: FactsBank,
+        added: list[str] | tuple[str, ...] = (),
+        asked: str = "",
     ) -> CheckedRewrite | None:
-        """Run the code checks on one proposal. None if it doesn't point at a line the rewrite may change.
+        """Run the code checks on one proposal. None if it doesn't point at a line of the resume.
 
         ``added`` holds the ids of facts the person added for this run (the
         "Anything to add?" note). They count as sources whether or not the
         model cited them, and one that backs up a claim is added to the
         rewrite's sources so the card shows it.
+
+        ``asked`` is the note that asked for this change, when the person asked
+        for it. The note is then a source, and the change may touch a
+        protected fact. Without it, any change to a protected fact (a date, a
+        GPA, an employer, an honor's numbers) is blocked.
         """
-        slot = self.doc.slot(proposal.bullet_id)
-        if slot is None or slot.kind not in (BULLET, SKILLS_LINE):
+        line = self._lines.get(proposal.bullet_id)
+        if line is None:
             return None
-        is_skills = slot.kind == SKILLS_LINE
-        if is_skills and slot.id not in {s.id for s in self.editable_skills_lines()}:
-            return None
-        old_text = self.doc.text(proposal.bullet_id) or ""
+        is_list = line.kind == SKILLS
+        old_text = line.text
         # Keep the template's bold, and only the new bold the rules allow.
-        new_text = keep_bold(old_text, clean_model_text(proposal.new_text))
+        new_text = keep_bold(old_text, proposal.new_text if asked else clean_model_text(proposal.new_text))
         plain_new = strip_bold(new_text)
         plain_old = strip_bold(old_text)
         cited = [s.strip() for s in proposal.sources]
@@ -375,6 +436,9 @@ class Context:
             cited.insert(0, proposal.bullet_id)
         extra = [fid for fid in added if fid not in cited and facts.get(fid) is not None]
         sources = self.sources_for(proposal.bullet_id, cited + extra, facts)
+        if asked:
+            sources.append(Source(id="note", text=asked))
+            cited.append("note")
         sources = [Source(id=x.id, text=strip_bold(x.text)) for x in sources]
         source_texts = [x.text for x in sources if x.id != "heading"]
         report = grounding.check(plain_new, sources)
@@ -387,12 +451,18 @@ class Context:
                 for c in report.claims
             ):
                 cited.append(fid)
-        # A skills line is a list, so the sentence style rules don't apply to it.
-        violations = [] if is_skills else style.check_bullet(plain_new, source_texts)
-        dropped = dropped_specifics(plain_old, plain_new)
-        # Only a claim the sources don't back up blocks a rewrite. Style and lost
-        # detail are the person's call, so they show as warnings.
+        # Only a bullet is a sentence; the style rules don't apply to lists, headings or honors.
+        violations = style.check_bullet(plain_new, source_texts) if line.kind == BULLET_LINE and not asked else []
+        dropped = [] if asked else dropped_specifics(plain_old, plain_new)
+        # A claim the sources don't back up blocks a rewrite, and so does a change to a protected
+        # fact that the person didn't ask for. Style and lost detail are the person's call, so
+        # they show as warnings.
         reasons = report.reasons()
+        touched = [] if asked else protected_changes(line, plain_new)
+        reasons += [
+            f'Changes "{p}", a protected fact ({line.label.lower()}). Only a note that asks for it can change it.'
+            for p in touched
+        ]
         warnings = [f"{style.LABELS[v.rule]}: {v.message}" for v in violations] + [
             f'Drops "{d}" from the original.' for d in dropped
         ]
@@ -403,13 +473,13 @@ class Context:
             # Only the bold changed. Not worth a rewrite: keep the original.
             new_text = old_text
             status, unchanged_reason = UNCHANGED, BOLD_ONLY
-        elif is_skills and sorted(_squash(x) for x in split_skills(plain_new)) == sorted(
+        elif is_list and not asked and sorted(_squash(x) for x in split_skills(plain_new)) == sorted(
             _squash(x) for x in split_skills(plain_old)
         ):
             # Same skills, new order. Export already puts the posting's skills first.
             new_text = old_text
             status, unchanged_reason = UNCHANGED, REORDER_ONLY
-        elif report.ok():
+        elif report.ok() and not touched:
             status = OK
         else:
             status = BLOCKED
@@ -418,10 +488,8 @@ class Context:
             report, reasons, warnings, dropped, violations = GroundingReport(), [], [], [], []
         return CheckedRewrite(
             bullet_id=proposal.bullet_id,
-            entry=self.doc.entry_title(slot.entry) if slot.entry is not None else (
-                f"{slot.section} | {self.skills_label(slot.id)}" if is_skills else ""
-            ),
-            section=slot.section,
+            entry=line.heading,
+            section=line.section,
             old_text=old_text,
             new_text=new_text,
             sources=cited,
@@ -433,6 +501,8 @@ class Context:
             dropped=dropped,
             warnings=warnings,
             unchanged_reason=unchanged_reason,
+            label=line.label,
+            asked=asked if status != UNCHANGED else "",
         )
 
     def check_all(
@@ -523,15 +593,42 @@ def score(
     return result, step_stats("score", completion)
 
 
-def advice_items(flags: list[RedFlag], keywords: list[tuple[str, str]]) -> list[str]:
-    """The score's advice as a numbered list, for the second try when the first changed nothing."""
-    items = [f"{f.flag} ({f.section}): {f.why}" for f in flags]
-    items += [
-        f"Show {k}, backed up by {src}"
-        + (". Add it to the skills line where it fits." if src != "base resume" else ".")
+class Advice(BaseModel):
+    """One advice item from the score: a red flag, or a missing keyword."""
+
+    id: str
+    text: str
+    section: str = ""
+    keyword: str = ""
+
+
+def advice_list(flags: list[RedFlag], keywords: list[tuple[str, str]]) -> list[Advice]:
+    """The score's red flags, then the missing keywords, numbered a1, a2, ..."""
+    out = [Advice(id="", text=f"{f.flag} ({f.section}): {f.why}", section=f.section) for f in flags]
+    out += [
+        Advice(
+            id="",
+            text=f"Show {k}, backed up by {src}"
+            + (". Add it to the line where it fits." if src != "base resume" else "."),
+            keyword=k,
+        )
         for k, src in keywords
     ]
-    return [f"{i}. {item}" for i, item in enumerate(items, 1)]
+    for i, a in enumerate(out, 1):
+        a.id = f"a{i}"
+    return out
+
+
+def note_items(facts: FactsBank, added: list[str] | tuple[str, ...], asked: list[str]) -> list[tuple[str, str, str]]:
+    """(item id, fact id or "", text) for each note: the facts it added, then the changes it asked for."""
+    out = []
+    for fid in added:
+        fact = facts.get(fid)
+        if fact is not None:
+            out.append((f"n{len(out) + 1}", fid, fact.text))
+    for note in asked:
+        out.append((f"n{len(out) + 1}", "", note))
+    return out
 
 
 def unaddressed_keywords(checked: list[CheckedRewrite], keywords: list[tuple[str, str]]) -> list[tuple[str, str]]:
@@ -541,14 +638,167 @@ def unaddressed_keywords(checked: list[CheckedRewrite], keywords: list[tuple[str
     return [(k, src) for k, src in keywords if not lex.contains(shown, k)]
 
 
+def apply_instructions(
+    ctx: Context, notes: list[str], facts: FactsBank, added: list[str] | tuple[str, ...] = ()
+) -> tuple[list[Instruction], list[CheckedRewrite]]:
+    """Resolve each change the person asked for and apply it in code.
+
+    Instructions are applied in order, each to the line as the ones before it
+    left it, so two notes can change the same line. Each changed line is
+    checked with its note as the source. Returns every instruction (including
+    the ones that need the person to say which line) and the checked lines.
+    """
+    lines = [line.model_copy() for line in ctx.lines]
+    by_id = {line.id: line for line in lines}
+    asked_by: dict[str, list[str]] = {}
+    resolved: list[Instruction] = []
+    for i, note in enumerate(notes, 1):
+        instruction = parse_instruction(f"n{i}", note, lines)
+        if instruction is None:
+            continue
+        resolved.append(instruction)
+        if instruction.kind in (CHANGE, ADD):
+            by_id[instruction.line_id].text = instruction.new_text
+            asked_by.setdefault(instruction.line_id, []).append(instruction.note)
+    checked = []
+    for line_id, asked in asked_by.items():
+        proposal = Proposal(bullet_id=line_id, new_text=by_id[line_id].text, sources=[line_id], why="You asked for it")
+        result = ctx.check(proposal, facts, added, asked="; ".join(asked))
+        if result is not None:
+            checked.append(result)
+    return resolved, checked
+
+
 def _plural(n: int, one: str, many: str | None = None) -> str:
     return f"{n} {one if n == 1 else (many or one + 's')}"
 
 
+def _section_matches(section: str, line_section: str) -> bool:
+    a, b = section.strip().lower(), line_section.strip().lower()
+    return bool(a) and (a in b or b in a or a.split()[0] == b.split()[0] if a and b else False)
+
+
+def item_results(
+    ctx: Context,
+    final: list[CheckedRewrite],
+    advice: list[Advice],
+    notes: list[tuple[str, str, str]],
+    instructions: list[Instruction],
+    reports: dict[str, ItemReport],
+) -> list[ItemResult]:
+    """Applied, Blocked, Couldn't act or a question, for every advice item and note.
+
+    Code decides where it can: a keyword is applied when a changed line now
+    shows it, and a note's fact when a changed line cites it. A red flag
+    relies on the model's report, checked against what happened to the lines
+    it names. An item the model didn't report on says so.
+    """
+    by_id = {r.bullet_id: r for r in final}
+    lex = skills.lexicon()
+    out: list[ItemResult] = []
+
+    def blocked_why(rows: list[CheckedRewrite]) -> str:
+        return " ".join(dict.fromkeys(reason for r in rows for reason in r.reasons))
+
+    def from_report(item_id: str, kind: str, text: str, fallback: str) -> ItemResult:
+        report = reports.get(item_id)
+        if report is None:
+            return ItemResult(id=item_id, kind=kind, text=text, status=COULDNT_ACT, why=fallback)
+        rows = [by_id[i] for i in report.line_ids if i in by_id]
+        ok = [r.bullet_id for r in rows if r.status == OK]
+        if report.applied and ok:
+            return ItemResult(id=item_id, kind=kind, text=text, status=APPLIED, lines=ok, why=report.why)
+        blocked = [r for r in rows if r.status == BLOCKED]
+        if report.applied and blocked:
+            return ItemResult(id=item_id, kind=kind, text=text, status=ITEM_BLOCKED,
+                              lines=[r.bullet_id for r in blocked], why=blocked_why(blocked))
+        if report.applied:
+            why = f"The model said it changed {', '.join(report.line_ids) or 'a line'}, but nothing on the page changed."
+            return ItemResult(id=item_id, kind=kind, text=text, status=COULDNT_ACT, why=why)
+        return ItemResult(id=item_id, kind=kind, text=text, status=COULDNT_ACT,
+                          why=report.why or "The model didn't say why.")
+
+    editable_sections = {ln.section for ln in ctx.lines if ln.editable}
+    for a in advice:
+        if a.keyword:
+            showing = [r for r in final if r.status == OK and lex.contains(strip_bold(r.new_text), a.keyword)
+                       and not lex.contains(strip_bold(r.old_text), a.keyword)]
+            if showing:
+                out.append(ItemResult(id=a.id, kind="advice", text=a.text, status=APPLIED,
+                                      lines=[r.bullet_id for r in showing], why=f"{a.keyword} is now on the page."))
+                continue
+            stuck = [r for r in final if r.status == BLOCKED and lex.contains(strip_bold(r.new_text), a.keyword)]
+            if stuck:
+                out.append(ItemResult(id=a.id, kind="advice", text=a.text, status=ITEM_BLOCKED,
+                                      lines=[r.bullet_id for r in stuck], why=blocked_why(stuck)))
+                continue
+            result = from_report(a.id, "advice", a.text, f"No line shows {a.keyword} yet.")
+            if result.status == APPLIED:  # the model says so, but the keyword isn't on any changed line
+                result = ItemResult(id=a.id, kind="advice", text=a.text, status=COULDNT_ACT,
+                                    why=f"No changed line shows {a.keyword}.")
+            out.append(result)
+            continue
+        result = from_report(a.id, "advice", a.text, "The model didn't report on this item.")
+        if result.status == COULDNT_ACT and a.section and not any(
+            _section_matches(a.section, s) for s in editable_sections
+        ):
+            result.why = (
+                f'There\'s no line in "{a.section}" that the rewrite can change, so this needs a change you make '
+                "yourself or a note that says what to change."
+            )
+        out.append(result)
+
+    asked_ids = {r.bullet_id for r in final if r.asked}
+    instructions_by_note = {i.note: i for i in instructions}
+    for item_id, fid, text in notes:
+        if fid:
+            citing = [r for r in final if fid in r.sources]
+            ok = [r.bullet_id for r in citing if r.status == OK]
+            if ok:
+                out.append(ItemResult(id=item_id, kind="note", text=text, status=APPLIED, lines=ok,
+                                      why=reports[item_id].why if item_id in reports else ""))
+                continue
+            blocked = [r for r in citing if r.status == BLOCKED]
+            if blocked:
+                out.append(ItemResult(id=item_id, kind="note", text=text, status=ITEM_BLOCKED,
+                                      lines=[r.bullet_id for r in blocked], why=blocked_why(blocked)))
+                continue
+            result = from_report(item_id, "note", text, "The model didn't use this note on any line.")
+            if result.status == APPLIED:
+                result.status, result.why = COULDNT_ACT, "No changed line uses this note."
+            out.append(result)
+            continue
+        instruction = instructions_by_note.get(text)
+        if instruction is None:
+            continue
+        if instruction.kind in (CHANGE, ADD):
+            row = by_id.get(instruction.line_id)
+            if row is not None and row.bullet_id in asked_ids and row.status == OK:
+                out.append(ItemResult(id=item_id, kind="note", text=text, status=APPLIED, lines=[row.bullet_id],
+                                      why=f'Changed the {row.label.lower()} as you asked.'))
+            elif row is not None and row.status == BLOCKED:
+                out.append(ItemResult(id=item_id, kind="note", text=text, status=ITEM_BLOCKED,
+                                      lines=[row.bullet_id], why=blocked_why([row])))
+            else:
+                out.append(ItemResult(id=item_id, kind="note", text=text, status=COULDNT_ACT,
+                                      why="That line already says this, so nothing changed."))
+        elif instruction.kind == ASK:
+            out.append(ItemResult(id=item_id, kind="note", text=text, status=ASKED, lines=instruction.candidates,
+                                  why=instruction.question))
+        else:
+            out.append(ItemResult(id=item_id, kind="note", text=text, status=COULDNT_ACT, why=instruction.question))
+    return out
+
+
 def summarize(
-    checked: list[CheckedRewrite], had_advice: bool, unknown_ids: list[str], retried: bool, retry_error: str
+    checked: list[CheckedRewrite],
+    had_advice: bool,
+    unknown_ids: list[str],
+    retried: bool,
+    retry_error: str,
+    items: list[ItemResult] = (),
 ) -> RewriteSummary:
-    """Count what happened to each line and say it in one or two sentences."""
+    """Count what happened to each line and item, and say it in a sentence or two."""
     summary = RewriteSummary(
         lines=len(checked),
         changed=sum(1 for r in checked if r.status == OK),
@@ -561,6 +811,9 @@ def summarize(
         retried=retried,
         retry_error=retry_error,
         had_advice=had_advice,
+        protected_blocked=sum(1 for r in checked if r.status == BLOCKED and any("protected fact" in x for x in r.reasons)),
+        asked=sum(1 for r in checked if r.asked and r.status == OK),
+        items=list(items),
     )
     counts: dict[str, int] = {}
     for r in checked:
@@ -570,16 +823,28 @@ def summarize(
     summary.block_reasons = sorted(counts, key=lambda k: -counts[k])
 
     parts: list[str] = []
+    model_changes = sum(1 for r in checked if r.status in (OK, BLOCKED) and not r.asked)
     if summary.changed == 0 and summary.blocked == 0:
         if not had_advice:
-            parts.append("No changes needed: the score found nothing for the rewrite to fix.")
+            parts.append("No changes needed: the score gave no advice and you added no notes.")
         else:
-            tries = "after a second try that listed the advice" if retried else "on the first try"
+            tries = "after a second try with the advice and your notes as a checklist" if retried else "on the first try"
             parts.append(f"The model returned every line unchanged {tries}, so there is nothing to review.")
-    if summary.blocked:
-        reasons = " ".join(summary.block_reasons[:2])
+    elif model_changes == 0 and had_advice and summary.asked:
+        tries = " after a second try with a checklist" if retried else ""
+        parts.append(f"The model changed nothing on its own{tries}; only the changes you asked for were made.")
+    if summary.asked:
+        parts.append(f"{_plural(summary.asked, 'line')} changed because you asked.")
+    if summary.protected_blocked:
         parts.append(
-            f"{_plural(summary.blocked, 'rewrite was', 'rewrites were')} blocked because the sources don't back "
+            f"{_plural(summary.protected_blocked, 'change')} to a protected fact (a date, GPA, name, title or an "
+            "honor's numbers) blocked because no note asked for it."
+        )
+    other_blocked = summary.blocked - summary.protected_blocked
+    if other_blocked:
+        reasons = " ".join(r for r in summary.block_reasons if "protected fact" not in r)[:300]
+        parts.append(
+            f"{_plural(other_blocked, 'rewrite was', 'rewrites were')} blocked because the sources don't back "
             f"up every claim. {reasons}".strip()
         )
     if summary.bold_only:
@@ -593,6 +858,12 @@ def summarize(
         parts.append(
             f"{_plural(len(unknown_ids), 'answer')} pointed at lines Tailor can't edit ({', '.join(unknown_ids[:5])})."
         )
+    asks = sum(1 for i in items if i.status == ASKED)
+    if asks:
+        parts.append(f"{_plural(asks, 'note needs', 'notes need')} you to say which line.")
+    couldnt = sum(1 for i in items if i.status == COULDNT_ACT)
+    if couldnt:
+        parts.append(f"{_plural(couldnt, 'item')} couldn't be acted on; each says why below.")
     if retry_error:
         parts.append(f"The second try failed: {retry_error}")
     summary.message = " ".join(parts)
@@ -608,57 +879,100 @@ def rewrite(
     facts: FactsBank,
     on_delta: DeltaSink = ignore_deltas,
     added: list[str] | tuple[str, ...] = (),
+    asked: list[str] | tuple[str, ...] = (),
 ) -> tuple[list[CheckedRewrite], list[StepStats], RewriteSummary]:
-    """Rewrite the lines the red flags and missing keywords call for, and check each one.
+    """Work through the score's advice, the person's notes and the model's own improvements, and check each change.
 
     ``keywords`` holds (skill, where it's backed up) for the posting's skills
     the person has but doesn't show. ``added`` holds the ids of facts the
-    person added for this run; they are listed in the prompt and count as
-    sources in the check.
+    person added for this run; they're listed as notes and count as sources
+    in the check. ``asked`` holds the notes that ask for a change ("change
+    graduation date to 2027"): those are applied in code first, with the note
+    as the source, and those lines aren't sent to the model.
 
     The model gets one second try, for two reasons. Rewrites that are blocked
     or have warnings go back with the checker's findings, and a retry
     replaces one only when it isn't blocked and has fewer warnings. And when
     the first answer changed nothing, or added none of the missing keywords,
-    the unchanged lines go back with the advice it has to address. A line
-    returned with its original text counts as no edit.
+    that counts as a failed attempt: the unchanged lines go back with every
+    advice item and note as a checklist.
+
+    A model change to a line it may not edit on its own (a date, an employer)
+    is checked and blocked, so it shows instead of vanishing. Every advice
+    item and note gets a result: applied, blocked, couldn't act, or a
+    question for the person.
     """
-    targets = ctx.rewrite_targets()
+    instructions, asked_rows = apply_instructions(ctx, list(asked), facts, added)
+    asked_ids = {r.bullet_id for r in asked_rows}
+    targets = ctx.rewrite_targets(asked_ids)
     target_ids = {t[0] for t in targets}
     facts_text = facts_prompt_text(facts)
-    added_facts = [(fid, facts.get(fid).text) for fid in added if facts.get(fid) is not None]
-    user = rewrite_prompt(posting, flags, keywords, facts_text, targets, "", added_facts)
-    completion = provider.complete(ctx._request("rewrite", user, RewritesReply, 16000), on_delta)
+    advice = advice_list(flags, keywords)
+    notes = note_items(facts, added, list(asked))
+    advice_prompt = [(a.id, a.text) for a in advice]
+    notes_prompt = [(iid, f"(fact {fid}) {text}" if fid else text) for iid, fid, text in notes if fid]
+    asked_lines = [f'[{r.bullet_id}] "{r.old_text}" is now "{r.new_text}" (I asked: {r.asked})' for r in asked_rows]
+    protected = ctx.protected_parts([t[0] for t in targets])
+
+    def prompt(lines: list[tuple[str, str, str]], feedback: str) -> str:
+        return rewrite_prompt(posting, advice_prompt, notes_prompt, facts_text, lines, feedback,
+                              [p for p in protected if p[0] in {t[0] for t in lines}], asked_lines)
+
+    def off_target(proposals: list[Proposal]) -> tuple[list[CheckedRewrite], list[str]]:
+        """Checked results for answers about lines the model may not change, and ids that aren't lines at all."""
+        rows, unknown = [], []
+        for p in proposals:
+            if p.bullet_id in target_ids or p.bullet_id in asked_ids:
+                continue
+            row = ctx.check(p, facts, added) if ctx.line(p.bullet_id) else None
+            if row is None:
+                unknown.append(p.bullet_id)
+            elif row.status != UNCHANGED:
+                rows.append(row)
+        return rows, unknown
+
+    completion = provider.complete(ctx._request("rewrite", prompt(targets, ""), RewritesReply, 16000), on_delta)
     proposals = completion.data.rewrites
-    unknown = [p.bullet_id for p in proposals if p.bullet_id not in target_ids]
+    reports = {r.item_id: r for r in completion.data.items}
     checked = ctx.check_all(proposals, facts, targets, added)
-    stats = [step_stats("rewrite", completion, checked)]
-    had_advice = bool(flags or keywords)
+    extra, unknown = off_target(proposals)
+    stats = [step_stats("rewrite", completion, checked + extra)]
+    had_advice = bool(flags or keywords or added or asked)
+
+    def finish(rows: list[CheckedRewrite], retried: bool, error: str) -> tuple:
+        final = rows + extra + asked_rows
+        final.sort(key=lambda r: [ln.id for ln in ctx.lines].index(r.bullet_id))
+        items = item_results(ctx, final, advice, notes, instructions, reports)
+        return final, stats, summarize(final, had_advice, unknown, retried, error, items)
 
     to_fix = [r for r in checked if r.status == BLOCKED or (r.status == OK and r.warnings)]
     no_edits = not any(r.status in (OK, BLOCKED) for r in checked)
     missed = unaddressed_keywords(checked, keywords)
-    unchanged = [r for r in checked if r.status == UNCHANGED] if had_advice and (no_edits or missed) else []
+    has_items = bool(advice or [n for n in notes if n[1]])
+    unchanged = [r for r in checked if r.status == UNCHANGED] if has_items and (no_edits or missed) else []
     if not to_fix and not unchanged:
-        return checked, stats, summarize(checked, had_advice, unknown, False, "")
+        return finish(checked, False, "")
 
     feedback = ""
     if to_fix:
         lines = "\n".join(f'[{r.bullet_id}] "{r.new_text}": {" ".join(r.reasons + r.warnings)}' for r in to_fix)
         feedback += RETRY_FEEDBACK.format(lines=lines)
     if unchanged:
-        items = advice_items(flags, missed if not no_edits else keywords)
-        feedback += NO_EDIT_FEEDBACK.format(items="\n".join(items))
+        checklist = [f"[{iid}] {text}" for iid, text in advice_prompt + notes_prompt]
+        feedback += NO_EDIT_FEEDBACK.format(items="\n".join(checklist))
     retry_ids = {r.bullet_id for r in to_fix + unchanged}
     retry_targets = [t for t in targets if t[0] in retry_ids]
-    user = rewrite_prompt(posting, flags, keywords, facts_text, retry_targets, feedback, added_facts)
     try:
-        retry = provider.complete(ctx._request("rewrite_retry", user, RewritesReply, 16000), on_delta)
+        retry = provider.complete(ctx._request("rewrite_retry", prompt(retry_targets, feedback), RewritesReply, 16000),
+                                  on_delta)
     except ProviderError as e:
         # The first attempt already gave a full result; a failed retry leaves it as is.
-        return checked, stats, summarize(checked, had_advice, unknown, True, str(e) or e.kind)
+        return finish(checked, True, str(e) or e.kind)
     retry_proposals = retry.data.rewrites
-    unknown += [p.bullet_id for p in retry_proposals if p.bullet_id not in target_ids and p.bullet_id not in unknown]
+    reports.update({r.item_id: r for r in retry.data.items})
+    retry_extra, retry_unknown = off_target(retry_proposals)
+    extra += [r for r in retry_extra if r.bullet_id not in {x.bullet_id for x in extra}]
+    unknown += [u for u in retry_unknown if u not in unknown]
     retried = ctx.check_all(retry_proposals, facts, retry_targets, added)
     stats.append(step_stats("rewrite_retry", retry, retried))
     by_id = {r.bullet_id: r for r in retried}
@@ -677,8 +991,7 @@ def rewrite(
             return second
         return first
 
-    final = [better(r) for r in checked]
-    return final, stats, summarize(final, had_advice, unknown, True, "")
+    return finish([better(r) for r in checked], True, "")
 
 
 def rescore(
@@ -727,20 +1040,38 @@ def split_note(note: str) -> list[str]:
     it names a skill ("Node.js, Redis"); otherwise it carries no fact on its
     own and is left out. A final period is dropped, as in the facts bank.
     """
+    return split_note_parts(note, [])[0]
+
+
+def split_note_parts(note: str, lines: list[Line]) -> tuple[list[str], list[str]]:
+    """Split a note into facts and requested changes.
+
+    A piece that asks for a change ("change graduation date to 2027", "add
+    Compilers to coursework", "fix my dates") is a requested change, kept as
+    typed; ``instructions.py`` decides which line it means when the rewrite
+    runs. Everything else goes through the fact rules of ``split_note``.
+    """
     lex = skills.lexicon()
     facts: list[str] = []
+    asked: list[str] = []
     for line in note.splitlines():
         line = line.strip().lstrip("-*•·").strip()
         for piece in _SENTENCE_END.split(line):
             piece = " ".join(piece.split()).rstrip(".")
+            if not piece:
+                continue
+            if lines and parse_instruction("n0", piece, lines) is not None:
+                if piece not in asked:
+                    asked.append(piece)
+                continue
             named = lex.find(piece)
             if named and _ASKS_TO_ADD.match(piece):
                 piece = "Skills: " + ", ".join(named)
             elif len(piece.split()) < 3 and not named:
                 continue
-            if piece and piece not in facts:
+            if piece not in facts:
                 facts.append(piece)
-    return facts
+    return facts, asked
 
 
 # ---------------------------------------------------------------------------

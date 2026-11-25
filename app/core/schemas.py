@@ -41,8 +41,19 @@ class Proposal(Strict):
     why: str
 
 
+class ItemReport(Strict):
+    """What the model did with one advice item or note."""
+
+    item_id: str
+    applied: bool
+    line_ids: list[str]
+    why: str
+
+
 class RewritesReply(Strict):
     rewrites: list[Proposal]
+    # One per advice item and note in the request.
+    items: list[ItemReport]
 
 
 class RescoreReply(Strict):

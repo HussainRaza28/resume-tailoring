@@ -72,7 +72,8 @@ class DemoProvider(Provider):
                 "red_flags": _RED_FLAGS,
             }
         elif step.startswith("rewrite"):
-            reply = {"rewrites": [self._proposal(m.group(1), m.group(3)) for m in _REWRITE_LINE.finditer(request.user)]}
+            rewrites = [self._proposal(m.group(1), m.group(3)) for m in _REWRITE_LINE.finditer(request.user)]
+            reply = {"rewrites": rewrites, "items": _items(request.user, rewrites)}
         elif step == "suggest_facts":
             reply = {"facts": [{"text": t, "quote": t} for t in _sentences_with_numbers(request.user)]}
         elif step == "rescore":
@@ -99,6 +100,23 @@ class DemoProvider(Provider):
             "sources": [bullet_id],
             "why": "Removes a generic opener" if new_text != text else "",
         }
+
+
+# Advice items and notes in the rewrite message: "[a1] Vague teamwork bullet ..." or "[n1] (fact f2) ...".
+_ITEM_LINE = re.compile(r"^\[([an]\d+)\] ", re.MULTILINE)
+
+
+def _items(message: str, rewrites: list[dict]) -> list[dict]:
+    """The demo's report: the first advice item is the vague-opener fix when it made one; the rest it can't do."""
+    changed = [r["bullet_id"] for r in rewrites if r["why"]]
+    out = []
+    for item_id in dict.fromkeys(_ITEM_LINE.findall(message)):
+        if item_id == "a1" and changed:
+            out.append({"item_id": item_id, "applied": True, "line_ids": changed, "why": "Replaced vague openers"})
+        else:
+            out.append({"item_id": item_id, "applied": False, "line_ids": [],
+                        "why": "The offline demo only replaces vague openers."})
+    return out
 
 
 def _sentences_with_numbers(message: str, limit: int = 5) -> list[str]:
