@@ -148,9 +148,10 @@ def test_reorder_skills_with_escaped_items():
     assert "{: R\\&D Tools, React, Node.js, pytest, pandas}" in out
 
 
-def test_set_text_on_skills_is_rejected(doc):
-    with pytest.raises(WrongKind):
-        doc.apply([SetText(slot="s1", text="Python, Rust")])
+def test_set_text_on_a_skills_line_keeps_the_label(doc):
+    out = doc.apply([SetText(slot="s2", text="React, Node.js, Express, pytest, pandas, C#")])
+    assert "\\textbf{Frameworks \\& Libraries}{: React, Node.js, Express, pytest, pandas, C\\#}" in out
+    assert TexDoc.parse(out).text("s2") == "React, Node.js, Express, pytest, pandas, C#"
 
 
 def test_unknown_slot_rejected(doc):

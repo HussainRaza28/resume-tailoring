@@ -471,8 +471,6 @@ class TexDoc:
                 raise UnknownSlot(edit.slot)
 
             if isinstance(edit, SetText):
-                if slot.kind == SKILLS_LINE:
-                    raise WrongKind(slot.id)
                 current = self.text(slot.id) or ""
                 if edit.text.strip() == current.strip():
                     continue  # keep the original bytes when the text didn't change
