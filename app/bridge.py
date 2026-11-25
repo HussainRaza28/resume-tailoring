@@ -48,6 +48,7 @@ from app.core.pipeline import (
     CheckedRewrite,
     Context,
     FinalScore,
+    RewriteSummary,
     ScoreResult,
     StepStats,
     TrimHint,
@@ -151,6 +152,8 @@ class RunState(BaseModel):
     posting_url: str = ""
     score: ScoreResult | None = None
     rewrites: list[CheckedRewrite] = []
+    # What the last rewrite did, so the interface can say why nothing changed. None until one has finished.
+    rewrite_summary: RewriteSummary | None = None
     decisions: dict[str, Decision] = {}
     removed: list[str] = []
     final: FinalScore | None = None
@@ -723,11 +726,13 @@ class Backend:
                 updates = {"score": found, "company": run.company or found.company, "role": run.role or found.role}
             elif step == "rewrite":
                 flags = run.score.red_flags if run.score else []
-                checked, all_stats = rewrite(provider, ctx, run.posting, flags, missing_keywords(run), facts, sink)
+                checked, all_stats, summary = rewrite(
+                    provider, ctx, run.posting, flags, missing_keywords(run), facts, sink, run.note_fact_ids
+                )
                 for stats in all_stats:
                     self._record_step(run, stats)
                 self._log_blocks(run, checked)
-                updates = {"rewrites": checked, "decisions": {}, "final": None}
+                updates = {"rewrites": checked, "rewrite_summary": summary, "decisions": {}, "final": None}
             elif step == "rescore":
                 scored, stats = rescore(provider, ctx, run.posting, run.current(), sink)
                 self._record_step(run, stats)
@@ -786,7 +791,7 @@ class Backend:
                 decision.state = "pending"
             elif action == "edit":
                 proposal = Proposal(bullet_id=bullet_id, new_text=text or "", sources=current.sources, why=current.why)
-                checked = ctx.check(proposal, facts)
+                checked = ctx.check(proposal, facts, run.note_fact_ids)
                 if checked is None:
                     raise AppError("not_found", "Unknown bullet.")
                 if checked.status == UNCHANGED:
@@ -860,7 +865,7 @@ class Backend:
 
         def change(r: RunState) -> None:
             for i, item in enumerate(r.rewrites):
-                if not gone & set(item.sources):
+                if item.status == UNCHANGED or not gone:
                     continue
                 proposal = Proposal(bullet_id=item.bullet_id, new_text=item.new_text, sources=item.sources, why=item.why)
                 checked = ctx.check(proposal, bank)

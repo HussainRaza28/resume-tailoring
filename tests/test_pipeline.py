@@ -68,7 +68,9 @@ def test_base_plain_lists_bullets_with_ids(ctx):
     assert "- [b2] Built a Python service" in ctx.base_plain
     assert "### Northwind Logistics | Software Engineering Intern, Routing Team" in ctx.base_plain
     assert "Languages: Python, TypeScript" in ctx.base_plain
-    assert len(ctx.rewrite_targets()) == 10
+    targets = ctx.rewrite_targets()
+    assert len(targets) == 13, "10 bullets and the 3 skills lines"
+    assert targets[-2] == ("s2", "Technical Skills | Frameworks & Libraries", "React, Node.js, Express, pytest, pandas")
 
 
 def test_check_accepts_grounded_and_blocks_invented(ctx):
@@ -104,8 +106,8 @@ def test_facts_unlock_numbers(ctx):
     assert ok.status == OK, ok.reasons
 
 
-def test_non_bullet_ids_are_ignored(ctx):
-    assert ctx.check(proposal("s1", "Python"), FactsBank()) is None
+def test_ids_of_lines_the_rewrite_cannot_change_are_ignored(ctx):
+    assert ctx.check(proposal("h2.0", "Acme"), FactsBank()) is None
     assert ctx.check(proposal("b999", "x"), FactsBank()) is None
 
 
@@ -217,8 +219,9 @@ def test_rewrite_retries_blocked_bullets_once(ctx):
         {"bullet_id": "b2", "new_text": "Cut mapping API calls from 12,000 to 3,000 per day with a batching Python service",
          "sources": ["b2"], "why": "scale"}]}
     p = FakeProvider().reply("rewrite", first).reply("rewrite_retry", second)
-    out, stats = rewrite(p, ctx, "posting", [FLAG], [], FactsBank())
-    assert len(out) == 10, "one entry per target bullet"
+    out, stats, summary = rewrite(p, ctx, "posting", [FLAG], [], FactsBank())
+    assert len(out) == 13, "one entry per target line"
+    assert summary.retried and summary.changed == 2
     b2 = next(r for r in out if r.bullet_id == "b2")
     assert b2.status == OK, b2.reasons
     assert "12,000 to 3,000" in b2.new_text
@@ -234,15 +237,19 @@ def test_rewrite_retries_blocked_bullets_once(ctx):
 def test_still_blocked_after_retry_stays_blocked(ctx):
     bad = {"rewrites": [{"bullet_id": "b2", "new_text": "Saved Northwind $1M with Rust", "sources": ["b2"], "why": ""}]}
     p = FakeProvider().reply("rewrite", bad).reply("rewrite_retry", bad)
-    out, _ = rewrite(p, ctx, "posting", [], [], FactsBank())
+    out, _, summary = rewrite(p, ctx, "posting", [], [], FactsBank())
     assert next(r for r in out if r.bullet_id == "b2").status == BLOCKED
+    assert summary.blocked == 1
+    assert summary.message.startswith("1 rewrite was blocked because the sources don't back up every claim.")
+    assert 'Skill "Rust" is not in the cited sources.' in summary.message
 
 
 def test_failed_retry_keeps_first_result(ctx):
     bad = {"rewrites": [{"bullet_id": "b2", "new_text": "Saved $1M", "sources": ["b2"], "why": ""}]}
     p = FakeProvider().reply("rewrite", bad).fail("rewrite_retry", ServerError())
-    out, stats = rewrite(p, ctx, "posting", [], [], FactsBank())
+    out, stats, summary = rewrite(p, ctx, "posting", [], [], FactsBank())
     assert next(r for r in out if r.bullet_id == "b2").status == BLOCKED and len(stats) == 1
+    assert summary.retry_error and "The second try failed" in summary.message
 
 
 # -- Done ---------------------------------------------------------------------------
@@ -301,7 +308,7 @@ def test_demo_runs_the_whole_flow_on_the_fixture(ctx):
     demo = DemoProvider()
     found, _ = score(demo, ctx, "", POSTING)
     assert len(found.red_flags) == 3
-    out, _ = rewrite(demo, ctx, POSTING, found.red_flags, [], FactsBank())
+    out, _, _ = rewrite(demo, ctx, POSTING, found.red_flags, [], FactsBank())
     changed = [r for r in out if r.status != UNCHANGED]
     assert len(changed) == 2, "only the two vague bullets change"
     for r in changed:
