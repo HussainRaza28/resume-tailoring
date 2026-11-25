@@ -86,7 +86,11 @@ export type FieldKey =
   | "workDescription"
   // Education beyond the first school's name, degree, major, minor, GPA and graduation.
   | "eduStartMonth"
-  | "eduStartYear";
+  | "eduStartYear"
+  /** A school's start as one date ("From Date"); graduationDate is its end. */
+  | "eduStart"
+  /** A name the person was known by at a former job, or before a change. The profile has none. */
+  | "previousName";
 
 /** Keys answered from one work or education entry. The n-th field asking for one gets entry n. */
 export const ENTRY_KEYS: Partial<Record<FieldKey, "work" | "education">> = {
@@ -110,6 +114,7 @@ export const ENTRY_KEYS: Partial<Record<FieldKey, "work" | "education">> = {
   graduationMonth: "education",
   graduationYear: "education",
   eduStartMonth: "education",
+  eduStart: "education",
   eduStartYear: "education",
 };
 
@@ -126,6 +131,7 @@ export const OPTIONAL_KEYS = new Set<FieldKey>([
   "county",
   "phoneExtension",
   "availableUntil",
+  "previousName",
 ]);
 
 /** Label rules, most specific first. Tested against the label in lower case. */
@@ -135,6 +141,8 @@ export const LABEL_RULES: [FieldKey, RegExp][] = [
   ["preferredLastName", /preferred (last|family) name/],
   ["preferredFirstName", /preferred (first |given )?name|nick ?name/],
   ["middleName", /\bmiddle (name|initial)/],
+  // "Legal Name at Time of Employment", "Former name": only for people who worked there before.
+  ["previousName", /name at (the )?time of (employment|hire)|\b(former|previous|prior|other|maiden) (last )?names?\b/],
   ["firstName", /\b(first|given|legal first)[ -]?name\b|^first$/],
   ["lastName", /\b(last|family|legal last)[ -]?name\b|\bsurname\b/],
   ["email", /\be-?mail\b/],
@@ -184,7 +192,8 @@ export const LABEL_RULES: [FieldKey, RegExp][] = [
   ["location", /\blocation\b|where are you (located|based)|current city/],
   ["currentCompany", /^(current|most recent|present) (company|employer)/],
   ["currentTitle", /^(current|most recent|present) (job )?title/],
-  ["workCompany", /^(company|employer)( name)?$/],
+  // "Company", "Organization", "Employer", "Company / Organization", "Employer name".
+  ["workCompany", /^(company|organi[sz]ation|employer)( (name|organi[sz]ation|employer))?( name)?$/],
   ["workTitle", /^job title$|^title$|^position( title)?$/],
   ["skills", /^(technical )?skills\b/],
   ["fullName", /^(full |legal |your )?name\b/],
@@ -192,9 +201,40 @@ export const LABEL_RULES: [FieldKey, RegExp][] = [
 
 /** The key a label asks for, or null. */
 export function keyForLabel(label: string): FieldKey | null {
-  const text = label.toLowerCase();
+  const text = normalizeLabel(label);
   const rule = LABEL_RULES.find(([, pattern]) => pattern.test(text));
   return rule ? rule[0] : null;
+}
+
+/**
+ * A label in the form the rules are written for: lower case, without the
+ * required-field asterisk, with slashes, colons, brackets and other punctuation
+ * turned into spaces. Hyphens, apostrophes and periods stay, since "e-mail",
+ * "I'm" and "U.S." need them. "* Company / Organization" becomes
+ * "company organization".
+ */
+export function normalizeLabel(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/[’`]/g, "'")
+    .replace(/[^\p{L}\p{N}\s.'-]/gu, " ")
+    .replace(/(^|\s)[.'-]+(?=\s|$)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Inside a work or education section, "Start Date", "From", "End Date" and "To"
+ * are that entry's dates, not when the person can start work. Null when the
+ * label isn't one of those or the section isn't work or education.
+ */
+export function keyInSection(label: string, section: "work" | "education" | null): FieldKey | null {
+  if (!section) return null;
+  const text = normalizeLabel(label);
+  const start = /^(start|from|begin|began)( date)?$|^date (started|from|of start)$|^(start|from) (month|year) and year$/.test(text);
+  const end = /^(end|to|finish|until)( date)?( actual or expected)?$|^date (ended|to|of end)$|^(end|graduation) date( actual or expected| expected)?$/.test(text);
+  if (section === "work") return start ? "workStart" : end ? "workEnd" : null;
+  return start ? "eduStart" : end ? "graduationDate" : null;
 }
 
 // An open question is left for the person: "Why do you want to work here?"
@@ -216,6 +256,8 @@ export function valueFor(key: FieldKey, p: Profile, index = 0): string {
   switch (key) {
     case "fullName":
       return `${p.firstName} ${p.lastName}`.trim();
+    case "previousName":
+      return "";
     case "preferredFirstName":
       return preferredName(p)?.first ?? "";
     case "preferredLastName":
@@ -260,6 +302,8 @@ export function valueFor(key: FieldKey, p: Profile, index = 0): string {
       return monthParts(edu?.end ?? "").year;
     case "eduStartMonth":
       return monthParts(edu?.start ?? "").monthName;
+    case "eduStart":
+      return slashed(edu?.start ?? "");
     case "eduStartYear":
       return monthParts(edu?.start ?? "").year;
     case "workTitle":
@@ -374,4 +418,35 @@ export function bestChoice(choices: string[], wanted: string): number {
     }
   });
   return best;
+}
+
+/**
+ * For a key that holds one whole date, the profile's date as stored and
+ * whether it starts or ends something, so a field that wants a day can get
+ * one (dates.ts). "" means no date: a current role's end, or a date not set.
+ * Null for keys that aren't a whole date.
+ */
+export function profileDate(key: FieldKey, p: Profile, index = 0): { text: string; role: "start" | "end" } | null {
+  const work = p.work[index];
+  const edu = p.education[index];
+  switch (key) {
+    case "workStart":
+      return { text: work?.start ?? "", role: "start" };
+    case "workEnd":
+      return { text: work && !work.current ? work.end : "", role: "end" };
+    case "eduStart":
+      return { text: edu?.start ?? "", role: "start" };
+    case "graduationDate":
+      return { text: edu?.end ?? "", role: "end" };
+    case "availableFrom":
+      return { text: p.questions.availableFrom, role: "start" };
+    case "availableUntil":
+      return { text: p.questions.availableUntil, role: "end" };
+    case "todayDate": {
+      const now = new Date();
+      return { text: `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`, role: "start" };
+    }
+    default:
+      return null;
+  }
 }
