@@ -76,7 +76,8 @@ export default function BulletCard(p: Props) {
   }, [p.focused]);
 
   const factFor = (id: string) => p.facts.find((f) => f.id === id);
-  const sources = r.sources.filter((s) => s !== r.bullet_id);
+  const sources = r.sources.filter((s) => s !== r.bullet_id && s !== "note");
+  const asked = !!r.asked && !unchanged;
 
   return (
     <div ref={ref} className="bullet enter" data-state={p.decision} data-focused={p.focused} onMouseDown={p.onFocus} aria-label={`Bullet ${r.bullet_id}`}>
@@ -101,6 +102,12 @@ export default function BulletCard(p: Props) {
         </div>
       </div>
 
+      {asked && (
+        <div className="asked-note" role="note">
+          Changed because you asked: <q>{r.asked}</q>
+        </div>
+      )}
+
       {blocked && r.reasons.length > 0 && (
         <div className="reasons" role="note">
           {r.reasons.map((reason, i) => (
@@ -123,6 +130,7 @@ export default function BulletCard(p: Props) {
           <span className="chip" title={r.old_text}>
             {r.bullet_id}
           </span>
+          {r.label && r.label !== "Bullet" && <span className="faint">{r.label}</span>}
           {sources.map((s) => (
             <span key={s} className="chip" title={factFor(s)?.text ?? s}>
               {s}
@@ -130,7 +138,20 @@ export default function BulletCard(p: Props) {
           ))}
           {r.why && <span className="faint">· {r.why}</span>}
         </div>
-        {!unchanged && (
+        {asked && !blocked && (
+          <div className="actions">
+            {p.decision === "accepted" ? (
+              <button className="btn btn-sm" onClick={p.onReject} aria-label="Undo">
+                <IconUndo /> Undo
+              </button>
+            ) : (
+              <button className="btn btn-sm" onClick={p.onAccept} aria-label="Redo">
+                <IconCheck /> Redo
+              </button>
+            )}
+          </div>
+        )}
+        {!unchanged && !(asked && !blocked) && (
           <div className="actions">
             {p.decision === "pending" ? (
               <>

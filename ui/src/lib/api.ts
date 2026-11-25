@@ -51,6 +51,21 @@ export interface CheckedRewrite {
   warnings: string[];
   /** For an unchanged line: "same_text", "skipped", "bold_only" or "reorder_only". */
   unchanged_reason?: string;
+  /** What the line is: "Bullet", "Graduation date", "Tech stack", "Coursework". */
+  label?: string;
+  /** The note that asked for this change, when the person asked for it. */
+  asked?: string;
+}
+
+/** What the rewrite did with one advice item from the score or one note. */
+export interface ItemResult {
+  id: string;
+  kind: "advice" | "note";
+  text: string;
+  status: "applied" | "blocked" | "couldnt_act" | "ask";
+  /** The lines it changed, or the lines an unclear note could mean. */
+  lines: string[];
+  why: string;
 }
 
 /** What the last rewrite did, so the interface can say why nothing changed. */
@@ -67,6 +82,9 @@ export interface RewriteSummary {
   retry_error: string;
   had_advice: boolean;
   block_reasons: string[];
+  protected_blocked?: number;
+  asked?: number;
+  items?: ItemResult[];
   message: string;
 }
 
@@ -145,6 +163,8 @@ export interface RunState {
   final: FinalScore | null;
   /** Facts saved from this run's "Anything to add?" note. */
   note_fact_ids: string[];
+  /** Changes the note asked for ("change graduation date to 2027"), as typed. */
+  note_asks?: string[];
   posting_skills: { required: string[]; preferred: string[]; mentioned: string[] };
   coverage_before: Coverage | null;
   coverage_after: Coverage | null;

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import AsciiWakeLoader from "../blocks/AsciiWakeLoader";
 import ArcRing from "../blocks/ArcRing";
-import type { Coverage, Fact, RunState, SkillStatus } from "../lib/api";
+import type { Coverage, Fact, ItemResult, RunState, SkillStatus } from "../lib/api";
 import { finalIsStale, modelLabel, providerLabel, runTotals } from "../lib/api";
 import { duration, money, pct, tokens } from "../lib/format";
 import { modKey } from "../lib/platform";
@@ -63,7 +63,15 @@ type ScoreProps = {
 export function ScoreStep({ run, note, setNote, onRewrite, undoNote, busy }: ScoreProps) {
   const s = run.score;
   if (!s) return null;
-  const added = run.note_fact_ids.length;
+  const facts = run.note_fact_ids.length;
+  const changes = (run.note_asks ?? []).length;
+  const added = facts + changes;
+  const addedText = [
+    facts ? `${facts} fact${facts === 1 ? "" : "s"}` : "",
+    changes ? `${changes} change${changes === 1 ? "" : "s"}` : "",
+  ]
+    .filter(Boolean)
+    .join(" and ");
   return (
     <div style={{ display: "grid", gap: "var(--gap)" }}>
       <div className="card score-overview enter">
@@ -90,14 +98,14 @@ export function ScoreStep({ run, note, setNote, onRewrite, undoNote, busy }: Sco
           className="textarea"
           rows={3}
           value={note}
-          placeholder="Numbers, tools or results that aren't on your resume yet."
+          placeholder={'Numbers, tools or results that aren\'t on your resume yet, or a change like "change graduation date to May 2027".'}
           onChange={(e) => setNote(e.target.value)}
           onKeyDown={(e) => e.stopPropagation()}
         />
         <div className="row">
           {added > 0 ? (
             <span className="small muted note-added">
-              Added {added} fact{added === 1 ? "" : "s"} ·{" "}
+              Added {addedText} ·{" "}
               <button className="link-button" onClick={undoNote}>
                 Undo
               </button>
@@ -136,6 +144,7 @@ export function RewriteStep(p: RewriteProps) {
           {note}
         </div>
       )}
+      {(p.run.rewrite_summary?.items ?? []).length > 0 && <ItemList items={p.run.rewrite_summary!.items!} />}
       {changed.map((r, i) => {
         const head = r.entry !== lastEntry ? r.entry : null;
         lastEntry = r.entry;
@@ -160,6 +169,45 @@ export function RewriteStep(p: RewriteProps) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+const ITEM_STATUS: Record<ItemResult["status"], { label: string; tone: string }> = {
+  applied: { label: "Applied", tone: "pill-positive" },
+  blocked: { label: "Blocked", tone: "pill-negative" },
+  couldnt_act: { label: "Couldn't act", tone: "pill-warning" },
+  ask: { label: "Which line?", tone: "pill-warning" },
+};
+
+/** One row per advice item and note: what the rewrite did with it, and why. */
+export function ItemList({ items }: { items: ItemResult[] }) {
+  return (
+    <div className="card item-list enter">
+      <h2>Advice and notes</h2>
+      <ul aria-label="Advice and notes">
+        {items.map((item) => {
+          const s = ITEM_STATUS[item.status];
+          return (
+            <li key={item.id} data-status={item.status}>
+              <span className={`pill ${s.tone}`}>{s.label}</span>
+              <div>
+                <strong>{item.kind === "note" ? `Your note: ${item.text}` : item.text}</strong>
+                {item.why && <p>{item.why}</p>}
+                {item.lines.length > 0 && item.status !== "ask" && (
+                  <p className="small faint">
+                    {item.lines.map((l) => (
+                      <span key={l} className="chip">
+                        {l}
+                      </span>
+                    ))}
+                  </p>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

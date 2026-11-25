@@ -6,7 +6,7 @@
  */
 import { emit as emitTo, installMockBackend } from "./ipc";
 import samplePosting from "../../../tests/fixtures/sample_posting.txt?raw";
-import type { Application, BaselineEntry, CheckedRewrite, Coverage, Fact, FinalScore, JobsView, Listing, RewriteSummary, RunRecord, RunState, ScoreResult, StepEvent } from "./api";
+import type { Application, BaselineEntry, CheckedRewrite, Coverage, Fact, FinalScore, ItemResult, JobsView, Listing, RewriteSummary, RunRecord, RunState, ScoreResult, StepEvent } from "./api";
 
 const SAMPLE_POSTING = samplePosting.trim();
 
@@ -441,6 +441,22 @@ export async function installMock() {
           }
           r.decisions = {};
           r.final = null;
+          // Changes a note asked for: the graduation date one is applied; "my dates" asks which line.
+          const items: ItemResult[] = [
+            { id: "a1", kind: "advice", text: r.score?.red_flags[0] ? `${r.score.red_flags[0].flag} (${r.score.red_flags[0].section})` : "Vague bullets", status: "applied", lines: ["b5"], why: "Made the teamwork bullet specific" },
+            { id: "a2", kind: "advice", text: "No GitHub or portfolio link in the header (Header)", status: "couldnt_act", lines: [], why: 'There\'s no line in "Header" that the rewrite can change, so this needs a change you make yourself or a note that says what to change.' },
+          ];
+          for (const [i, ask] of (r.note_asks ?? []).entries()) {
+            const grad = ask.match(/graduation date to (.+)$/i);
+            if (grad) {
+              const next = /^\d{4}$/.test(grad[1]) ? `Expected May ${grad[1]}` : grad[1];
+              r.rewrites.unshift(rw("h1.3", "Education | State University", "Education", "Expected May 2027", next, "ok", { label: "Graduation date", asked: ask, sources: ["h1.3", "note"], why: "You asked for it" }));
+              r.decisions["h1.3"] = { state: "accepted", origin: "note" };
+              items.push({ id: `n${i + 1}`, kind: "note", text: ask, status: "applied", lines: ["h1.3"], why: "Changed the graduation date as you asked." });
+            } else {
+              items.push({ id: `n${i + 1}`, kind: "note", text: ask, status: "ask", lines: ["h1.3", "h2.1", "h3.1"], why: `"${ask}" could mean more than one line. Say which one, and what it should say. It could be: Graduation date (Education | State University): "Expected May 2027"; Dates (Experience | Northwind Logistics): "June 2025 – August 2025"; Dates (Experience | Springfield Public Library): "September 2023 – May 2025".` });
+            }
+          }
           const changed = r.rewrites.filter((x) => x.status !== "unchanged");
           const blocked = changed.filter((x) => x.status === "blocked");
           r.rewrite_summary = summary(
@@ -448,8 +464,14 @@ export async function installMock() {
             changed.length - blocked.length,
             blocked.length,
             true,
-            blocked.length ? `${blocked.length} rewrite${blocked.length === 1 ? " was" : "s were"} blocked because the sources don't back up every claim. ${blocked[0].reasons[0] ?? ""}`.trim() : "",
+            [
+              blocked.length ? `${blocked.length} rewrite${blocked.length === 1 ? " was" : "s were"} blocked because the sources don't back up every claim. ${blocked[0].reasons[0] ?? ""}`.trim() : "",
+              items.some((x) => x.status === "ask") ? "1 note needs you to say which line." : "",
+            ]
+              .filter(Boolean)
+              .join(" "),
           );
+          r.rewrite_summary.items = items;
           r.steps.push(step("rewrite", 3120, 1240, 14800), step("rewrite_retry", 1410, 220, 3900));
         } else if (s === "rescore") {
           await streamText(a.onEvent, s, JSON.stringify({ base_ats_score: 57, tailored_ats_score: 69 }).repeat(3));
@@ -482,9 +504,14 @@ export async function installMock() {
       }
       case "add_note": {
         const r = run(a.runId);
-        const pieces = String(a.note)
+        const raw = String(a.note)
           .split(/\n|(?<=[.!?])\s+/)
-          .map((x) => x.replace(/^[-*•\s]+/, "").trim().replace(/\.$/, ""))
+          .map((x) => x.replace(/^[-*•\s]+/, "").trim().replace(/\.$/, ""));
+        // A sentence that asks for a change is kept on the run, as the backend does; the rewrite applies it.
+        const asks = raw.filter((x) => /^(?:please\s+)?(?:change|update|replace|correct|fix|rename)\s/i.test(x));
+        r.note_asks = [...(r.note_asks ?? []), ...asks.filter((x) => !(r.note_asks ?? []).includes(x))];
+        const pieces = raw
+          .filter((x) => !asks.includes(x))
           // "add Node.js to my skills" is saved as the skill it names, as the backend does.
           .map((x) => x.replace(/^(?:please\s+)?(?:add|include|mention|list|show|put)\s+(.+?)(?:\s+to\b.*)?$/i, "Skills: $1"))
           .filter((x) => x.startsWith("Skills: ") || x.split(/\s+/).length >= 3);
@@ -500,6 +527,8 @@ export async function installMock() {
         const r = run(a.runId);
         db.facts = db.facts.filter((f) => !r.note_fact_ids.includes(f.id));
         r.note_fact_ids = [];
+        r.note_asks = [];
+        r.rewrites = r.rewrites.filter((x) => !x.asked);
         return structuredClone(r);
       }
       case "toggle_remove": {

@@ -269,3 +269,28 @@ test("rewrite: a failed call shows the error and a way to try again", async ({ p
   await expect(page.getByText("No changes needed.")).toHaveCount(0);
   await expect(page.locator(".rewrite-note")).toHaveCount(0);
 });
+
+test("rewrite: a note that asks for a change is applied, shown with the note, and can be undone", async ({ page }) => {
+  await scoreSample(page, "");
+  await page.getByLabel("Anything to add?").fill("change graduation date to 2028. fix my dates");
+  await page.getByRole("button", { name: /^Rewrite/ }).click();
+
+  const card = page.locator(".bullet", { hasText: "Expected May 2028" });
+  await expect(card).toBeVisible({ timeout: 20_000 });
+  await expect(card.getByRole("note")).toHaveText("Changed because you asked: change graduation date to 2028");
+  await expect(card.getByText("Accepted")).toBeVisible();
+  await card.getByRole("button", { name: "Undo" }).click();
+  await expect(card.getByText("Kept original")).toBeVisible();
+  await card.getByRole("button", { name: "Redo" }).click();
+  await expect(card.getByText("Accepted")).toBeVisible();
+
+  // Every advice item and note has a visible result.
+  const items = page.getByRole("list", { name: "Advice and notes" });
+  await expect(items.locator("li", { hasText: "fix my dates" })).toContainText("Which line?");
+  await expect(items.locator("li", { hasText: "fix my dates" })).toContainText("could mean more than one line");
+  await expect(items.locator("li", { hasText: "change graduation date" })).toContainText("Applied");
+  await expect(items.locator("li[data-status=couldnt_act]")).toContainText("There's no line in");
+
+  await page.getByRole("tab", { name: /Score/ }).click();
+  await expect(page.getByText("Added 2 changes ·")).toBeVisible();
+});
