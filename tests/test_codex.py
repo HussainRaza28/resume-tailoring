@@ -45,6 +45,8 @@ if mode == "logged_out":
     out({"type": "turn.failed", "error": {"message": "unexpected status 401 Unauthorized: Not logged in"}}); sys.exit(1)
 if mode == "fail":
     out({"type": "turn.failed", "error": {"message": "workspace routing discovery failed"}}); sys.exit(1)
+if mode == "silent":
+    import time; time.sleep(60); sys.exit(0)
 reply = os.environ["FAKE_REPLY"]
 out({"type": "item.completed", "item": {"id": "item_1", "type": "reasoning", "text": "thinking"}})
 out({"type": "item.completed", "item": {"id": "item_2", "type": "agent_message", "text": reply}})
@@ -178,3 +180,16 @@ def test_the_bridge_builds_codex_and_reports_its_status(tmp_path, monkeypatch):
     assert isinstance(provider, CodexProvider) and provider.chosen_model == ""
     assert backend._provider("codex", "gpt-5.5").chosen_model == "gpt-5.5"
     db.close()
+
+
+def test_codex_that_stops_answering_is_stopped_with_an_error(fake, monkeypatch):
+    import time
+
+    from app.providers import codex
+
+    monkeypatch.setenv("FAKE_MODE", "silent")
+    monkeypatch.setattr(codex, "IDLE_SECONDS", 1)
+    started = time.monotonic()
+    with pytest.raises(OtherError, match="Codex stopped answering"):
+        CodexProvider(command=fake.command).complete(request())
+    assert time.monotonic() - started < 15

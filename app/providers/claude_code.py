@@ -39,9 +39,14 @@ from app.providers.base import (
     Usage,
 )
 from app.providers.cli_paths import find_command
+from app.providers.watchdog import Watchdog, kill_tree
 
 DEFAULT_MODEL = "sonnet"
 TIMEOUT_SECONDS = 600
+# Stop the command if it prints nothing for this long. Streaming prints a line every few seconds.
+IDLE_SECONDS = 240
+# Once the answer is in, how long the command gets to exit before it's stopped.
+EXIT_GRACE_SECONDS = 10
 # Variables that would switch claude from the plan login to an API account.
 _API_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 
@@ -149,19 +154,26 @@ class ClaudeCodeProvider(Provider):
             proc.stdin.write(request.user + "\n\nReply with JSON only.")
             proc.stdin.close()
             result = None
-            try:
+            with Watchdog(proc, TIMEOUT_SECONDS, IDLE_SECONDS) as watchdog:
                 for line in proc.stdout:
+                    watchdog.alive()
                     event = _parse_line(line)
                     if event is None:
                         continue
                     if event.get("type") == "stream_event":
                         _forward_delta(event.get("event", {}), on_delta)
                     elif event.get("type") == "result":
+                        # The answer is in. Don't wait for the output to close: a command that
+                        # lingers after answering would hold the step open.
                         result = event
-                proc.wait(timeout=TIMEOUT_SECONDS)
-            except subprocess.TimeoutExpired as e:
-                proc.kill()
-                raise OtherError(f"Claude Code took longer than {TIMEOUT_SECONDS} seconds.") from e
+                        break
+            try:
+                proc.wait(timeout=EXIT_GRACE_SECONDS)
+            except subprocess.TimeoutExpired:
+                kill_tree(proc)
+                proc.wait()
+            if watchdog.fired and result is None:
+                raise OtherError(watchdog.message("Claude Code"))
             errors.seek(0)
             stderr = errors.read()
         return _reply_from_result(result, stderr, self.model)

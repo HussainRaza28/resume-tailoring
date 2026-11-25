@@ -39,6 +39,8 @@ out({"type": "system", "subtype": "init", "model": "claude-sonnet-5-5"})
 print("a plain warning line", flush=True)
 if mode == "crash":
     sys.stderr.write("fatal: something broke\n"); sys.exit(1)
+if mode == "silent":
+    import time; time.sleep(60); sys.exit(0)
 half = len(reply) // 2
 delta_type = "input_json_delta" if mode == "structured" else "text_delta"
 key = "partial_json" if mode == "structured" else "text"
@@ -58,6 +60,9 @@ if mode == "structured":
 else:
     result["result"] = reply
 out(result)
+if mode == "linger":
+    # Answered, but the output stays open, as when a helper process outlives the answer.
+    import time; time.sleep(60)
 '''
 
 
@@ -188,3 +193,31 @@ def test_status(fake, monkeypatch):
                     "version": "2.1.325", "auth_method": "claude.ai"}
     monkeypatch.setenv("FAKE_MODE", "logged_out")
     assert status(fake.command)["signed_in"] is False
+
+
+@windows_launcher
+def test_an_answer_is_used_even_when_the_command_lingers(fake, monkeypatch):
+    import time
+
+    from app.providers import claude_code
+
+    monkeypatch.setenv("FAKE_MODE", "linger")
+    monkeypatch.setattr(claude_code, "EXIT_GRACE_SECONDS", 0.5)
+    started = time.monotonic()
+    out = ClaudeCodeProvider(command=fake.command).complete(request())
+    assert out.data == SampleReply(**REPLY)
+    assert time.monotonic() - started < 15, "the step ends once the answer is in"
+
+
+@windows_launcher
+def test_a_command_that_stops_answering_is_stopped_with_an_error(fake, monkeypatch):
+    import time
+
+    from app.providers import claude_code
+
+    monkeypatch.setenv("FAKE_MODE", "silent")
+    monkeypatch.setattr(claude_code, "IDLE_SECONDS", 1)
+    started = time.monotonic()
+    with pytest.raises(OtherError, match="nothing came back for 1 seconds"):
+        ClaudeCodeProvider(command=fake.command).complete(request())
+    assert time.monotonic() - started < 15

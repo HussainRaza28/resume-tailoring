@@ -35,10 +35,13 @@ from pathlib import Path
 
 from app.providers.base import CompletionRequest, DeltaSink, OtherError, Provider, ProviderError, RawReply, Usage
 from app.providers.cli_paths import find_command
+from app.providers.watchdog import Watchdog
 
 # Empty means Codex's own default model.
 DEFAULT_MODEL = ""
 TIMEOUT_SECONDS = 600
+# Stop the command if it prints nothing for this long. Codex prints an event for each step it takes.
+IDLE_SECONDS = 240
 # Variables that would make codex bill an API key instead of the ChatGPT plan.
 _API_ENV = ("OPENAI_API_KEY", "CODEX_API_KEY")
 # What `codex login status` prints for each kind of sign-in.
@@ -167,13 +170,13 @@ class CodexProvider(Provider):
             proc.stdin.write(prompt_text(request))
             proc.stdin.close()
             events = EventLog()
-            try:
+            with Watchdog(proc, TIMEOUT_SECONDS, IDLE_SECONDS) as watchdog:
                 for line in proc.stdout:
+                    watchdog.alive()
                     events.read(line, on_delta)
-                proc.wait(timeout=TIMEOUT_SECONDS)
-            except subprocess.TimeoutExpired as e:
-                proc.kill()
-                raise OtherError(f"Codex took longer than {TIMEOUT_SECONDS} seconds.") from e
+                proc.wait()
+            if watchdog.fired:
+                raise OtherError(watchdog.message("Codex"))
             errors.seek(0)
             stderr = errors.read()
             answer = Path(out_path).read_text(encoding="utf-8") if Path(out_path).is_file() else ""
