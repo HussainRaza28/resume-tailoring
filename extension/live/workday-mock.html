@@ -1,0 +1,384 @@
+<!doctype html>
+<!--
+  A stand-in for a Workday application, for testing Tailor Autofill in real
+  Chromium with the extension loaded (live/workday.spec.ts).
+
+  The markup copies Workday's, as seen in the saved pages in test-fixtures/:
+  formField-* wrappers, ids like phoneNumber--phoneNumber and
+  workExperience-N--jobTitle, dateInputWrapper with dateSectionMonth-input and
+  dateSectionYear-input, multiSelectContainer with a selectinput, chips in a
+  selectedItemList, buttons with aria-haspopup="listbox", add-button.
+
+  The behaviour is a model of Workday's React form, not Workday itself. It
+  keeps its own state and Next checks that state, never the DOM:
+
+  - A text field takes a value only from an input event while it has focus,
+    as a React controlled input does. Setting .value alone changes nothing.
+  - A date segment takes only real key presses of digits (isTrusted), as the
+    real page appeared to, and commits on blur.
+  - A search list and a dropdown commit only on a real click on an option.
+  - Choosing a dropdown option, a chip, a date, ticking a box or pressing Add
+    redraws that part of the form: the old elements are replaced.
+
+  ?refuse=phoneNumber makes a field show its value but fail Next, to test
+  "Filled but not accepted".
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mock Workday application</title>
+<style>
+  body { font: 14px system-ui, sans-serif; margin: 24px; max-width: 760px; }
+  [data-automation-id^='formField-'] { margin: 10px 0; }
+  label, legend { display: block; font-weight: 600; margin-bottom: 4px; }
+  input[type=text], textarea, button[aria-haspopup] { min-width: 260px; padding: 6px; }
+  [data-automation-id='dateInputWrapper'] { display: inline-flex; gap: 4px; border: 1px solid #999; padding: 4px; }
+  [data-automation-id='dateInputWrapper'] input { width: 52px; }
+  [data-automation-id='activeListContainer'] { position: absolute; background: #fff; border: 1px solid #333; z-index: 10; min-width: 260px; }
+  [role='option'] { padding: 6px 10px; cursor: pointer; }
+  [role='option']:hover { background: #eef; }
+  [data-automation-id='errorMessage'] { color: #b00; }
+  [role='group'][aria-labelledby$='-panel'] { border: 1px solid #ddd; padding: 8px; margin: 8px 0; }
+</style>
+</head>
+<body>
+<div data-automation-id="applyFlowPage"><form id="app" onsubmit="return false"></form></div>
+<script>
+(() => {
+  const refuse = new Set((new URLSearchParams(location.search).get("refuse") || "").split(",").filter(Boolean));
+  const LISTS = {
+    countryRegion: ["Vermont", "West Virginia", "Virginia", "Washington"],
+    phoneType: ["Landline", "Home Cellular", "Work"],
+    degree: ["High School Diploma", "Associates", "Bachelors", "Masters"],
+  };
+  const SEARCH = {
+    source: ["Company Website", "Job Board", "LinkedIn"],
+    school: ["State University of Technology and Design", "State University-Main Campus", "Springfield Community College-East", "Springfield Community College"],
+    fieldOfStudy: ["Computer Science and Engineering", "Computer Science", "Computer Engineering", "Mathematics and Statistics", "Mathematics"],
+    skills: ["Python (Programming Language)", "PostgreSQL", "Docker Swarm", "Docker", "Django Admin", "Django", "C#", "C++", "C (Programming Language)", "R Programming", "Interactive SQL", "SQL"],
+  };
+  const blankWork = () => ({ jobTitle: "", companyName: "", location: "", current: false, startDate: null, endDate: null, roleDescription: "" });
+  const blankEdu = () => ({ school: [], degree: "", fieldOfStudy: [], gradeAverage: "", firstYearAttended: null, lastYearAttended: null });
+  const state = {
+    firstName: "", lastName: "", preferred: false, preferredFirst: "", preferredLast: "",
+    countryRegion: "", city: "", phoneType: "", phoneNumber: "", source: [],
+    work: [blankWork()], education: [blankEdu()], websites: [""], linkedIn: "", skills: [],
+  };
+  // Events the page saw, for the test to read: which kinds were trusted.
+  const seen = [];
+  const note = (what, e) => seen.push({ what, trusted: e.isTrusted });
+  window.__mock = { state, seen, next, renders: 0 };
+  window.__clicks = [];
+  document.addEventListener("click", (e) => window.__clicks.push(`${Math.round(performance.now())} ${e.isTrusted ? "T" : "s"} ${e.target.tagName} #${e.target.id || ""} ${(e.target.textContent || "").trim().slice(0, 20)}`), true);
+
+  const app = document.getElementById("app");
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  let nextId = 700;
+  const workIds = [nextId++];
+  const eduIds = [nextId++];
+  const webIds = [nextId++];
+
+  // --- markup, as Workday writes it -------------------------------------------------
+  const label = (forId, text, required) => `<label for="${forId}"><span>${text}${required ? "<abbr>*</abbr>" : ""}</span></label>`;
+  const text = (key, id, title, value, required) => `
+    <div data-automation-id="formField-${key}" data-fkit-id="${id}">${label(id, title, required)}
+      <div><input type="text" id="${id}" name="${key}" aria-required="${!!required}" value="${esc(value)}" data-bind="${id}"></div></div>`;
+  const area = (key, id, title, value) => `
+    <div data-automation-id="formField-${key}" data-fkit-id="${id}">${label(id, title)}
+      <div><textarea id="${id}" data-bind="${id}">${esc(value)}</textarea></div></div>`;
+  const dropdown = (key, id, title, value, required) => `
+    <div data-automation-id="formField-${key}" data-fkit-id="${id}">${label(id, title, required)}
+      <div><button aria-haspopup="listbox" type="button" name="${key}" id="${id}" aria-label="${title} ${value ? esc(value) : "Select One"}${required ? " Required" : ""}" data-list="${key}" data-bind="${id}">${value ? esc(value) : "Select One"}</button><input type="text" value=""></div></div>`;
+  const search = (key, id, title, chips, required) => `
+    <div data-automation-id="formField-${key}" data-fkit-id="${id}">${label(id, title, required)}
+      <div data-automation-id="multiSelectContainer"><div data-automation-id="multiselectInputContainer">
+        <input placeholder="Search" aria-required="${!!required}" data-uxi-widget-type="selectinput" id="${id}" value="" data-search="${key}" data-bind="${id}">
+        <div data-automation-id="promptAriaInstruction">${chips.length} item${chips.length === 1 ? "" : "s"} selected</div>
+        ${chips.length ? `<div><ul role="listbox" data-automation-id="selectedItemList">${chips.map((c) => `<li role="presentation" data-automation-id="menuItem"><div role="option" data-automation-id="selectedItem"><p data-automation-id="promptOption">${esc(c)}</p></div></li>`).join("")}</ul></div>` : ""}
+      </div></div></div>`;
+  const date = (key, id, title, value, withMonth, required) => `
+    <div data-automation-id="formField-${key}" data-fkit-id="${id}"><fieldset><legend><label>${title}${required ? "<abbr>*</abbr>" : ""}</label></legend>
+      <div id="${id}" role="group" data-automation-id="dateInputWrapper" data-date="${id}">
+        ${withMonth ? `<div id="${id}-dateSectionMonth"><div data-automation-id="dateSectionMonth-display">${value ? String(value.month).padStart(2, "0") : "MM"}</div>
+          <input role="spinbutton" aria-label="Month" id="${id}-dateSectionMonth-input" data-automation-id="dateSectionMonth-input" ${value ? `aria-valuenow="${value.month}"` : ""} value="${value ? String(value.month).padStart(2, "0") : ""}"></div><div>/</div>` : ""}
+        <div id="${id}-dateSectionYear"><div data-automation-id="dateSectionYear-display">${value ? value.year : "YYYY"}</div>
+          <input role="spinbutton" aria-label="Year" id="${id}-dateSectionYear-input" data-automation-id="dateSectionYear-input" ${value ? `aria-valuenow="${value.year}"` : ""} value="${value ? value.year : ""}"></div>
+      </div></fieldset></div>`;
+
+  function nameSection() {
+    return `<div role="group" aria-labelledby="Legal-Name-section" data-section="name"><h4 id="Legal-Name-section">Legal Name</h4>
+      ${text("legalName--firstName", "name--legalName--firstName", "First Name", state.firstName, true)}
+      ${text("legalName--lastName", "name--legalName--lastName", "Last Name", state.lastName, true)}
+      <div data-automation-id="formField-preferredCheck">${label("name--preferredCheck", "I have a preferred name")}
+        <input id="name--preferredCheck" type="checkbox" ${state.preferred ? "checked" : ""} data-toggle="preferred"></div>
+      ${state.preferred ? text("preferredName--firstName", "name--preferredName--firstName", "Preferred First Name", state.preferredFirst, true) + text("preferredName--lastName", "name--preferredName--lastName", "Preferred Last Name", state.preferredLast, true) : ""}
+    </div>`;
+  }
+  function addressSection() {
+    return `<div role="group" aria-labelledby="Address-section" data-section="address"><h4 id="Address-section">Address</h4>
+      ${text("city", "address--city", "City", state.city)}
+      ${dropdown("countryRegion", "address--countryRegion", "State", state.countryRegion, true)}
+      ${search("source", "source--source", "How Did You Hear About Us?", state.source, true)}
+    </div>`;
+  }
+  function phoneSection() {
+    return `<div role="group" aria-labelledby="Phone-section" data-section="phone"><h4 id="Phone-section">Phone</h4>
+      ${dropdown("phoneType", "phoneNumber--phoneType", "Phone Device Type", state.phoneType, true)}
+      ${text("phoneNumber", "phoneNumber--phoneNumber", "Phone Number", state.phoneNumber, true)}
+    </div>`;
+  }
+  function workSection() {
+    return `<div role="group" aria-labelledby="Work-Experience-section" data-section="work"><h4 id="Work-Experience-section">Work Experience</h4>
+      ${state.work.map((w, i) => {
+        const p = `workExperience-${workIds[i]}`;
+        return `<div role="group" aria-labelledby="Work-Experience-${i + 1}-panel"><div><h5 id="Work-Experience-${i + 1}-panel">Work Experience ${i + 1}</h5><button type="button" data-delete="work">Delete</button></div>
+          <div data-fkit-id="${p}--null">
+          ${text("jobTitle", `${p}--jobTitle`, "Job Title", w.jobTitle, true)}
+          ${text("companyName", `${p}--companyName`, "Company", w.companyName, true)}
+          ${text("location", `${p}--location`, "Location", w.location)}
+          <div data-automation-id="formField-currentlyWorkHere">${label(`${p}--currentlyWorkHere`, "I currently work here")}
+            <input id="${p}--currentlyWorkHere" type="checkbox" name="currentlyWorkHere" ${w.current ? "checked" : ""} data-toggle="current:${i}"></div>
+          ${date("startDate", `${p}--startDate`, "From", w.startDate, true, true)}
+          ${w.current ? "" : date("endDate", `${p}--endDate`, "To", w.endDate, true, true)}
+          ${area("roleDescription", `${p}--roleDescription`, "Role Description", w.roleDescription)}
+          </div></div>`;
+      }).join("")}
+      <div><button type="button" data-automation-id="add-button" data-add="work">Add Another</button></div></div>`;
+  }
+  function educationSection() {
+    return `<div role="group" aria-labelledby="Education-section" data-section="education"><h4 id="Education-section">Education</h4>
+      ${state.education.map((e, i) => {
+        const p = `education-${eduIds[i]}`;
+        return `<div role="group" aria-labelledby="Education-${i + 1}-panel"><div><h5 id="Education-${i + 1}-panel">Education ${i + 1}</h5><button type="button" data-delete="education">Delete</button></div>
+          <div data-fkit-id="${p}--null">
+          ${search("school", `${p}--school`, "School or University", e.school, true)}
+          ${dropdown("degree", `${p}--degree`, "Degree", e.degree, true)}
+          ${search("fieldOfStudy", `${p}--fieldOfStudy`, "Field of Study", e.fieldOfStudy)}
+          ${text("gradeAverage", `${p}--gradeAverage`, "Overall Result (GPA)", e.gradeAverage)}
+          ${date("firstYearAttended", `${p}--firstYearAttended`, "From", e.firstYearAttended, false)}
+          ${date("lastYearAttended", `${p}--lastYearAttended`, "To (Actual or Expected)", e.lastYearAttended, false)}
+          </div></div>`;
+      }).join("")}
+      <div><button type="button" data-automation-id="add-button" data-add="education">Add Another</button></div></div>`;
+  }
+  function skillsSection() {
+    return `<div role="group" aria-labelledby="Skills-section" data-section="skills"><h4 id="Skills-section">Skills</h4>
+      ${search("skills", "skills--skills", "Type to Add Skills", state.skills)}</div>`;
+  }
+  function websiteSection() {
+    return `<div role="group" aria-labelledby="Websites-section" data-section="websites"><h4 id="Websites-section">Websites</h4>
+      ${state.websites.map((u, i) => `<div role="group" aria-labelledby="Websites-${i + 1}-panel"><div><h5 id="Websites-${i + 1}-panel">Websites ${i + 1}</h5></div>
+        <div data-fkit-id="webAddress-${webIds[i]}--null">${text("url", `webAddress-${webIds[i]}--url`, "URL", u, true)}</div></div>`).join("")}
+      <div><button type="button" data-automation-id="add-button" data-add="websites">Add Another</button></div></div>
+      <div role="group" aria-labelledby="Social-section" data-section="social"><h4 id="Social-section">Social Network URLs</h4>
+      ${text("linkedInAccount", "socialNetworkAccounts--linkedInAccount", "LinkedIn", state.linkedIn)}</div>`;
+  }
+  const SECTIONS = { name: nameSection, address: addressSection, phone: phoneSection, work: workSection, education: educationSection, skills: skillsSection, websites: websiteSection };
+
+  function renderAll() {
+    app.innerHTML = Object.values(SECTIONS).map((f) => f()).join("") +
+      `<div data-automation-id="pageFooter"><button type="button" data-automation-id="pageFooterNextButton">Save and Continue</button></div>`;
+    window.__mock.renders++;
+  }
+  /** Redraw one section: every element in it is replaced, as Workday does. */
+  function rerender(name) {
+    const old = app.querySelector(`[data-section='${name}']`);
+    const holder = document.createElement("div");
+    holder.innerHTML = SECTIONS[name]();
+    const fresh = holder.querySelector(`[data-section='${name}']`);
+    if (name === "websites") old.nextElementSibling?.remove();
+    old.replaceWith(...holder.children);
+    window.__mock.renders++;
+    return fresh;
+  }
+  const sectionOf = (el) => el.closest("[data-section]")?.dataset.section;
+
+  // --- where each field's state lives ---------------------------------------------------
+  function slot(id) {
+    let m;
+    const simple = {
+      "name--legalName--firstName": ["firstName"], "name--legalName--lastName": ["lastName"],
+      "name--preferredName--firstName": ["preferredFirst"], "name--preferredName--lastName": ["preferredLast"],
+      "address--city": ["city"], "address--countryRegion": ["countryRegion"], "source--source": ["source"],
+      "phoneNumber--phoneType": ["phoneType"], "phoneNumber--phoneNumber": ["phoneNumber"],
+      "socialNetworkAccounts--linkedInAccount": ["linkedIn"], "skills--skills": ["skills"],
+    };
+    if (simple[id]) return { obj: state, key: simple[id][0] };
+    if ((m = id.match(/^workExperience-(\d+)--(\w+)$/))) return { obj: state.work[workIds.indexOf(Number(m[1]))], key: m[2] };
+    if ((m = id.match(/^education-(\d+)--(\w+)$/))) return { obj: state.education[eduIds.indexOf(Number(m[1]))], key: m[2] };
+    if ((m = id.match(/^webAddress-(\d+)--url$/))) return { obj: state.websites, key: webIds.indexOf(Number(m[1])) };
+    return null;
+  }
+
+  // --- text: React's controlled input: an input event while focused ----------------------
+  app.addEventListener("input", (e) => {
+    const el = e.target;
+    if (el.dataset.search) return searchTyped(el, e);
+    if (!el.dataset.bind || el.closest("[data-date]")) return;
+    note("text input", e);
+    if (document.activeElement !== el) return;
+    const s = slot(el.dataset.bind);
+    if (s) s.obj[s.key] = el.value;
+  }, true);
+
+  // --- dates: real digit key presses, committed on blur -------------------------------------
+  const typed = new Map();
+  app.addEventListener("click", (e) => {
+    const section = e.target.closest("[id$='-dateSectionMonth'], [id$='-dateSectionYear']");
+    if (section) section.querySelector("input").focus();
+  }, true);
+  app.addEventListener("keydown", (e) => {
+    const el = e.target;
+    if (!el.matches?.("[data-automation-id$='-input'][role='spinbutton']")) return;
+    note(`date key ${/\d/.test(e.key) ? "digit" : e.key}`, e);
+    if (!e.isTrusted) return;
+    e.preventDefault();
+    const now = typed.get(el.id) ?? "";
+    if (e.key === "Backspace") typed.set(el.id, "");
+    else if (/^\d$/.test(e.key)) typed.set(el.id, (now + e.key).slice(el.getAttribute("aria-label") === "Month" ? -2 : -4));
+    el.value = typed.get(el.id) ?? "";
+  }, true);
+  app.addEventListener("focusout", (e) => {
+    const wrapper = e.target.closest?.("[data-date]");
+    if (!wrapper || wrapper.contains(e.relatedTarget)) return;
+    const id = wrapper.dataset.date;
+    const month = typed.get(`${id}-dateSectionMonth-input`);
+    const year = typed.get(`${id}-dateSectionYear-input`);
+    const hasMonth = !!wrapper.querySelector("[aria-label='Month']");
+    if (!year || year.length !== 4 || (hasMonth && !(Number(month) >= 1 && Number(month) <= 12))) return;
+    const s = slot(id);
+    s.obj[s.key] = hasMonth ? { month: Number(month), year: Number(year) } : { year: Number(year) };
+    setTimeout(() => rerender(sectionOf(wrapper)), 30);
+  }, true);
+
+  // --- lists: open on a real click or a search, commit on a real click on an option --------
+  let popup = null;
+  function closePopup() { popup?.remove(); popup = null; }
+  function openPopup(anchor, options, onPick) {
+    closePopup();
+    popup = document.createElement("div");
+    popup.dataset.automationId = "activeListContainer";
+    popup.innerHTML = `<div role="listbox">${options.map((o) => `<div role="option" data-automation-label="${esc(o)}"><div data-automation-id="promptOption">${esc(o)}</div></div>`).join("")}</div>`;
+    const r = anchor.getBoundingClientRect();
+    popup.style.left = `${r.left + scrollX}px`;
+    popup.style.top = `${r.bottom + scrollY + 2}px`;
+    popup.addEventListener("click", (e) => {
+      const option = e.target.closest("[role='option']");
+      note("option click", e);
+      if (!option || !e.isTrusted) return;
+      onPick(option.dataset.automationLabel);
+      closePopup();
+    });
+    document.body.append(popup);
+  }
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePopup(); });
+
+  function searchTyped(el, e) {
+    note("search input", e);
+    if (!e.isTrusted && e.type !== "keydown") return;
+    clearTimeout(el._t);
+    el._t = setTimeout(() => showMatches(el), 150);
+  }
+  function showMatches(el) {
+    const q = el.value.trim().toLowerCase();
+    if (!q) return;
+    const key = el.dataset.search;
+    const options = SEARCH[key].filter((o) => o.toLowerCase().includes(q));
+    openPopup(el, options, (picked) => {
+      const s = slot(el.id);
+      const list = s.obj[s.key];
+      if (!list.includes(picked)) list.push(picked);
+      setTimeout(() => rerender(sectionOf(el)), 30);
+    });
+  }
+  app.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && e.target.dataset?.search) {
+      note("search enter", e);
+      e.preventDefault();
+      if (e.isTrusted) showMatches(e.target);
+    }
+  }, true);
+
+  app.addEventListener("click", (e) => {
+    const button = e.target.closest("button");
+    if (!button) return;
+    if (button.dataset.list) {
+      note("dropdown click", e);
+      if (!e.isTrusted) return;
+      openPopup(button, LISTS[button.dataset.list], (picked) => {
+        const s = slot(button.id);
+        s.obj[s.key] = picked;
+        setTimeout(() => rerender(sectionOf(button)), 30);
+      });
+      return;
+    }
+    if (button.dataset.add) {
+      note("add click", e);
+      const which = button.dataset.add;
+      setTimeout(() => {
+        if (which === "work") { state.work.push(blankWork()); workIds.push(nextId++); }
+        if (which === "education") { state.education.push(blankEdu()); eduIds.push(nextId++); }
+        if (which === "websites") { state.websites.push(""); webIds.push(nextId++); }
+        rerender(which);
+      }, 120);
+      return;
+    }
+    if (button.dataset.delete || button.dataset.automationId === "pageFooterNextButton") {
+      note(`pressed ${button.textContent.trim()}`, e);
+    }
+  });
+  app.addEventListener("change", (e) => {
+    const box = e.target;
+    if (!box.dataset?.toggle) return;
+    note(`checkbox ${box.id} ${box.checked}`, e);
+    if (box.dataset.toggle === "preferred") state.preferred = box.checked;
+    else state.work[Number(box.dataset.toggle.split(":")[1])].current = box.checked;
+    setTimeout(() => rerender(sectionOf(box)), 30);
+  });
+
+  // --- Next: checks the state, never the page ----------------------------------------------
+  function next() {
+    const errors = [];
+    const need = (ok, field) => { if (!ok) errors.push(field); };
+    need(state.firstName, "First Name");
+    need(state.lastName, "Last Name");
+    if (state.preferred) { need(state.preferredFirst, "Preferred First Name"); need(state.preferredLast, "Preferred Last Name"); }
+    need(state.countryRegion, "State");
+    need(state.source.length, "How Did You Hear About Us?");
+    need(state.phoneType, "Phone Device Type");
+    need(state.phoneNumber && !refuse.has("phoneNumber"), "Phone Number");
+    state.work.forEach((w, i) => {
+      const n = `Work Experience ${i + 1}`;
+      need(w.jobTitle, `${n}: Job Title`);
+      need(w.companyName, `${n}: Company`);
+      need(w.startDate, `${n}: From`);
+      if (!w.current) need(w.endDate, `${n}: To`);
+    });
+    state.education.forEach((e, i) => {
+      need(e.school.length, `Education ${i + 1}: School or University`);
+      need(e.degree, `Education ${i + 1}: Degree`);
+    });
+    state.websites.forEach((u, i) => need(/^https?:\/\//.test(u), `Websites ${i + 1}: URL`));
+    if (state.linkedIn) need(/^https?:\/\//.test(state.linkedIn), "LinkedIn");
+    return errors;
+  }
+
+  // Shows its own error under a field the test refuses, as Workday does once a value is rejected.
+  if (refuse.has("phoneNumber")) {
+    app.addEventListener("focusout", (e) => {
+      if (e.target.id !== "phoneNumber--phoneNumber") return;
+      setTimeout(() => {
+        const field = document.querySelector("[data-automation-id='formField-phoneNumber']");
+        if (!field.querySelector("[data-automation-id='errorMessage']")) {
+          field.insertAdjacentHTML("beforeend", `<div data-automation-id="errorMessage" role="alert">Enter a valid phone number.</div>`);
+          field.querySelector("input").setAttribute("aria-invalid", "true");
+        }
+      }, 10);
+    }, true);
+  }
+
+  renderAll();
+})();
+</script>
+</body>
+</html>

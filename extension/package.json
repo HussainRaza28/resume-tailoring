@@ -7,9 +7,11 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "live": "npm run build && playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/chrome": "^0.3.7",
     "@types/node": "^22.20.5",
     "esbuild": "^0.28.2",
