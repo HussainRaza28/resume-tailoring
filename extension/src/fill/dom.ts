@@ -278,7 +278,10 @@ function optionsFor(trigger: HTMLElement): HTMLElement[] {
   const listId = trigger.getAttribute("aria-controls") || trigger.getAttribute("aria-owns");
   const list = listId ? doc.getElementById(listId) : null;
   const scope: ParentNode = list ?? doc;
-  return Array.from(scope.querySelectorAll<HTMLElement>("[role='option']")).filter((o) => o.getAttribute("aria-disabled") !== "true");
+  // Chosen-item chips (Workday's selectedItem) have role="option" too; they're answers, not a list.
+  return Array.from(scope.querySelectorAll<HTMLElement>("[role='option']")).filter(
+    (o) => o.getAttribute("aria-disabled") !== "true" && !o.closest("[data-automation-id='selectedItemList']"),
+  );
 }
 
 /**
