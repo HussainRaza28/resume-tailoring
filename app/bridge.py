@@ -38,7 +38,7 @@ from app.core import compile as compiler
 from app.core import pricing, skills
 from app.core.db import Application, Db, DbError, RunRecord, StepLog
 from app.core.autofill import autofill_profile
-from app.core.export import export_file_name, person_name
+from app.core.export import export_file_name, person_name, unused_path
 from app.core.fact_import import SuggestionResult, suggest_facts
 from app.core.facts import FactsBank, FactsError
 from app.core.pipeline import (
@@ -788,17 +788,17 @@ class Backend:
             decision = run.decisions.setdefault(bullet_id, Decision())
             current = run.rewrites[index]
             if action == "accept":
-                if current.status == BLOCKED:
-                    raise AppError("blocked", " ".join(current.reasons))
+                # A rewrite the checks flagged needs the person's OK, and Accept is that OK.
                 decision.state = "accepted"
-                decision.origin = decision.origin or "rewrite"
+                decision.origin = "your OK" if current.status == BLOCKED else (decision.origin or "rewrite")
             elif action == "reject":
                 decision.state = "rejected"
             elif action == "reset":
                 decision.state = "pending"
             elif action == "edit":
                 proposal = Proposal(bullet_id=bullet_id, new_text=text or "", sources=current.sources, why=current.why)
-                checked = ctx.check(proposal, facts, run.note_fact_ids, asked=current.asked)
+                # Text the person typed is theirs: the checks don't block it.
+                checked = ctx.check(proposal, facts, run.note_fact_ids, asked=current.asked or "Your edit")
                 if checked is None:
                     raise AppError("not_found", "Unknown bullet.")
                 if checked.status == UNCHANGED:
@@ -877,6 +877,11 @@ class Backend:
 
         def change(r: RunState) -> None:
             for i, item in enumerate(r.rewrites):
+                if item.asked and item.bullet_id.startswith("new:"):
+                    # A bullet the note added goes away with the note.
+                    r.rewrites[i] = item.model_copy(update={"new_text": "", "status": UNCHANGED, "asked": "", "unchanged_reason": SAME_TEXT})
+                    r.decisions.pop(item.bullet_id, None)
+                    continue
                 if item.asked:
                     r.rewrites[i] = item.model_copy(update={
                         "new_text": item.old_text, "status": UNCHANGED, "asked": "", "reasons": [],
@@ -897,6 +902,59 @@ class Backend:
             r.note_fact_ids = []
             r.note_asks = []
             self._recompute_coverage(r, ctx, bank)
+
+        return self._change_run(run_id, change)
+
+    def run_lines(self, run_id: str) -> list[dict]:
+        """Every line of the resume with its text as it is in this run, for editing any of them.
+
+        Protected facts (dates, GPA, titles) are included: the person may change
+        them by hand, and those changes are theirs.
+        """
+        run = self._get_run(run_id)
+        ctx = self._run_context(run_id)
+        current = run.current()
+        return [
+            {
+                "id": ln.id,
+                "label": ln.label,
+                "heading": ln.heading,
+                "section": ln.section,
+                "text": current.get(ln.id, ln.text),
+                "original": ln.text,
+                "protected": not ln.editable,
+            }
+            for ln in ctx.lines
+        ]
+
+    def edit_line(self, run_id: str, line_id: str, text: str) -> RunState:
+        """Change any line by hand. It's the person's own text, so it's never blocked; it starts
+        accepted, and Keep original (reject) undoes it. The original text back removes the edit."""
+        ctx = self._run_context(run_id)
+        facts = self._facts()
+
+        def change(run: RunState) -> None:
+            index = next((i for i, r in enumerate(run.rewrites) if r.bullet_id == line_id), None)
+            if ctx.line(line_id) is None and index is None:
+                raise AppError("not_found", "Unknown line.")
+            if index is not None and line_id.startswith("new:"):
+                item = run.rewrites[index]
+                run.rewrites[index] = item.model_copy(update={"new_text": text.strip(), "asked_kind": item.asked_kind or "edit"})
+                run.decisions[line_id] = Decision(state="accepted" if text.strip() else "rejected", origin="edit")
+                return
+            checked = ctx.check(Proposal(bullet_id=line_id, new_text=text, sources=[line_id], why="Your edit"), facts, run.note_fact_ids, asked="Your edit")
+            if checked is None:
+                raise AppError("not_found", "Unknown line.")
+            checked.asked_kind = "edit"
+            if index is None:
+                run.rewrites.append(checked)
+            else:
+                run.rewrites[index] = checked
+            if checked.status == UNCHANGED:
+                run.decisions.pop(line_id, None)
+            else:
+                run.decisions[line_id] = Decision(state="accepted", origin="edit")
+            self._recompute_coverage(run, ctx, facts)
 
         return self._change_run(run_id, change)
 
@@ -929,8 +987,9 @@ class Backend:
             self._change_run(run_id, too_long, tailored_tex=tex)
             raise AppError("too_long", f"The PDF is {out.pages} pages. Trim a bullet to get back to one page.")
 
-        name = export_file_name(person_name(self._run_tex(run_id)), run.company)
-        path = Path(dir) / name
+        # Never over an earlier export: Jordan_Resume_Acme.pdf, then _v2, _v3.
+        path = unused_path(Path(dir), export_file_name(person_name(self._run_tex(run_id)), run.company))
+        name = path.name
         try:
             path.write_bytes(out.pdf)
         except OSError as e:
@@ -1159,7 +1218,7 @@ COMMANDS = (
     "app_info", "change_data_dir", "show_data_dir", "key_status", "save_key", "delete_key", "import_base_resume", "base_resume_info",
     "compile_base", "ollama_models", "gemini_models", "claude_code_status", "codex_status",
     "start_run", "get_run_state", "update_run_meta", "run_step", "decide", "toggle_remove",
-    "add_note", "undo_note", "compile_run", "export_run", "tailored_source",
+    "add_note", "undo_note", "compile_run", "export_run", "tailored_source", "run_lines", "edit_line",
     "list_runs", "delete_run", "list_applications", "add_application", "update_application",
     "delete_application", "list_facts", "save_fact", "delete_fact", "suggest_facts_from_file",
     "suggest_facts_from_url", "list_baseline", "add_baseline",

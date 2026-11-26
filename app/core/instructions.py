@@ -222,3 +222,132 @@ def parse_instruction(iid: str, note: str, lines: list[Line]) -> Instruction | N
     if m:
         return _change(iid, text, m.group("verb"), m.group("target"), m.group("value") or "", lines)
     return None
+
+
+# ---------------------------------------------------------------------------
+# "add C++", "add a bullet to Amazon: ..."
+# ---------------------------------------------------------------------------
+
+ADD_BULLET = "add_bullet"
+
+_ADD_ONLY_RE = re.compile(r"^(?:please\s+)?(?:add|include|list|show|put)\s+(?P<value>.+?)(?:\s+(?:to|in|on|under)\s+(?:my\s+|the\s+)?(?:technical\s+)?skills?(?:\s+(?:section|list|line))?)?$", re.IGNORECASE)
+_BULLET_RE = re.compile(
+    r"^(?:please\s+)?add\s+(?:a\s+|another\s+|one\s+more\s+|new\s+)*bullet(?:\s+point)?\s+(?:to|under|for|in|at)\s+(?P<entry>.+?)\s*[:–—-]\s*(?P<text>.+)$",
+    re.IGNORECASE,
+)
+
+# Which skills line a skill belongs on. Anything else is a tool.
+LANGUAGES = {
+    "python", "java", "go", "javascript", "typescript", "c", "c++", "c#", "r", "rust", "swift", "kotlin", "scala", "ruby",
+    "php", "perl", "haskell", "elixir", "erlang", "clojure", "dart", "lua", "julia", "matlab", "objective-c", "sql",
+    "bash", "shell", "html", "css", "solidity", "assembly", "fortran", "cobol", "vhdl", "verilog", "systemverilog",
+    "zig", "ocaml", "f#", "groovy", "powershell", "sas", "visual basic", "prolog", "lisp", "scheme",
+}
+FRAMEWORKS = {
+    "react", "angular", "vue", "next.js", "node.js", "express", "django", "flask", "fastapi", "spring", "spring boot",
+    "rails", "ruby on rails", "laravel", ".net", "asp.net", "svelte", "jquery", "pandas", "numpy", "scipy", "pytorch",
+    "tensorflow", "keras", "scikit-learn", "matplotlib", "seaborn", "pytest", "junit", "jest", "react native",
+    "flutter", "swiftui", "uikit", "spritekit", "bootstrap", "tailwind css", "redux", "hugging face", "langchain",
+    "opencv", "nestjs", "gin", "qt", "unity", "three.js", "d3.js", "playwright", "selenium", "cypress", "mocha",
+    "r shiny", "shiny", "streamlit", "xgboost", "lightgbm", "jax", "transformers",
+}
+
+
+def skill_category(name: str) -> str:
+    """"languages", "frameworks" or "tools", for the skills line a skill goes on."""
+    key = name.strip().lower()
+    if key in LANGUAGES:
+        return "languages"
+    if key in FRAMEWORKS:
+        return "frameworks"
+    return "tools"
+
+
+def _line_for(category: str, lines: list[Line]) -> Line | None:
+    """The skills line for a category, by its label: Languages, Frameworks & Libraries, Tools & AI."""
+    skills_lines = [ln for ln in lines if ln.kind == SKILLS]
+    if not skills_lines:
+        return None
+    wanted = {
+        "languages": r"language",
+        "frameworks": r"framework|librar",
+        "tools": r"tool|technolog|platform|cloud|devops|\bai\b|other|software|developer",
+    }[category]
+    found = next((ln for ln in skills_lines if re.search(wanted, ln.label, re.IGNORECASE)), None)
+    if found:
+        return found
+    if category == "frameworks":
+        found = next((ln for ln in skills_lines if re.search(r"tool|technolog", ln.label, re.IGNORECASE)), None)
+    return found or (skills_lines[0] if category == "languages" else skills_lines[-1])
+
+
+def _looks_like_skill(part: str) -> bool:
+    """A short name, as a skill is written: "C++", "Node.js", "Bedrock". Not "more numbers"."""
+    words = part.split()
+    return 0 < len(words) <= 3 and (part[0].isupper() or part[0].isdigit() or any(c in part for c in "+#.") or part.isupper())
+
+
+def parse_skill_adds(iid: str, note: str, lines: list[Line], canonical) -> list[Instruction]:
+    """ "add C++" or "add Rust and Go to my skills": each skill onto the skills line it belongs on.
+
+    ``canonical`` gives a skill's usual spelling ("c++" -> "C++") or None. A
+    skill the line already has isn't added twice. An empty list when the note
+    isn't a request to add skills.
+    """
+    text = " ".join(note.split()).rstrip(".")
+    m = _ADD_ONLY_RE.match(text)
+    if not m or re.search(r"\bbullet\b", text, re.IGNORECASE):
+        return []
+    parts = [p.strip() for p in re.split(r",|\band\b|&", m.group("value")) if p.strip()]
+    if not parts or not all(_looks_like_skill(p) or canonical(p) for p in parts):
+        return []
+    by_line: dict[str, list[str]] = {}
+    order: list[Line] = []
+    for part in parts:
+        name = canonical(part) or part
+        line = _line_for(skill_category(name), lines)
+        if line is None:
+            return []
+        if line.id not in by_line:
+            by_line[line.id] = []
+            order.append(line)
+        by_line[line.id].append(name)
+    out = []
+    for n, line in enumerate(order):
+        have = {x.strip().lower() for x in split_skills(plain(line.text))}
+        new = [s for s in by_line[line.id] if s.lower() not in have]
+        new_text = f"{line.text.rstrip().rstrip(',')}, {', '.join(new)}" if new else line.text
+        out.append(Instruction(id=f"{iid}.{n}" if len(order) > 1 else iid, note=text, kind=ADD, target=line.label,
+                               value=", ".join(by_line[line.id]), line_id=line.id, old_text=line.text, new_text=new_text))
+    return out
+
+
+def parse_bullet_add(iid: str, note: str, lines: list[Line]) -> Instruction | None:
+    """ "add a bullet to Amazon: Built X": a new bullet after the role's (or project's) last one."""
+    text = " ".join(note.split()).rstrip(".")
+    m = _BULLET_RE.match(text)
+    if not m:
+        return None
+    entry, bullet = m.group("entry").strip(), m.group("text").strip()
+    entries = {ln.entry for ln in _named_entry(lines, entry) if ln.entry is not None}
+    with_bullets = [e for e in entries if any(ln.entry == e and ln.kind in ("bullet", COURSEWORK) for ln in lines)]
+    if not with_bullets:
+        return Instruction(id=iid, note=text, kind=NOT_FOUND, target=entry, value=bullet,
+                           question=f'"{text}": no role or project called "{entry}" has bullets, so nothing was added.')
+    if len(with_bullets) > 1:
+        options = [next(ln for ln in lines if ln.entry == e and ln.kind in (NAME, STACK)) for e in with_bullets]
+        return _ask(iid, text, entry, bullet, options, "Say which role or project.")
+    last = [ln for ln in lines if ln.entry == with_bullets[0] and ln.kind in ("bullet", COURSEWORK)][-1]
+    return Instruction(id=iid, note=text, kind=ADD_BULLET, target=entry, value=bullet, line_id=f"new:{last.id}",
+                       old_text="", new_text=bullet)
+
+
+def parse_instructions(iid: str, note: str, lines: list[Line], canonical=lambda _s: None) -> list[Instruction]:
+    """Every change a note asks for: a new bullet, skills, or one change to one line. Empty for a fact."""
+    bullet = parse_bullet_add(iid, note, lines)
+    if bullet is not None:
+        return [bullet]
+    one = parse_instruction(iid, note, lines)
+    if one is not None:
+        return [one]
+    return parse_skill_adds(iid, note, lines, canonical)

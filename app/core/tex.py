@@ -89,6 +89,17 @@ class Remove(BaseModel):
     slot: str
 
 
+class AddBullet(BaseModel):
+    """Add a new \\resumeItem{...} line after another bullet (the last of a role or project).
+
+    The text is plain and escaped when written, like SetText.
+    """
+
+    op: Literal["add_bullet"] = "add_bullet"
+    slot: str
+    text: str
+
+
 class ReorderSkills(BaseModel):
     """Reorder a skills line. It must hold exactly the same skills."""
 
@@ -97,7 +108,7 @@ class ReorderSkills(BaseModel):
     items: list[str]
 
 
-Edit = Annotated[Union[SetText, SetRaw, Remove, ReorderSkills], Field(discriminator="op")]
+Edit = Annotated[Union[SetText, SetRaw, Remove, ReorderSkills, AddBullet], Field(discriminator="op")]
 
 
 def read_tex(path: Path | str) -> str:
@@ -457,7 +468,7 @@ class TexDoc:
 
     # -- editing ------------------------------------------------------------
 
-    def apply(self, edits: list[SetText | SetRaw | Remove | ReorderSkills]) -> str:
+    def apply(self, edits: list[SetText | SetRaw | Remove | ReorderSkills | AddBullet]) -> str:
         """Apply edits and return the new source.
 
         The result is checked with ``verify_preserved`` before it is returned, so a
@@ -465,6 +476,7 @@ class TexDoc:
         """
         replacements: list[tuple[int, int, str]] = []
         removed: set[str] = set()
+        added: list[str] = []
         for edit in edits:
             slot = self.slot(edit.slot)
             if slot is None:
@@ -490,16 +502,39 @@ class TexDoc:
                 removed.add(slot.id)
                 replacements.append((slot.line[0], slot.line[1], ""))
 
+            elif isinstance(edit, AddBullet):
+                if slot.kind != BULLET or slot.line is None:
+                    raise WrongKind(slot.id)
+                line_start, line_end = slot.line
+                existing = self.src[line_start:line_end]
+                indent = existing[: len(existing) - len(existing.lstrip(" \t"))]
+                newline = "\r\n" if existing.endswith("\r\n") else "\n"
+                if not existing.endswith("\n"):
+                    existing_line_end = newline
+                else:
+                    existing_line_end = ""
+                line = f"{existing_line_end}{indent}\\resumeItem{{{plain_to_tex(edit.text.strip())}}}{newline}"
+                added.append(line)
+                # Zero-width: inserted after the bullet's line, before anything that follows it.
+                replacements.append((line_end, line_end, line))
+
             elif isinstance(edit, ReorderSkills):
                 if slot.kind != SKILLS_LINE:
                     raise WrongKind(slot.id)
                 replacements.append((slot.start, slot.end, self._reordered_skills(slot, edit.items)))
 
         out = self.src
-        # Replace from the end of the file backwards so earlier positions stay valid.
-        for start, end, text in sorted(replacements, key=lambda r: r[0], reverse=True):
+        # Replace from the end of the file backwards so earlier positions stay valid. An insertion
+        # at the same position as a replacement's start goes after it (it follows a whole line).
+        for start, end, text in sorted(replacements, key=lambda r: (r[0], r[1] != r[0]), reverse=True):
             out = out[:start] + text + out[end:]
-        verify_preserved(self, out, removed)
+        # The added lines are the only new thing: without them the file must keep its skeleton.
+        without = out
+        for line in added:
+            without = without.replace(line, "", 1)
+        verify_preserved(self, without, removed)
+        if added and len(TexDoc.parse(out).bullets()) != len(self.bullets()) - len([r for r in removed if self.slot(r) and self.slot(r).kind == BULLET]) + len(added):
+            raise SkeletonChanged("an added bullet didn't come out as one bullet")
         return out
 
     def _reordered_skills(self, slot: Slot, items: list[str]) -> str:

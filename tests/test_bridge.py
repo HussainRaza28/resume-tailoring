@@ -276,18 +276,58 @@ def test_runs_saved_by_earlier_versions_still_load():
     assert run.score.ats == 61 and (run.final.before, run.final.after, run.final.scored) == (60, 70, {"b2": "x"})
 
 
-def test_blocked_edit_stays_pending_and_cannot_be_accepted(ready):
+def test_the_persons_own_edit_is_never_blocked(ready):
     run = ready.ok("start_run", posting=POSTING)
     run = ready.ok("run_step", runId=run["id"], step="rewrite")
+    # A number no source has: the person typed it, so it's theirs to put on their resume.
     run = ready.ok("decide", runId=run["id"], bulletId="b2", action="edit",
                    text="Cut mapping API calls 90% with a Python service")
     b2 = next(r for r in run["rewrites"] if r["bullet_id"] == "b2")
-    assert b2["status"] == "blocked" and any("90%" in reason for reason in b2["reasons"])
-    assert run["decisions"]["b2"]["state"] == "pending"
-    assert ready.err("decide", runId=run["id"], bulletId="b2", action="accept")["kind"] == "blocked"
-    run = ready.ok("decide", runId=run["id"], bulletId="b2", action="edit",
-                   text="Cut mapping API calls from 12,000 to 3,000 per day with a Python service that batches updates")
+    assert b2["status"] == "ok" and b2["reasons"] == []
     assert run["decisions"]["b2"]["state"] == "accepted"
+
+
+def test_a_rewrite_that_needs_your_ok_can_be_accepted(ready):
+    from app.core.pipeline import Context
+    from app.core.schemas import Proposal
+
+    run = ready.ok("start_run", posting=POSTING)
+    rid = run["id"]
+    ready.ok("run_step", runId=rid, step="rewrite")
+    # Put a model rewrite the checks flag into the run, as the model would have proposed it.
+    backend = ready.backend
+    flagged = backend._run_context(rid).check(
+        Proposal(bullet_id="b3", new_text="Added PostgreSQL indexes that cut lookups by 75% on 2 million rows", sources=["b3"], why=""),
+        backend._facts(),
+    )
+    assert flagged.status == "blocked"
+
+    def put(r):
+        r.rewrites = [flagged if x.bullet_id == "b3" else x for x in r.rewrites]
+
+    backend._change_run(rid, put)
+    run = ready.ok("decide", runId=rid, bulletId="b3", action="accept")
+    assert run["decisions"]["b3"] == {"state": "accepted", "origin": "your OK"}
+    assert "cut lookups by 75\\%" in ready.ok("tailored_source", runId=rid)
+
+
+def test_any_line_can_be_edited_and_the_edit_undone(ready):
+    run = ready.ok("start_run", posting=POSTING)
+    rid = run["id"]
+    lines = ready.ok("run_lines", runId=rid)
+    by_id = {x["id"]: x for x in lines}
+    assert by_id["h1.3"]["protected"] and by_id["b1"]["label"] == "Coursework" and by_id["h4.0"]["label"] == "Tech stack"
+    # A protected fact, the coursework line and a project's tech stack, by hand.
+    ready.ok("edit_line", runId=rid, lineId="h1.3", text="Expected May 2026")
+    ready.ok("edit_line", runId=rid, lineId="b1", text="**Relevant Coursework:** Data Structures, Compilers")
+    run = ready.ok("edit_line", runId=rid, lineId="h4.0", text="**TrailMap** | *TypeScript, React, Go*")
+    assert {k: v["state"] for k, v in run["decisions"].items()} == {"h1.3": "accepted", "b1": "accepted", "h4.0": "accepted"}
+    source = ready.ok("tailored_source", runId=rid)
+    assert "Expected May 2026" in source and "Compilers" in source and "\\emph{TypeScript, React, Go}" in source
+    assert ready.ok("run_lines", runId=rid)[3]["text"] == "Expected May 2026"
+    # Keep original undoes it.
+    ready.ok("decide", runId=rid, bulletId="h1.3", action="reject")
+    assert "Expected May 2027" in ready.ok("tailored_source", runId=rid)
 
 
 def test_hand_typed_latex_never_reaches_the_file(ready):
@@ -393,3 +433,19 @@ def test_export_refuses_more_than_one_page(ready, tectonic, tmp_path):
     run = ready.ok("get_run_state", runId=run["id"])
     assert run["pages"] > 1 and run["trim_hints"], "the user is shown what to cut"
     assert list(tmp_path.glob("*.pdf")) == []
+
+
+def test_export_keeps_an_earlier_file(ready, tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    existing = out / "Jordan_Sample_Resume_Acme.pdf"
+    existing.write_bytes(b"earlier resume")
+    run = ready.ok("start_run", posting=POSTING, company="Acme")
+    try:
+        run = ready.ok("export_run", runId=run["id"], dir=str(out))
+    except AssertionError:
+        import pytest
+
+        pytest.skip("no TeX compiler here")
+    assert existing.read_bytes() == b"earlier resume"
+    assert run["exported_path"].endswith("Jordan_Sample_Resume_Acme_v2.pdf")

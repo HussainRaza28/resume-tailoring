@@ -229,20 +229,18 @@ def test_the_node_js_note_ends_up_on_the_exported_page(app):
     run = app.ok("start_run", posting=POSTING)
     rid = run["id"]
     run = app.ok("add_note", runId=rid, note="add Node.js")
-    assert len(run["note_fact_ids"]) == 1, 'the UI says "Added 1 fact"'
-    fid = run["note_fact_ids"][0]
-    assert [f["text"] for f in app.ok("list_facts")] == ["Skills: Node.js"]
+    # A request, not a fact: the app adds it to the line it belongs on.
+    assert run["note_asks"] == ["add Node.js"] and run["note_fact_ids"] == []
 
     ctx = Context(BASE)
-    app.provider.reply("rewrite", same_text_reply(ctx)).reply("rewrite_retry", skills_reply(["s2"]))
+    app.provider.reply("rewrite", same_text_reply(ctx)).reply("rewrite_retry", same_text_reply(ctx))
     run = app.ok("run_step", runId=rid, step="rewrite")
-    assert app.provider.call_count("rewrite_retry") == 1
-    assert f"[{fid}] Skills: Node.js" in app.provider.calls[0].user
     s2 = next(r for r in run["rewrites"] if r["bullet_id"] == "s2")
-    assert s2["status"] == "ok" and fid in s2["sources"]
-    assert run["rewrite_summary"]["changed"] == 1 and run["rewrite_summary"]["retried"]
+    assert s2["status"] == "ok" and s2["asked"] == "add Node.js" and s2["asked_kind"] == "add"
+    assert "Node.js" in s2["new_text"] and s2["reasons"] == []
+    assert run["decisions"]["s2"]["state"] == "accepted"
+    assert "add Node.js" in app.provider.calls[0].user
 
-    app.ok("decide", runId=rid, bulletId="s2", action="accept")
     assert "Node.js" in TexDoc.parse(app.ok("tailored_source", runId=rid)).text("s2")
 
 

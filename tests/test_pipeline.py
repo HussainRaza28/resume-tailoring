@@ -247,7 +247,7 @@ def test_still_blocked_after_retry_stays_blocked(ctx):
     out, _, summary = rewrite(p, ctx, "posting", [], [], FactsBank())
     assert next(r for r in out if r.bullet_id == "b2").status == BLOCKED
     assert summary.blocked == 1
-    assert summary.message.startswith("1 rewrite was blocked because the sources don't back up every claim.")
+    assert summary.message.startswith("1 rewrite needs your OK: the sources don't back up every claim.")
     assert 'Skill "Rust" is not in the cited sources.' in summary.message
 
 

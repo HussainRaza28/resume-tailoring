@@ -24,11 +24,11 @@ from app.core import grounding, skills, style
 from app.core.bold import keep_bold, strip_bold
 from app.core.facts import FactsBank
 from app.core.grounding import GroundingReport, Source
-from app.core.instructions import ADD, ASK, CHANGE, NOT_FOUND, Instruction, parse_instruction
+from app.core.instructions import ADD, ADD_BULLET, ASK, CHANGE, NOT_FOUND, Instruction, parse_instructions
 from app.core.lines import BULLET_LINE, SKILLS, Line, protected_changes, resume_lines
 from app.core.schemas import ItemReport, Proposal, RedFlag, RescoreReply, RewritesReply, ScoreReply
 from app.core.style import Violation
-from app.core.tex import BULLET, SKILLS_LINE, Remove, ReorderSkills, SetText, TexDoc, split_skills, tex_to_plain
+from app.core.tex import BULLET, SKILLS_LINE, AddBullet, Remove, ReorderSkills, SetText, TexDoc, split_skills, tex_to_plain
 from app.providers.base import Completion, CompletionRequest, DeltaSink, Provider, ProviderError, Usage, ignore_deltas
 
 # Sections whose bullets get rewritten, matched against the section title.
@@ -194,6 +194,8 @@ class CheckedRewrite(BaseModel):
     label: str = ""
     # The note that asked for this change, when the person asked for it.
     asked: str = ""
+    # "add" when the note added something ("add C++"), "change" when it changed it; "edit" for a hand edit.
+    asked_kind: str = ""
 
 
 # Outcome of one advice item or note.
@@ -341,9 +343,12 @@ def resume_plain(doc: TexDoc, replaced: dict[str, str], with_ids: bool) -> str:
                 lines.append(f"### {_entry_title(doc, slot.entry, replaced)}")
                 last_entry = slot.entry
             text = replaced.get(slot.id, doc.text(slot.id) or "")
-            if not text:
-                continue
-            lines.append(f"- [{slot.id}] {text}" if with_ids else f"- {text}")
+            if text:
+                lines.append(f"- [{slot.id}] {text}" if with_ids else f"- {text}")
+            # Bullets added after this one (new:b5, new:b5:2), in order.
+            for key in sorted(k for k in replaced if k == f"new:{slot.id}" or k.startswith(f"new:{slot.id}:")):
+                if replaced[key]:
+                    lines.append(f"- {replaced[key]}")
         elif slot.kind == SKILLS_LINE:
             label = slot.label or ""
             lines.append(f"{tex_to_plain(label) or label}: {replaced.get(slot.id) or doc.text(slot.id) or ''}")
@@ -457,7 +462,7 @@ class Context:
         # A claim the sources don't back up blocks a rewrite, and so does a change to a protected
         # fact that the person didn't ask for. Style and lost detail are the person's call, so
         # they show as warnings.
-        reasons = report.reasons()
+        reasons = [] if asked else report.reasons()
         touched = [] if asked else protected_changes(line, plain_new)
         reasons += [
             f'Changes "{p}", a protected fact ({line.label.lower()}). Only a note that asks for it can change it.'
@@ -479,7 +484,8 @@ class Context:
             # Same skills, new order. Export already puts the posting's skills first.
             new_text = old_text
             status, unchanged_reason = UNCHANGED, REORDER_ONLY
-        elif report.ok() and not touched:
+        elif asked or (report.ok() and not touched):
+            # A change the person asked for is theirs: it's never blocked, whatever the checks say.
             status = OK
         else:
             status = BLOCKED
@@ -652,21 +658,46 @@ def apply_instructions(
     by_id = {line.id: line for line in lines}
     asked_by: dict[str, list[str]] = {}
     resolved: list[Instruction] = []
+    new_bullets: list[CheckedRewrite] = []
     for i, note in enumerate(notes, 1):
-        instruction = parse_instruction(f"n{i}", note, lines)
-        if instruction is None:
-            continue
-        resolved.append(instruction)
-        if instruction.kind in (CHANGE, ADD):
-            by_id[instruction.line_id].text = instruction.new_text
-            asked_by.setdefault(instruction.line_id, []).append(instruction.note)
+        for instruction in parse_instructions(f"n{i}", note, lines, canonical_skill):
+            if instruction.kind == ADD_BULLET:
+                # A new line after the entry's last bullet: new:b5, then new:b5:2 for a second one.
+                taken = {r.bullet_id for r in new_bullets}
+                bullet_id = instruction.line_id
+                n = 2
+                while bullet_id in taken:
+                    bullet_id = f"{instruction.line_id}:{n}"
+                    n += 1
+                instruction.line_id = bullet_id
+                anchor = ctx.line(bullet_id.split(":")[1])
+                new_bullets.append(
+                    CheckedRewrite(
+                        bullet_id=bullet_id, entry=anchor.heading if anchor else "", section=anchor.section if anchor else "",
+                        old_text="", new_text=clean_model_text(instruction.new_text), sources=["note"], why="You asked for it",
+                        status=OK, grounding=GroundingReport(), style=[], reasons=[], label="New bullet",
+                        asked=instruction.note, asked_kind="add",
+                    )
+                )
+            resolved.append(instruction)
+            if instruction.kind in (CHANGE, ADD):
+                by_id[instruction.line_id].text = instruction.new_text
+                asked_by.setdefault(instruction.line_id, []).append(instruction.note)
+    kinds = {i.line_id: i.kind for i in resolved}
     checked = []
     for line_id, asked in asked_by.items():
         proposal = Proposal(bullet_id=line_id, new_text=by_id[line_id].text, sources=[line_id], why="You asked for it")
-        result = ctx.check(proposal, facts, added, asked="; ".join(asked))
+        result = ctx.check(proposal, facts, added, asked="; ".join(dict.fromkeys(asked)))
         if result is not None:
+            result.asked_kind = "add" if kinds.get(line_id) == ADD else "change"
             checked.append(result)
-    return resolved, checked
+    return resolved, checked + new_bullets
+
+
+def canonical_skill(name: str) -> str | None:
+    """A skill's usual spelling from the lexicon ("c++" is "C++"), or None for one it doesn't know."""
+    found = skills.lexicon().find(name)
+    return found[0] if len(found) == 1 else None
 
 
 def _plural(n: int, one: str, many: str | None = None) -> str:
@@ -749,7 +780,9 @@ def item_results(
         out.append(result)
 
     asked_ids = {r.bullet_id for r in final if r.asked}
-    instructions_by_note = {i.note: i for i in instructions}
+    instructions_by_note: dict[str, list[Instruction]] = {}
+    for i in instructions:
+        instructions_by_note.setdefault(i.note, []).append(i)
     for item_id, fid, text in notes:
         if fid:
             citing = [r for r in final if fid in r.sources]
@@ -768,17 +801,18 @@ def item_results(
                 result.status, result.why = COULDNT_ACT, "No changed line uses this note."
             out.append(result)
             continue
-        instruction = instructions_by_note.get(text)
-        if instruction is None:
+        group = instructions_by_note.get(text)
+        if not group:
             continue
-        if instruction.kind in (CHANGE, ADD):
-            row = by_id.get(instruction.line_id)
-            if row is not None and row.bullet_id in asked_ids and row.status == OK:
-                out.append(ItemResult(id=item_id, kind="note", text=text, status=APPLIED, lines=[row.bullet_id],
-                                      why=f'Changed the {row.label.lower()} as you asked.'))
-            elif row is not None and row.status == BLOCKED:
-                out.append(ItemResult(id=item_id, kind="note", text=text, status=ITEM_BLOCKED,
-                                      lines=[row.bullet_id], why=blocked_why([row])))
+        instruction = group[0]
+        if instruction.kind in (CHANGE, ADD, ADD_BULLET):
+            rows = [by_id[i.line_id] for i in group if i.line_id in by_id]
+            done_rows = [r for r in rows if r.bullet_id in asked_ids and r.status == OK]
+            if done_rows:
+                what = "Added" if instruction.kind != CHANGE else "Changed"
+                where = ", ".join(dict.fromkeys(r.label.lower() for r in done_rows))
+                out.append(ItemResult(id=item_id, kind="note", text=text, status=APPLIED, lines=[r.bullet_id for r in done_rows],
+                                      why=f"{what} as you asked ({where})."))
             else:
                 out.append(ItemResult(id=item_id, kind="note", text=text, status=COULDNT_ACT,
                                       why="That line already says this, so nothing changed."))
@@ -837,15 +871,16 @@ def summarize(
         parts.append(f"{_plural(summary.asked, 'line')} changed because you asked.")
     if summary.protected_blocked:
         parts.append(
-            f"{_plural(summary.protected_blocked, 'change')} to a protected fact (a date, GPA, name, title or an "
-            "honor's numbers) blocked because no note asked for it."
+            f"{_plural(summary.protected_blocked, 'change')} the model made to a protected fact (a date, GPA, name, "
+            f"title or an honor's numbers) {'needs' if summary.protected_blocked == 1 else 'need'} your OK: no note asked for "
+            f"{'it' if summary.protected_blocked == 1 else 'them'}."
         )
     other_blocked = summary.blocked - summary.protected_blocked
     if other_blocked:
         reasons = " ".join(r for r in summary.block_reasons if "protected fact" not in r)[:300]
         parts.append(
-            f"{_plural(other_blocked, 'rewrite was', 'rewrites were')} blocked because the sources don't back "
-            f"up every claim. {reasons}".strip()
+            f"{_plural(other_blocked, 'rewrite needs', 'rewrites need')} your OK: the sources don't back up every "
+            f"claim. {reasons}".strip()
         )
     if summary.bold_only:
         parts.append(f"{_plural(summary.bold_only, 'rewrite')} only changed bold, so the original was kept.")
@@ -941,7 +976,9 @@ def rewrite(
 
     def finish(rows: list[CheckedRewrite], retried: bool, error: str) -> tuple:
         final = rows + extra + asked_rows
-        final.sort(key=lambda r: [ln.id for ln in ctx.lines].index(r.bullet_id))
+        order = [ln.id for ln in ctx.lines]
+        # A new bullet sorts right after the bullet it follows.
+        final.sort(key=lambda r: order.index(r.bullet_id) if r.bullet_id in order else order.index(r.bullet_id.split(":")[1]) + 0.5)
         items = item_results(ctx, final, advice, notes, instructions, reports)
         return final, stats, summarize(final, had_advice, unknown, retried, error, items)
 
@@ -1060,7 +1097,7 @@ def split_note_parts(note: str, lines: list[Line]) -> tuple[list[str], list[str]
             piece = " ".join(piece.split()).rstrip(".")
             if not piece:
                 continue
-            if lines and parse_instruction("n0", piece, lines) is not None:
+            if lines and parse_instructions("n0", piece, lines, canonical_skill):
                 if piece not in asked:
                     asked.append(piece)
                 continue
@@ -1127,14 +1164,20 @@ def skills_reorder_edits(
 def export_edits(
     doc: TexDoc, accepted: dict[str, str], removed: list[str], posting: skills.PostingSkills | None
 ) -> list[SetText | Remove | ReorderSkills]:
-    """The edits that turn the base resume into the tailored one."""
+    """The edits that turn the base resume into the tailored one. ``new:b5`` is a bullet added after b5."""
     lines = {s.id for s in doc.skills_lines()}
     skills_texts = {bid: text for bid, text in accepted.items() if bid in lines}
     edits: list = [
         SetText(slot=bid, text=text)
         for bid, text in sorted(accepted.items())
-        if bid not in removed and (bid not in lines or posting is None)
+        if bid not in removed and (bid not in lines or posting is None) and not bid.startswith("new:")
     ]
+    # Added bullets in the order they were asked for after each bullet: b5's first, then b5:2.
+    added = sorted((bid for bid in accepted if bid.startswith("new:") and accepted[bid].strip()), key=lambda b: (b.split(":")[1], int(b.split(":")[2]) if b.count(":") > 1 else 1))
+    for bid in reversed(added):
+        anchor = bid.split(":")[1]
+        if anchor not in removed:
+            edits.append(AddBullet(slot=anchor, text=accepted[bid]))
     edits += [Remove(slot=bid) for bid in removed]
     if posting is not None:
         edits += skills_reorder_edits(doc, posting, skills_texts)

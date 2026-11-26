@@ -81,7 +81,7 @@ def test_the_model_changing_a_date_gpa_or_scholarship_number_on_its_own_is_block
         assert rows[lid].status == BLOCKED, lid
         assert any(f'Changes "{fact}", a protected fact' in r for r in rows[lid].reasons), rows[lid].reasons
     assert summary.protected_blocked == 3
-    assert "3 changes to a protected fact" in summary.message
+    assert "3 changes the model made to a protected fact" in summary.message and "need your OK" in summary.message
 
 
 def test_rewording_an_honor_without_touching_its_name_or_numbers_is_fine(ctx):
@@ -97,8 +97,9 @@ def test_rewording_an_honor_without_touching_its_name_or_numbers_is_fine(ctx):
 
 def test_a_note_that_asks_for_a_change_is_kept_apart_from_facts(ctx):
     facts, asked = split_note_parts("change graduation date to 2027. I mentored 3 new interns.\nadd Node.js", ctx.lines)
-    assert asked == ["change graduation date to 2027"]
-    assert facts == ["I mentored 3 new interns", "Skills: Node.js"]
+    # "add Node.js" is a change too: the skill goes on its skills line, applied by the app.
+    assert asked == ["change graduation date to 2027", "add Node.js"]
+    assert facts == ["I mentored 3 new interns"]
 
 
 def test_change_graduation_date_is_applied_with_the_note_as_its_source(ctx):
@@ -216,3 +217,71 @@ def test_change_graduation_date_through_the_app_and_undo_it(app):
     assert run["note_asks"] == []
     assert next(r for r in run["rewrites"] if r["bullet_id"] == "h1.3")["status"] == "unchanged"
     assert TexDoc.parse(app.ok("tailored_source", runId=rid)).text("h1.3") == "Expected May 2028"
+
+
+# -- what a note asks for is applied, never blocked ------------------------------------------
+
+
+def test_add_cpp_goes_on_the_languages_line_as_your_change(ctx):
+    out, _, summary = rewrite(FakeProvider().reply("rewrite", same_text_reply(ctx)), ctx, POSTING, [], [], FactsBank(), asked=["add C++"])
+    s1 = next(r for r in out if r.bullet_id == "s1")
+    assert s1.new_text == "Python, TypeScript, JavaScript, Java, SQL, C++"
+    assert (s1.status, s1.reasons, s1.asked, s1.asked_kind) == (OK, [], "add C++", "add")
+    assert "note" in s1.sources
+    assert [(i.status, i.lines) for i in summary.items] == [("applied", ["s1"])]
+
+
+def test_skills_from_one_note_go_on_the_lines_they_belong_on(ctx):
+    out, _, _ = rewrite(FakeProvider().reply("rewrite", same_text_reply(ctx)), ctx, POSTING, [], [], FactsBank(),
+                        asked=["add Rust and Flask", "add Bedrock to my skills"])
+    rows = {r.bullet_id: r for r in out if r.asked}
+    assert rows["s1"].new_text.endswith(", Rust") and rows["s2"].new_text.endswith(", Flask") and rows["s3"].new_text.endswith(", Bedrock")
+
+
+def test_a_change_you_ask_for_is_never_blocked_even_with_new_numbers(ctx):
+    out, _, _ = rewrite(FakeProvider().reply("rewrite", same_text_reply(ctx)), ctx, POSTING, [], [], FactsBank(),
+                        asked=["change GPA to 3.95"])
+    gpa = next(r for r in out if r.bullet_id == "h1.2")
+    assert gpa.status == OK and gpa.reasons == [] and gpa.new_text.endswith("GPA: 3.95")
+
+
+def test_add_a_bullet_to_a_role(ctx):
+    from app.core.pipeline import export_edits
+
+    out, _, summary = rewrite(FakeProvider().reply("rewrite", same_text_reply(ctx)), ctx, POSTING, [], [], FactsBank(),
+                              asked=["add a bullet to Northwind: Reviewed 40 pull requests for the routing team"])
+    new = next(r for r in out if r.bullet_id.startswith("new:"))
+    assert (new.bullet_id, new.old_text, new.status, new.label, new.asked_kind) == ("new:b5", "", OK, "New bullet", "add")
+    assert summary.items[0].status == "applied"
+    tex = ctx.doc.apply(export_edits(ctx.doc, {new.bullet_id: new.new_text}, [], None))
+    after = TexDoc.parse(tex)
+    assert len(after.bullets()) == len(ctx.doc.bullets()) + 1
+    assert after.text("b6") == "Reviewed 40 pull requests for the routing team", "right after Northwind's last bullet"
+
+
+def test_a_model_change_that_fails_the_checks_needs_your_ok(ctx):
+    reply = same_text_reply(ctx, b2="Cut mapping API calls 75% with a batching Python service")
+    out, _, summary = rewrite(FakeProvider().reply("rewrite", reply), ctx, POSTING, [], [], FactsBank())
+    b2 = next(r for r in out if r.bullet_id == "b2")
+    assert b2.status == BLOCKED and b2.reasons
+    assert "1 rewrite needs your OK" in summary.message
+
+
+# -- export and the extension's skills ---------------------------------------------------------
+
+
+def test_export_never_overwrites_a_file(tmp_path):
+    from app.core.export import unused_path
+
+    assert unused_path(tmp_path, "Jordan_Resume_NVIDIA.pdf").name == "Jordan_Resume_NVIDIA.pdf"
+    (tmp_path / "Jordan_Resume_NVIDIA.pdf").write_bytes(b"first")
+    assert unused_path(tmp_path, "Jordan_Resume_NVIDIA.pdf").name == "Jordan_Resume_NVIDIA_v2.pdf"
+    (tmp_path / "Jordan_Resume_NVIDIA_v2.pdf").write_bytes(b"second")
+    assert unused_path(tmp_path, "Jordan_Resume_NVIDIA.pdf").name == "Jordan_Resume_NVIDIA_v3.pdf"
+
+
+def test_skills_for_the_extension_are_one_name_each():
+    from app.core.autofill import skill_names
+
+    assert skill_names(["AWS (CloudWatch, Bedrock)", "Python", "python", "Rust (learning)", "**Go**", "C++", "C#", "C"]) == [
+        "AWS", "CloudWatch", "Bedrock", "Python", "Rust", "Go", "C++", "C#", "C"]
