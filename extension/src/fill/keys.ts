@@ -5,6 +5,7 @@
  * sites.ts) and by its label otherwise. The label rules are in order: the
  * first that matches wins, so "First name" is tried before plain "Name".
  */
+import { bulletLines, withScheme } from "./format";
 import { DECLINE, type Profile, monthParts, preferredName, today, usDate } from "../profile";
 
 export type FieldKey =
@@ -327,7 +328,11 @@ export function valueFor(key: FieldKey, p: Profile, index = 0): string {
     case "workEndYear":
       return work && !work.current ? monthParts(work.end).year : "";
     case "workDescription":
-      return work ? work.bullets.join("\n") : "";
+      return work ? bulletLines(work.bullets) : "";
+    case "linkedin":
+    case "github":
+    case "portfolio":
+      return withScheme(p[key]);
     case "skills":
       return p.skills.join(", ");
     case "currentCompany":
