@@ -241,7 +241,8 @@ describe("Workday", () => {
     expect($<HTMLInputElement>("[id='workExperience-1--currentlyWorkHere']").checked).toBe(false);
     expect([date("workExperience-1--startDate", "Month"), date("workExperience-1--startDate", "Year")]).toEqual(["06", "2025"]);
     expect([date("workExperience-1--endDate", "Month"), date("workExperience-1--endDate", "Year")]).toEqual(["08", "2025"]);
-    expect(v("workExperience-1--roleDescription")).toBe(PROFILE.work[0].bullets.join("\n"));
+    // A plain text box: each line starts with a bullet, so it reads as a list.
+    expect(v("workExperience-1--roleDescription")).toBe(PROFILE.work[0].bullets.map((b) => `• ${b}`).join("\n"));
     expect(v("workExperience-2--companyName")).toBe("Springfield Public Library");
     expect($<HTMLInputElement>("[id='workExperience-2--currentlyWorkHere']").checked).toBe(true);
     expect(date("workExperience-2--startDate", "Month")).toBe("01");

@@ -9,7 +9,8 @@ import type { Profile } from "../profile";
 import type { FillReport } from "./engine";
 import { type FieldKey, keyForLabel } from "./keys";
 import { addSuccessFactorsRows } from "./successfactors";
-import { workdayBefore } from "./workday";
+import { workdayAfter, workdayBefore } from "./workday";
+import { workdayLabel } from "./workdayWidgets";
 
 export interface Site {
   name: string;
@@ -23,6 +24,10 @@ export interface Site {
   before?(root: ParentNode, profile: Profile, resume: File | null, report: FillReport, handled: Set<HTMLElement>): Promise<void>;
   /** The part of the page that holds the application, when the page has more forms (a job search box). */
   formRoot?(root: ParentNode): ParentNode | null;
+  /** The field's name for the fill report, when the site knows a better one than its label (never its value). */
+  reportLabel?(el: HTMLElement): string;
+  /** Check the page once the general pass is done, such as for fields the site flags as not accepted. */
+  after?(root: ParentNode, report: FillReport): Promise<void>;
 }
 
 function idOrName(el: HTMLElement): string {
@@ -189,6 +194,8 @@ export const workday: Site = {
     return null;
   },
   before: workdayBefore,
+  after: workdayAfter,
+  reportLabel: workdayLabel,
 };
 
 /**

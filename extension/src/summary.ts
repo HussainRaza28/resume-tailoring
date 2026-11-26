@@ -1,8 +1,9 @@
 /**
  * What the person sees after Autofill: one line ("Filled 14 fields, 3 left
- * for you, 1 didn't stick") and an outline on every field left for them. An
- * outline goes away once its field is answered. "Details" in the banner lists
- * the fields by label under Filled, Skipped, Didn't stick and Left for you, and
+ * for you, 1 didn't stick, 2 filled but not accepted") and an outline on every
+ * field left for them. An outline goes away once its field is answered.
+ * "Details" in the banner lists the fields by label under Filled, Skipped,
+ * Didn't stick, Filled but not accepted and Left for you, and
  * the same list goes to the console as a collapsed group. Only labels are
  * listed, never what was typed.
  *
@@ -17,18 +18,20 @@ const OUTLINE = "2px solid #e5a93b";
 /** The app's font, for the button and banner drawn into job sites' pages. */
 export const PAGE_STYLE = `:host { --font: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif; }`;
 
-type Summary = Pick<FillReport, "filled" | "left"> & Partial<Pick<FillReport, "skipped" | "failed" | "labels">>;
+type Summary = Pick<FillReport, "filled" | "left"> & Partial<Pick<FillReport, "skipped" | "failed" | "notAccepted" | "labels">>;
 
 export function summaryText(report: Summary): string {
   const filled = report.filled.length;
   const failed = report.failed?.length ?? 0;
-  // Fields that didn't stick are left for the person too, but counted on their own.
-  const left = report.left.length - failed;
+  const notAccepted = report.notAccepted?.length ?? 0;
+  // Fields that didn't stick, or that the page didn't accept, are left for the person too, but counted on their own.
+  const left = report.left.length - failed - notAccepted;
   const fields = (n: number) => `${n} field${n === 1 ? "" : "s"}`;
-  if (!filled && !left && !failed) return "No form fields found on this page.";
+  if (!filled && !left && !failed && !notAccepted) return "No form fields found on this page.";
   const parts = [`Filled ${fields(filled)}`];
   if (left) parts.push(`${left} left for you`);
   if (failed) parts.push(`${failed} didn't stick`);
+  if (notAccepted) parts.push(`${notAccepted} filled but not accepted`);
   return parts.join(", ");
 }
 
@@ -40,12 +43,13 @@ export interface ReportGroup {
 /** The fields in a report by outcome, each as its label. */
 export function reportGroups(report: Summary): ReportGroup[] {
   const name = (el: HTMLElement) => report.labels?.get(el) || el.getAttribute("name") || el.id || el.tagName.toLowerCase();
-  const failed = new Set(report.failed ?? []);
+  const own = new Set([...(report.failed ?? []), ...(report.notAccepted ?? [])]);
   return [
     { title: "Filled", labels: report.filled.map(name) },
     { title: "Skipped", labels: (report.skipped ?? []).map(name) },
     { title: "Didn't stick", labels: (report.failed ?? []).map(name) },
-    { title: "Left for you", labels: report.left.filter((el) => !failed.has(el)).map(name) },
+    { title: "Filled but not accepted", labels: (report.notAccepted ?? []).map(name) },
+    { title: "Left for you", labels: report.left.filter((el) => !own.has(el)).map(name) },
   ].filter((g) => g.labels.length);
 }
 

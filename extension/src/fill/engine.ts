@@ -46,6 +46,7 @@ import {
   valueFor,
 } from "./keys";
 import type { Site } from "./sites";
+import { type Taken, aliasesFor, pickFromListbox, pickFromSearch } from "./workdayWidgets";
 
 export interface FillReport {
   filled: HTMLElement[];
@@ -57,6 +58,12 @@ export interface FillReport {
   skipped?: HTMLElement[];
   /** Fields that were set but didn't keep the value when read back. Also in ``left``. */
   failed?: HTMLElement[];
+  /**
+   * Fields that show a value the page didn't take: a Workday date that still
+   * says it's required, a search list with typed text and no chosen item, a
+   * field marked invalid. Retried once first. Also in ``left``.
+   */
+  notAccepted?: HTMLElement[];
   /** The label each reported field was matched by, for the summary. */
   labels?: Map<HTMLElement, string>;
 }
@@ -106,6 +113,9 @@ export function candidates(root: ParentNode): Candidate[] {
       continue;
     }
     if (!isFillable(el)) continue;
+    // Workday keeps a dropdown's chosen value id in a text input beside its button
+    // (<button aria-haspopup="listbox"> then <input type="text" value="bc33…">). It's not a question.
+    if (el instanceof HTMLInputElement && !el.id && !el.name && el.parentElement?.querySelector(":scope > button[aria-haspopup='listbox']")) continue;
     if (el instanceof HTMLInputElement && (el.type === "radio" || el.type === "checkbox")) {
       const group = groupOf(el, root);
       group.forEach((x) => seen.add(x));
@@ -189,7 +199,7 @@ export async function fillPage(
   options: FillOptions = {},
 ): Promise<FillReport> {
   const pauseMs = options.pauseMs ?? 25;
-  const report: FillReport = { filled: [], left: [], already: 0, skipped: [], failed: [], labels: new Map() };
+  const report: FillReport = { filled: [], left: [], already: 0, skipped: [], failed: [], notAccepted: [], labels: new Map() };
   // A site may fill parts of the page itself first, such as Workday's work and
   // education entries. Fields it handled are skipped below.
   const handled = new Set<HTMLElement>();
@@ -202,7 +212,10 @@ export async function fillPage(
     if (handled.has(c.el) || (c.kind === "group" && c.inputs.some((x) => handled.has(x)))) continue;
     const target = c.kind === "control" || c.kind === "combobox" || c.kind === "datepicker" ? c.el : c.kind === "group" ? c.inputs[0] : c.buttons[0];
     const label = c.kind === "buttons" ? labelOf(c.el) : labelOf(target);
-    report.labels!.set(c.el, label);
+    // The name the report shows. A site may know a better one than the matching label:
+    // Workday's dropdowns put their current answer in their aria-label, and the report never shows answers.
+    const shownLabel = site?.reportLabel?.(target) || label;
+    report.labels!.set(c.el, shownLabel);
 
     // A single checkbox is a consent or an agreement, so it's left for the person.
     // The one exception is a site's own "I currently work here" box.
@@ -232,7 +245,7 @@ export async function fillPage(
       continue;
     }
 
-    let outcome: "filled" | "left" | "skipped" | "failed" = "left";
+    let outcome: Outcome = "left";
     const whole = key ? profileDate(key, profile, index) : null;
     if (key === "resume") {
       const ok = !!resume && c.kind === "control" && c.el instanceof HTMLInputElement && c.el.type === "file" && setFile(c.el, resume);
@@ -270,23 +283,36 @@ export async function fillPage(
     else {
       report.left.push(c.el);
       if (outcome === "failed") report.failed!.push(c.el);
+      if (outcome === "notAccepted") report.notAccepted!.push(c.el);
     }
     if (outcome !== "skipped" && outcome !== "left" && pauseMs) await pause(pauseMs);
   }
+  if (site?.after) await site.after(root, report);
   return report;
 }
 
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+type Outcome = "filled" | "left" | "skipped" | "failed" | "notAccepted";
+
+/** A Workday widget's result as an outcome: taken, nothing to pick, or shown but not taken. */
+function fromTaken(taken: Taken): Outcome {
+  return taken === "accepted" ? "filled" : taken === "not_accepted" ? "notAccepted" : "left";
+}
+
 /** Answer one field. "failed" when a text field didn't keep the value even after a retry. */
-async function answer(c: Candidate, value: string): Promise<"filled" | "left" | "failed"> {
-  const done = (ok: boolean) => (ok ? "filled" : "left");
+async function answer(c: Candidate, value: string): Promise<Outcome> {
+  const done = (ok: boolean): Outcome => (ok ? "filled" : "left");
   switch (c.kind) {
     case "group":
       return done(setChoice(c.inputs, value));
     case "buttons":
       return done(setButtonChoice(c.buttons, value));
     case "combobox":
+      // A button that opens a list of options (Workday's State, Phone Device Type, Degree).
+      if (c.el instanceof HTMLButtonElement && c.el.getAttribute("aria-haspopup") === "listbox") {
+        return fromTaken(await pickFromListbox(c.el, value, aliasesFor(value)));
+      }
       return done(await setCombobox(c.el, value));
     case "datepicker":
       return "left";
@@ -295,7 +321,11 @@ async function answer(c: Candidate, value: string): Promise<"filled" | "left" | 
       if (el instanceof HTMLSelectElement) return done(setSelect(el, value));
       if (el instanceof HTMLInputElement && el.type === "file") return "left";
       // Workday's searchable lists are text inputs that open their options on Enter.
-      if (el instanceof HTMLInputElement && isSearchBox(el)) return done(await setSearchBox(el, value));
+      if (el instanceof HTMLInputElement && isSearchBox(el)) {
+        // Workday's newer search lists (data-uxi-widget-type="selectinput") are only answered by a chosen chip.
+        if (el.getAttribute("data-uxi-widget-type") === "selectinput") return fromTaken(await pickFromSearch(el, value));
+        return done(await setSearchBox(el, value));
+      }
       if (el instanceof HTMLInputElement && el.type === "date") {
         // "05/18/2027" back to the date input's own "2027-05-18".
         const [m, d, y] = value.split("/");
