@@ -150,8 +150,8 @@ export default function FactImport({ onSaved }: { onSaved: (facts: Fact[]) => vo
               {row.quote && <p className="small faint">From: “{row.quote}”</p>}
               {row.duplicate && <p className="small muted">Already in your facts bank.</p>}
               {!row.supported && !row.editing && (
-                <p className="small" style={{ color: "var(--negative)" }}>
-                  {row.reasons.join(" ")} Edit it to keep it.
+                <p className="small" style={{ color: "var(--warning)" }}>
+                  Needs your OK: {row.reasons.join(" ")} Accept it if it's true, or edit it.
                 </p>
               )}
               <div className="row">
@@ -166,9 +166,11 @@ export default function FactImport({ onSaved }: { onSaved: (facts: Fact[]) => vo
                   </>
                 ) : (
                   <>
-                    <button className="btn btn-sm btn-primary" disabled={!row.supported || row.duplicate} onClick={() => save(row, row.text)}>
-                      Accept
-                    </button>
+                    {!row.duplicate && (
+                      <button className="btn btn-sm btn-primary" onClick={() => save(row, row.text)}>
+                        Accept
+                      </button>
+                    )}
                     <button className="btn btn-sm" onClick={() => update(row.key, { editing: true })}>
                       Edit
                     </button>

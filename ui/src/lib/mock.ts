@@ -420,16 +420,16 @@ export async function installMock() {
             return structuredClone(r);
           }
           r.rewrites = rewrites();
-          // A note that names a skill puts it on the skills line, backed up by the note's fact.
-          const skill = db.facts.find((f) => r.note_fact_ids.includes(f.id) && f.text.startsWith("Skills: "));
-          if (skill) {
-            const named = skill.text.slice("Skills: ".length);
-            r.rewrites.push(
-              rw("s2", "Technical Skills | Frameworks & Libraries", "Technical Skills", "React, Express, pytest, pandas", `React, ${named}, Express, pytest, pandas`, "ok", {
-                why: `Shows ${named} from your note`,
-                sources: ["s2", skill.id],
-              }),
-            );
+          // "add C++" or "add Node.js": the app adds the skill to the line it belongs on, as the person's change.
+          for (const ask of r.note_asks ?? []) {
+            const m = ask.match(/^(?:please\s+)?add\s+(.+?)(?:\s+to\s+(?:my\s+)?skills)?$/i);
+            if (!m || /\bto\b|bullet/i.test(m[1])) continue;
+            const named = m[1];
+            const language = /^(c\+\+|c#|c|go|rust|java|python|sql|r)$/i.test(named);
+            const [id, label, old] = language
+              ? ["s1", "Technical Skills | Languages", "Python, TypeScript, JavaScript, Java, SQL"]
+              : ["s2", "Technical Skills | Frameworks & Libraries", "React, Express, pytest, pandas"];
+            r.rewrites.push(rw(id, label, "Technical Skills", old, `${old}, ${named}`, "ok", { why: "You asked for it", sources: [id, "note"], asked: ask, asked_kind: "add", label: language ? "Languages" : "Frameworks & Libraries" }));
           }
           // A note that says how many pull requests unblocks b5, the way a fact does in the real checker.
           const prs = db.facts.find((f) => r.note_fact_ids.includes(f.id) && /\d+ pull requests/.test(f.text));
@@ -439,7 +439,7 @@ export async function installMock() {
               x.bullet_id === "b5" ? { ...x, new_text: `Reviewed ${n} pull requests and shipped backend features with the routing team`, status: "ok", reasons: [], sources: ["b5", prs.id], grounding: { claims: [{ text: n, kind: "number", supported: true }], citation_errors: [] } } : x,
             );
           }
-          r.decisions = {};
+          r.decisions = Object.fromEntries(r.rewrites.filter((x) => x.asked).map((x) => [x.bullet_id, { state: "accepted" as const, origin: "note" }]));
           r.final = null;
           // Changes a note asked for: the graduation date one is applied; "my dates" asks which line.
           const items: ItemResult[] = [
@@ -488,8 +488,8 @@ export async function installMock() {
         if (!x) throw { kind: "not_found", message: "No rewrite for that bullet." };
         const action = String(a.action);
         if (action === "accept") {
-          if (x.status === "blocked") throw { kind: "blocked", message: x.reasons.join(" ") };
-          r.decisions[id] = { state: "accepted", origin: "rewrite" };
+          // A rewrite that needs the person's OK: accepting it is that OK.
+          r.decisions[id] = { state: "accepted", origin: x.status === "blocked" ? "your OK" : "rewrite" };
         } else if (action === "reject") r.decisions[id] = { state: "rejected", origin: "rewrite" };
         else if (action === "reset") r.decisions[id] = { state: "pending", origin: "" };
         else if (action === "edit") {
@@ -508,7 +508,8 @@ export async function installMock() {
           .split(/\n|(?<=[.!?])\s+/)
           .map((x) => x.replace(/^[-*•\s]+/, "").trim().replace(/\.$/, ""));
         // A sentence that asks for a change is kept on the run, as the backend does; the rewrite applies it.
-        const asks = raw.filter((x) => /^(?:please\s+)?(?:change|update|replace|correct|fix|rename)\s/i.test(x));
+        // A request ("change ...", "add C++") is kept on the run and applied by the app; the rest are facts.
+        const asks = raw.filter((x) => /^(?:please\s+)?(?:change|update|replace|correct|fix|rename|add)\s/i.test(x));
         r.note_asks = [...(r.note_asks ?? []), ...asks.filter((x) => !(r.note_asks ?? []).includes(x))];
         const pieces = raw
           .filter((x) => !asks.includes(x))
@@ -521,6 +522,33 @@ export async function installMock() {
           db.facts.push({ id, text, question: null, bullet_text: null, created_at: now() });
           r.note_fact_ids.push(id);
         }
+        return structuredClone(r);
+      }
+      case "run_lines": {
+        const r = run(a.runId);
+        const base: [string, string, string, string, boolean][] = [
+          ["h1.3", "Graduation date", "Education | State University", "Expected May 2027", true],
+          ["b1", "Coursework", "Education | State University", "**Relevant Coursework:** Data Structures, Operating Systems, Databases", false],
+          ...rewrites().map((x) => [x.bullet_id, "Bullet", x.entry, x.old_text, false] as [string, string, string, string, boolean]),
+          ["s1", "Languages", "Technical Skills | Languages", "Python, TypeScript, JavaScript, Java, SQL", false],
+        ];
+        return base.map(([id, label, heading, original, isFact]) => {
+          const changed = r.rewrites.find((x) => x.bullet_id === id && r.decisions[id]?.state === "accepted");
+          return { id, label, heading, section: heading.split(" | ")[0], text: changed ? changed.new_text : original, original, protected: isFact };
+        });
+      }
+      case "edit_line": {
+        const r = run(a.runId);
+        const id = String(a.lineId);
+        const text = String(a.text ?? "");
+        const existing = r.rewrites.find((x) => x.bullet_id === id);
+        if (existing) Object.assign(existing, { new_text: text, status: "ok", reasons: [], warnings: [], asked: "Your edit", asked_kind: "edit" });
+        else {
+          const line = (await handle("run_lines", { runId: a.runId }) as { id: string; label: string; heading: string; original: string }[]).find((x) => x.id === id);
+          if (!line) throw { kind: "not_found", message: "Unknown line." };
+          r.rewrites.push(rw(id, line.heading, line.heading.split(" | ")[0], line.original, text, "ok", { asked: "Your edit", asked_kind: "edit", label: line.label, sources: [id] }));
+        }
+        r.decisions[id] = { state: "accepted", origin: "edit" };
         return structuredClone(r);
       }
       case "undo_note": {

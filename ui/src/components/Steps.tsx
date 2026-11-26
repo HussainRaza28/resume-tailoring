@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import AsciiWakeLoader from "../blocks/AsciiWakeLoader";
 import ArcRing from "../blocks/ArcRing";
-import type { Coverage, Fact, ItemResult, RunState, SkillStatus } from "../lib/api";
-import { finalIsStale, modelLabel, providerLabel, runTotals } from "../lib/api";
+import type { Coverage, Fact, ItemResult, ResumeLine, RunState, SkillStatus } from "../lib/api";
+import { api, finalIsStale, modelLabel, providerLabel, runTotals } from "../lib/api";
 import { duration, money, pct, tokens } from "../lib/format";
 import { modKey } from "../lib/platform";
 import { rewriteNote } from "../lib/rewriteNote";
@@ -131,6 +131,8 @@ type RewriteProps = {
   focus: number;
   setFocus: (i: number) => void;
   decide: (bulletId: string, action: "accept" | "reject" | "reset") => Promise<void>;
+  /** Save the person's own text for a line. */
+  editLine: (lineId: string, text: string) => Promise<void>;
 };
 
 export function RewriteStep(p: RewriteProps) {
@@ -145,6 +147,7 @@ export function RewriteStep(p: RewriteProps) {
         </div>
       )}
       {(p.run.rewrite_summary?.items ?? []).length > 0 && <ItemList items={p.run.rewrite_summary!.items!} />}
+      <AllLines run={p.run} editLine={p.editLine} />
       {changed.map((r, i) => {
         const head = r.entry !== lastEntry ? r.entry : null;
         lastEntry = r.entry;
@@ -165,6 +168,7 @@ export function RewriteStep(p: RewriteProps) {
               onAccept={() => p.decide(r.bullet_id, "accept")}
               onReject={() => p.decide(r.bullet_id, "reject")}
               onReset={() => p.decide(r.bullet_id, "reset")}
+              onEdit={(text) => p.editLine(r.bullet_id, text)}
             />
           </div>
         );
@@ -175,7 +179,7 @@ export function RewriteStep(p: RewriteProps) {
 
 const ITEM_STATUS: Record<ItemResult["status"], { label: string; tone: string }> = {
   applied: { label: "Applied", tone: "pill-positive" },
-  blocked: { label: "Blocked", tone: "pill-negative" },
+  blocked: { label: "Needs your OK", tone: "pill-warning" },
   couldnt_act: { label: "Couldn't act", tone: "pill-warning" },
   ask: { label: "Which line?", tone: "pill-warning" },
 };
@@ -208,6 +212,73 @@ export function ItemList({ items }: { items: ItemResult[] }) {
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+/**
+ * Every line of the resume, to change any of them by hand: bullets the rewrite
+ * left alone, coursework, skills, tech stacks, and facts such as dates and GPA.
+ * A hand edit is the person's own and starts accepted; its card has Keep original.
+ */
+export function AllLines({ run, editLine }: { run: RunState; editLine: (lineId: string, text: string) => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [lines, setLines] = useState<ResumeLine[]>([]);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  useEffect(() => {
+    if (open) api.runLines(run.id).then(setLines).catch(() => setLines([]));
+  }, [open, run]);
+  return (
+    <div className="card all-lines">
+      <button className="link-button" onClick={() => setOpen(!open)} aria-expanded={open}>
+        {open ? "Hide the other lines" : "Edit any line"}
+      </button>
+      {open && (
+        <ul aria-label="All lines">
+          {lines.map((line) => (
+            <li key={line.id}>
+              <div className="small faint">
+                {line.heading} · {line.label}
+                {line.protected && <span className="pill">Fact</span>}
+              </div>
+              {editing === line.id ? (
+                <div className="edit-line">
+                  <textarea className="textarea" rows={2} value={draft} aria-label={`Edit ${line.label}`} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
+                  <div className="row">
+                    <button
+                      className="btn btn-sm btn-primary"
+                      onClick={async () => {
+                        await editLine(line.id, draft);
+                        setEditing(null);
+                      }}
+                    >
+                      Save
+                    </button>
+                    <button className="btn btn-sm" onClick={() => setEditing(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="row">
+                  <span className="grow">{line.text.replace(/\*/g, "")}</span>
+                  <button
+                    className="btn btn-sm"
+                    aria-label={`Edit ${line.heading} ${line.label}`}
+                    onClick={() => {
+                      setEditing(line.id);
+                      setDraft(line.text);
+                    }}
+                  >
+                    Edit
+                  </button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

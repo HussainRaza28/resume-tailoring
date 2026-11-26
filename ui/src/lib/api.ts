@@ -55,6 +55,20 @@ export interface CheckedRewrite {
   label?: string;
   /** The note that asked for this change, when the person asked for it. */
   asked?: string;
+  /** "add" or "change" for a note's request, "edit" for a hand edit. */
+  asked_kind?: string;
+}
+
+/** One line of the resume, for editing any of them by hand. */
+export interface ResumeLine {
+  id: string;
+  label: string;
+  heading: string;
+  section: string;
+  text: string;
+  original: string;
+  /** A fact (date, GPA, title, school): the model never changes it, the person may. */
+  protected: boolean;
 }
 
 /** What the rewrite did with one advice item from the score or one note. */
@@ -379,6 +393,8 @@ export const api = {
     call<RunState>("decide", { runId, bulletId, action, text: text ?? null }),
   toggleRemove: (runId: string, bulletId: string) => call<RunState>("toggle_remove", { runId, bulletId }),
   addNote: (runId: string, note: string) => call<RunState>("add_note", { runId, note }),
+  runLines: (runId: string) => call<ResumeLine[]>("run_lines", { runId }),
+  editLine: (runId: string, lineId: string, text: string) => call<RunState>("edit_line", { runId, lineId, text }),
   undoNote: (runId: string) => call<RunState>("undo_note", { runId }),
   compileRun: async (runId: string) => toBytes(await call<unknown>("compile_run", { runId })),
   exportRun: (runId: string, dir: string) => call<RunState>("export_run", { runId, dir }),

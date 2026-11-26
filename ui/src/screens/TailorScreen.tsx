@@ -229,7 +229,21 @@ export default function TailorScreen(p: Props) {
         update(await api.decide(run.id, bulletId, action));
       } catch (e) {
         const err = isCmdError(e) ? e : { kind: "unknown", message: String(e) };
-        toast.push({ tone: "error", title: err.kind === "blocked" ? "Blocked rewrites cannot be accepted" : "Could not save that", body: err.message });
+        toast.push({ tone: "error", title: "Could not save that", body: err.message });
+      }
+    },
+    [run, update, toast],
+  );
+
+  /** The person's own text for any line: saved, never blocked, starts accepted. */
+  const editLine = useCallback(
+    async (lineId: string, text: string) => {
+      if (!run) return;
+      try {
+        update(await api.editLine(run.id, lineId, text));
+      } catch (e) {
+        const err = isCmdError(e) ? e : { kind: "unknown", message: String(e) };
+        toast.push({ tone: "error", title: "Could not save that", body: err.message });
       }
     },
     [run, update, toast],
@@ -400,7 +414,7 @@ export default function TailorScreen(p: Props) {
                   {view === "score" && run.score && !pending && (
                     <ScoreStep run={run} note={note} setNote={setNote} onRewrite={toRewrite} undoNote={undoNote} busy={!!pending} />
                   )}
-                  {view === "rewrite" && !pending && <RewriteStep run={run} facts={facts} focus={focus} setFocus={setFocus} decide={decide} />}
+                  {view === "rewrite" && !pending && <RewriteStep run={run} facts={facts} focus={focus} setFocus={setFocus} decide={decide} editLine={editLine} />}
                   {view === "done" && (
                     <DoneStep
                       run={run}

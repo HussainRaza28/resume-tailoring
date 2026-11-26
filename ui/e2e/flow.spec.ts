@@ -34,7 +34,8 @@ test("paste, score, add a note, rewrite, done", async ({ page }) => {
   await expect(styled.getByText(/Stock word/)).toBeVisible();
   await expect(styled.getByText("Check style")).toBeVisible();
   await expect(styled.getByRole("button", { name: "Accept" })).toBeEnabled();
-  await expect(page.getByRole("button", { name: /Edit/ })).toHaveCount(0);
+  // Every card can be edited by hand.
+  await expect(styled.getByRole("button", { name: /^Edit/ })).toBeVisible();
 
   // keyboard: right arrow accepts the focused bullet
   await page.locator("body").click({ position: { x: 5, y: 500 } });
@@ -116,10 +117,10 @@ test("facts import suggests facts and saves only what is accepted", async ({ pag
   await page.locator('input[type="file"]').setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("TrailMap is used by 140 members.") });
   await expect(page.getByRole("heading", { name: "Suggested from notes.txt" })).toBeVisible();
 
-  // A suggestion with a number the document lacks can't be accepted as is.
+  // A suggestion with a number the document lacks needs the person's OK; Accept still works.
   const blocked = page.locator(".suggestion", { hasText: "2,000 monthly users" });
-  await expect(blocked.getByText('Number "2,000" is not in the document.', { exact: false })).toBeVisible();
-  await expect(blocked.getByRole("button", { name: "Accept" })).toBeDisabled();
+  await expect(blocked.getByText('Needs your OK: Number "2,000" is not in the document.', { exact: false })).toBeVisible();
+  await expect(blocked.getByRole("button", { name: "Accept" })).toBeEnabled();
   await blocked.getByRole("button", { name: "Reject" }).click();
   await expect(blocked).toHaveCount(0);
 
@@ -242,16 +243,47 @@ async function scoreSample(page: import("@playwright/test").Page, query: string)
   await expect(page.getByRole("meter", { name: "ATS score" })).toBeVisible({ timeout: 20_000 });
 }
 
-test("rewrite: a note that names a skill puts it on the Technical Skills line", async ({ page }) => {
+test("rewrite: a note that names a skill puts it on its Technical Skills line, as your change", async ({ page }) => {
   await scoreSample(page, "");
-  await page.getByLabel("Anything to add?").fill("add Node.js");
+  await page.getByLabel("Anything to add?").fill("add Node.js. add C++");
   await page.getByRole("button", { name: /^Rewrite/ }).click();
-  const skillsLine = page.locator(".bullet", { hasText: "React, Node.js, Express, pytest, pandas" });
-  await expect(skillsLine).toBeVisible({ timeout: 20_000 });
-  await expect(skillsLine.getByRole("button", { name: "Accept" })).toBeEnabled();
-  await expect(page.locator(".entry-head", { hasText: "Technical Skills" })).toContainText("Frameworks & Libraries");
+  const frameworks = page.locator(".bullet", { hasText: "React, Express, pytest, pandas, Node.js" });
+  await expect(frameworks).toBeVisible({ timeout: 20_000 });
+  await expect(frameworks.getByRole("note")).toHaveText("Added because you asked: add Node.js");
+  await expect(frameworks.getByText("Accepted")).toBeVisible();
+  const languages = page.locator(".bullet", { hasText: "Python, TypeScript, JavaScript, Java, SQL, C++" });
+  await expect(languages.getByRole("note")).toHaveText("Added because you asked: add C++");
+  await expect(page.getByText(/Blocked/)).toHaveCount(0);
   await page.getByRole("tab", { name: /Score/ }).click();
-  await expect(page.getByText("Added 1 fact ·")).toBeVisible();
+  await expect(page.getByText("Added 2 changes ·")).toBeVisible();
+});
+
+test("rewrite: a change the model made that fails the checks needs your OK, and Accept works", async ({ page }) => {
+  await scoreSample(page, "");
+  await page.getByRole("button", { name: /^Rewrite/ }).click();
+  const flagged = page.locator(".bullet", { hasText: "Reviewed 40+ pull requests" });
+  await expect(flagged.getByText("Needs your OK").first()).toBeVisible({ timeout: 20_000 });
+  const accept = flagged.getByRole("button", { name: "Accept" });
+  await expect(accept).toBeEnabled();
+  await accept.click();
+  await expect(flagged.getByText("Accepted")).toBeVisible();
+  await expect(page.locator("button[disabled]", { hasText: "Accept" })).toHaveCount(0);
+});
+
+test("rewrite: any line can be edited by hand, a date included, and Keep original undoes it", async ({ page }) => {
+  await scoreSample(page, "");
+  await page.getByRole("button", { name: /^Rewrite/ }).click();
+  await expect(page.locator(".bullet").first()).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "Edit any line" }).click();
+  const lines = page.getByRole("list", { name: "All lines" });
+  await lines.getByRole("button", { name: "Edit Education | State University Graduation date" }).click();
+  await lines.getByLabel("Edit Graduation date").fill("Expected May 2026");
+  await lines.getByRole("button", { name: "Save" }).click();
+  const card = page.locator(".bullet", { hasText: "Expected May 2026" });
+  await expect(card.getByRole("note")).toHaveText("Your edit");
+  await expect(card.getByText("Accepted")).toBeVisible();
+  await card.getByRole("button", { name: "Undo" }).click();
+  await expect(card.getByText("Kept original")).toBeVisible();
 });
 
 test("rewrite: lines that come back unchanged are reported, not called no changes needed", async ({ page }) => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CheckedRewrite, DecisionState, Fact } from "../lib/api";
 import { boldRuns, changedShare, parseBold, wordDiff } from "../lib/diff";
 import { IconCheck, IconUndo, IconX } from "./icons";
@@ -12,7 +12,15 @@ type Props = {
   onAccept: () => void;
   onReject: () => void;
   onReset: () => void;
+  /** Save the person's own text for this line. */
+  onEdit?: (text: string) => void;
 };
+
+/** How a change the person made or asked for is introduced on its card. */
+function askedLine(kind: string | undefined, note: string): { lead: string; quote: string | null } {
+  if (kind === "edit" || note === "Your edit") return { lead: "Your edit", quote: null };
+  return { lead: kind === "add" ? "Added because you asked:" : "Changed because you asked:", quote: note };
+}
 
 /** Text with its bold shown as real bold. */
 function Bold({ text, bold, offset }: { text: string; bold: boolean[]; offset: number }) {
@@ -78,6 +86,10 @@ export default function BulletCard(p: Props) {
   const factFor = (id: string) => p.facts.find((f) => f.id === id);
   const sources = r.sources.filter((s) => s !== r.bullet_id && s !== "note");
   const asked = !!r.asked && !unchanged;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(r.new_text);
+  useEffect(() => setDraft(r.new_text), [r.new_text]);
+  const said = asked ? askedLine(r.asked_kind, r.asked!) : null;
 
   return (
     <div ref={ref} className="bullet enter" data-state={p.decision} data-focused={p.focused} onMouseDown={p.onFocus} aria-label={`Bullet ${r.bullet_id}`}>
@@ -93,23 +105,44 @@ export default function BulletCard(p: Props) {
             New
             {p.decision === "accepted" && <span className="pill pill-positive">Accepted</span>}
             {p.decision === "rejected" && <span className="pill">Kept original</span>}
-            {blocked && <span className="pill pill-negative">Blocked</span>}
+            {blocked && p.decision !== "accepted" && <span className="pill pill-warning">Needs your OK</span>}
             {!blocked && !unchanged && warnings.length > 0 && <span className="pill pill-warning">Check style</span>}
           </div>
-          <div className="col-text selectable">
-            <DiffText oldText={r.old_text} newText={r.new_text} side="new" />
-          </div>
+          {editing ? (
+            <div className="edit-line">
+              <textarea className="textarea" rows={3} value={draft} aria-label={`Edit ${r.label || "line"}`} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
+              <div className="row">
+                <button className="btn btn-sm btn-primary" onClick={() => { p.onEdit?.(draft); setEditing(false); }}>
+                  Save
+                </button>
+                <button className="btn btn-sm" onClick={() => { setDraft(r.new_text); setEditing(false); }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="col-text selectable">
+              <DiffText oldText={r.old_text} newText={r.new_text} side="new" />
+            </div>
+          )}
         </div>
       </div>
 
-      {asked && (
+      {said && (
         <div className="asked-note" role="note">
-          Changed because you asked: <q>{r.asked}</q>
+          {said.lead}
+          {said.quote && (
+            <>
+              {" "}
+              <q>{said.quote}</q>
+            </>
+          )}
         </div>
       )}
 
       {blocked && r.reasons.length > 0 && (
-        <div className="reasons" role="note">
+        <div className="reasons reasons-warning" role="note">
+          <span>Needs your OK: the model wrote this, and the checks found something your resume and facts don't back up.</span>
           {r.reasons.map((reason, i) => (
             <span key={i}>{reason}</span>
           ))}
@@ -138,6 +171,11 @@ export default function BulletCard(p: Props) {
           ))}
           {r.why && <span className="faint">· {r.why}</span>}
         </div>
+        {p.onEdit && !editing && (
+          <button className="btn btn-sm" onClick={() => setEditing(true)} aria-label={`Edit ${r.label || "line"}`}>
+            Edit
+          </button>
+        )}
         {asked && !blocked && (
           <div className="actions">
             {p.decision === "accepted" ? (
@@ -158,7 +196,7 @@ export default function BulletCard(p: Props) {
                 <button className="btn btn-sm" onClick={p.onReject} aria-label="Keep original">
                   <IconX /> Keep original
                 </button>
-                <button className="btn btn-sm btn-primary" onClick={p.onAccept} disabled={blocked} aria-label="Accept">
+                <button className="btn btn-sm btn-primary" onClick={p.onAccept} aria-label="Accept">
                   <IconCheck /> Accept
                 </button>
               </>
