@@ -28,7 +28,9 @@
  * that was gone by the time the page was saved), so the list is found by role
  * and by being new: options that weren't on the page before the click.
  */
-import { isVisible, labelOf, setText, waitFor } from "./dom";
+import { isVisible, labelOf, waitFor } from "./dom";
+import { clearField, click, focusField, hasFocus, inputMode, leave, press, typeText } from "./input";
+import { live, remember } from "./live";
 import { bestChoice, normalize } from "./keys";
 
 export type Taken = "accepted" | "not_accepted" | "no_match" | "missing";
@@ -93,66 +95,30 @@ export function bannerErrors(root: ParentNode): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Typing the way Workday listens for it
+// What happened while filling a field, for Debug mode
 // ---------------------------------------------------------------------------
 
-function key(el: HTMLElement, type: "keydown" | "keypress" | "keyup", k: string): boolean {
-  const code = /^\d$/.test(k) ? `Digit${k}` : k.length === 1 ? `Key${k.toUpperCase()}` : k;
-  const keyCode = /^\d$/.test(k) ? 48 + Number(k) : k === "Enter" ? 13 : k === "Escape" ? 27 : k === "Backspace" ? 8 : k === "Tab" ? 9 : k.toUpperCase().charCodeAt(0);
-  return el.dispatchEvent(new KeyboardEvent(type, { key: k, code, keyCode, which: keyCode, bubbles: true, cancelable: true, composed: true }));
+/** Notes about the field being filled right now: how it was typed, whether it kept focus, how many tries. */
+export interface Trace {
+  method: "trusted" | "synthetic";
+  focusAfterTyping: boolean | null;
+  attempts: number;
+  steps: string[];
 }
 
-/** Press a key that isn't text (Enter, Escape, Tab, ArrowDown). */
-export function press(el: HTMLElement, k: string): void {
-  key(el, "keydown", k);
-  key(el, "keyup", k);
+let trace: Trace = { method: "synthetic", focusAfterTyping: null, attempts: 0, steps: [] };
+
+export function beginTrace(): Trace {
+  trace = { method: inputMode().mode, focusAfterTyping: null, attempts: 0, steps: [] };
+  return trace;
 }
 
-function setNative(el: HTMLInputElement | HTMLTextAreaElement, value: string): void {
-  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-  const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-  if (setter) setter.call(el, value);
-  else el.value = value;
+export function lastTrace(): Trace {
+  return trace;
 }
 
-/** Type text one character at a time: keydown, keypress, the value through the native setter, input, keyup. */
-export function typeText(el: HTMLInputElement | HTMLTextAreaElement, text: string): void {
-  let typed = el.value;
-  for (const ch of text) {
-    const allowed = key(el, "keydown", ch);
-    key(el, "keypress", ch);
-    // A page that handles the key itself (preventDefault) sets the value on its own.
-    if (allowed) {
-      typed += ch;
-      setNative(el, typed);
-      el.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true, data: ch, inputType: "insertText" }));
-    }
-    key(el, "keyup", ch);
-  }
-}
-
-/** Empty a field the way a person would: select all, Backspace. */
-export function clearTyped(el: HTMLInputElement | HTMLTextAreaElement): void {
-  if (!el.value) return;
-  key(el, "keydown", "Backspace");
-  setNative(el, "");
-  el.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true, inputType: "deleteContentBackward" }));
-  key(el, "keyup", "Backspace");
-}
-
-function blurField(el: HTMLElement): void {
-  el.dispatchEvent(new Event("change", { bubbles: true }));
-  el.dispatchEvent(new FocusEvent("blur", { bubbles: false }));
-  el.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
-  if (el.ownerDocument.activeElement === el) el.blur();
-}
-
-/** A pointer press: mousedown, mouseup and click, as Workday's lists listen for. */
-export function pointerClick(el: HTMLElement): void {
-  for (const type of ["mousedown", "mouseup"]) {
-    el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, composed: true, button: 0 }));
-  }
-  el.click();
+function step(name: string): void {
+  if (trace.steps.length < 40) trace.steps.push(name);
 }
 
 // ---------------------------------------------------------------------------
@@ -183,14 +149,15 @@ export function segmentTaken(input: HTMLInputElement, value: string): boolean {
   return (now !== null && Number(now) === n) || (/^\d+$/.test(shown) && Number(shown) === n);
 }
 
-function typeSegment(input: HTMLInputElement, value: string): void {
-  // Workday focuses a segment when its section is clicked.
-  const section = input.parentElement ?? input;
-  pointerClick(section);
-  input.focus();
-  clearTyped(input);
-  typeText(input, value);
-  input.dispatchEvent(new Event("change", { bubbles: true }));
+/** Type a date segment as a person does: click it, delete what's there, press each digit. */
+async function typeSegment(segment: HTMLInputElement, value: string): Promise<void> {
+  const input = live(segment);
+  // Workday focuses a segment when its section (the box around MM or YYYY) is clicked.
+  await click(input.parentElement ?? input);
+  if (!hasFocus(live(segment))) live(segment).focus();
+  await clearField(live(segment));
+  await typeText(live(segment), value, true);
+  step(`typed ${value.length} digits`);
 }
 
 /**
@@ -199,17 +166,20 @@ function typeSegment(input: HTMLInputElement, value: string): void {
  * no segment for a part the value gives.
  */
 export async function setWorkdayDate(wrapper: HTMLElement, month: string, year: string): Promise<Taken> {
+  remember(wrapper);
   const seg = dateSegments(wrapper);
   const parts: [HTMLInputElement, string][] = [];
   if (seg.month && month) parts.push([seg.month, month.padStart(2, "0")]);
   if (seg.year && year) parts.push([seg.year, year]);
   if (!parts.length) return "missing";
-  const field = fieldOf(wrapper) ?? wrapper;
-  const taken = () => parts.every(([input, v]) => segmentTaken(input, v)) && !fieldError(field);
+  for (const [input] of parts) remember(input);
+  const taken = () => parts.every(([input, v]) => segmentTaken(live(input), v)) && !fieldError(fieldOf(live(wrapper)) ?? live(wrapper));
   for (let attempt = 0; attempt < 2; attempt++) {
-    for (const [input, v] of parts) typeSegment(input, v);
-    blurField(parts[parts.length - 1][0]);
-    await settle(attempt ? 300 : 120);
+    trace.attempts++;
+    for (const [input, v] of parts) await typeSegment(input, v);
+    trace.focusAfterTyping = hasFocus(live(parts[parts.length - 1][0]));
+    leave(live(parts[parts.length - 1][0]));
+    await settle(attempt ? 400 : 200);
     if (taken()) return "accepted";
   }
   return "not_accepted";
@@ -260,6 +230,85 @@ export function rankOption(options: string[], wanted: string, aliases: string[] 
   return loose ? bestChoice(options, wanted) : -1;
 }
 
+// ---------------------------------------------------------------------------
+// Skills
+// ---------------------------------------------------------------------------
+
+/** Words Workday adds to a skill's name that don't change which skill it is. */
+const SKILL_QUALIFIERS = /\b(programming language|programming|language|framework|library|software|platform)\b/g;
+
+/**
+ * A skill's name for comparing: lower case, parenthetical qualifiers dropped
+ * ("Python (Programming Language)" is "python"), generic words dropped ("R
+ * Programming" is "r"), other punctuation removed. "+", "#" and "." stay,
+ * because C, C++ and C# are different skills, as are Node.js and Node.
+ */
+export function skillKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/[^a-z0-9+#.\s]/g, " ")
+    .replace(SKILL_QUALIFIERS, " ")
+    .replace(/(^|\s)\.+|\.+(?=\s|$)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Skills that go by more than one name. Each group is one skill. */
+const SKILL_ALIASES: string[][] = [
+  ["javascript", "js", "ecmascript"],
+  ["typescript", "ts"],
+  ["go", "golang"],
+  ["postgresql", "postgres"],
+  ["c#", "csharp", "c sharp"],
+  ["c++", "cpp"],
+  ["react", "react.js", "reactjs"],
+  ["node.js", "nodejs", "node"],
+  ["vue", "vue.js", "vuejs"],
+  ["next.js", "nextjs"],
+  ["aws", "amazon web services"],
+  ["gcp", "google cloud platform", "google cloud"],
+  ["azure", "microsoft azure"],
+  ["kubernetes", "k8s"],
+  ["machine learning", "ml"],
+  ["artificial intelligence", "ai"],
+  ["html", "html5"],
+  ["css", "css3"],
+  ["objective-c", "objective c"],
+  ["scikit-learn", "sklearn", "scikit learn"],
+  ["tensorflow", "tensor flow"],
+  ["pytorch", "torch"],
+  ["github actions", "github action"],
+  ["ci cd", "ci/cd", "continuous integration"],
+  ["shell", "bash", "shell scripting"],
+];
+
+function aliasGroup(key: string): string[] {
+  const group = SKILL_ALIASES.find((g) => g.map(skillKey).includes(key));
+  return group ? group.map(skillKey) : [key];
+}
+
+/**
+ * The option that is ``wanted``, as a skill: the same name once qualifiers are
+ * dropped, else a known other name for it. Never a longer or different skill:
+ * "C" doesn't pick C# or C++, "Django" doesn't pick "Django Admin", "SQL"
+ * doesn't pick "Interactive SQL". -1 when no option is that skill.
+ */
+export function matchSkill(options: string[], wanted: string): number {
+  const keys = options.map(skillKey);
+  const own = skillKey(wanted);
+  if (!own) return -1;
+  // The shortest exact name first: "Python" before "Python (Programming Language)".
+  const exact = keys.map((k, i) => [k, i] as const).filter(([k]) => k === own).sort((a, b) => options[a[1]].length - options[b[1]].length);
+  if (exact.length) return exact[0][1];
+  const others = aliasGroup(own).filter((k) => k !== own);
+  for (const other of others) {
+    const i = keys.indexOf(other);
+    if (i >= 0) return i;
+  }
+  return -1;
+}
+
 /** An option's text: its own label, or the promptOption inside it. */
 function optionText(o: HTMLElement): string {
   return o.getAttribute("data-automation-label") ?? textOf(o.querySelector("[data-automation-id='promptOption']") ?? o);
@@ -289,56 +338,62 @@ export function chipsIn(field: ParentNode | null): string[] {
   );
 }
 
-function chipFits(field: ParentNode | null, wanted: string): boolean {
-  return rankOption(chipsIn(field), wanted) >= 0;
-}
+/** How to choose among a list's options: ``rankOption`` with aliases, or ``matchSkill`` for skills. */
+export type Matcher = (options: string[], wanted: string) => number;
+
+export const byName = (aliases: string[] = []): Matcher => (options, wanted) => rankOption(options, wanted, aliases);
 
 /**
- * Pick ``wanted`` in a Workday search list: type it, wait for the list, click
- * the best option, and check a chip for it appeared. When nothing fits, the
- * typed text is cleared so it isn't left in the field as if it were an answer.
+ * Pick ``wanted`` in a Workday search list: click the box, type it, wait for
+ * the list, click the matching option, and check a chip for it appeared. When
+ * nothing matches, the typed text is cleared so it isn't left in the field as
+ * if it were an answer.
  */
-export async function pickFromSearch(input: HTMLInputElement, wanted: string, aliases: string[] = []): Promise<Taken> {
+export async function pickFromSearch(input: HTMLInputElement, wanted: string, match: Matcher = byName()): Promise<Taken> {
+  remember(input);
   const doc = input.ownerDocument;
-  const field = fieldOf(input) ?? input.parentElement;
-  if (chipFits(field, wanted)) return "accepted";
-  const chipsBefore = chipsIn(field).length;
-  const before = new Set(Array.from(doc.querySelectorAll(OPTION)));
-  pointerClick(input);
-  input.focus();
-  clearTyped(input);
-  typeText(input, wanted);
-  press(input, "Enter");
-  const options = await waitFor(() => newOptions(doc, before), LIST_TIMEOUT_MS);
-  const index = rankOption(options.map(optionText), wanted, aliases);
-  if (index < 0) {
-    clearTyped(input);
-    press(input, "Escape");
-    blurField(input);
-    return "no_match";
-  }
-  const chosen = optionText(options[index]);
+  const fieldNow = () => fieldOf(live(input)) ?? live(input).parentElement;
+  const chips = () => chipsIn(fieldNow());
+  if (match(chips(), wanted) >= 0) return "accepted";
+  const chipsBefore = chips().length;
   for (let attempt = 0; attempt < 2; attempt++) {
+    trace.attempts++;
+    const before = new Set(Array.from(doc.querySelectorAll(OPTION)));
+    await focusField(live(input));
+    await clearField(live(input));
+    await typeText(live(input), wanted);
+    trace.focusAfterTyping = hasFocus(live(input));
+    await press(live(input), "Enter");
+    step("searched");
+    const options = await waitFor(() => newOptions(doc, before), LIST_TIMEOUT_MS);
+    const index = match(options.map(optionText), wanted);
+    if (index < 0) {
+      step(options.length ? `no match in ${options.length} options` : "no options");
+      await clearField(live(input));
+      await press(live(input), "Escape");
+      leave(live(input));
+      return "no_match";
+    }
+    const chosen = optionText(options[index]);
     // Workday listens on the option's radio or checkbox when it has one.
     const target = options[index].querySelector<HTMLElement>("input[type='radio'], input[type='checkbox']") ?? options[index];
-    if (attempt === 0) pointerClick(target);
-    else {
-      // Second try: the keyboard. The list keeps focus on the first option after a search.
-      options[index].focus?.();
-      press(options[index], "Enter");
-    }
+    await click(target);
+    step("clicked option");
     const chip = await waitFor(
-      () => (chipsIn(field).length > chipsBefore && chipsIn(field).some((c) => normalize(c) === normalize(chosen)) ? [input] : []),
+      () => (chips().length > chipsBefore && chips().some((c) => normalize(c) === normalize(chosen)) ? [live(input)] : []),
       CHOSEN_TIMEOUT_MS,
     );
     if (chip.length) {
-      if (input.value) clearTyped(input);
+      if (live(input).value) await clearField(live(input));
+      await press(live(input), "Escape");
+      leave(live(input));
       return "accepted";
     }
-    if (!options[index].isConnected) break;
+    step("no chip");
   }
-  clearTyped(input);
-  press(input, "Escape");
+  await clearField(live(input));
+  await press(live(input), "Escape");
+  leave(live(input));
   return "not_accepted";
 }
 
@@ -353,33 +408,54 @@ export function buttonValue(button: HTMLElement): string {
  * click the best option, and check the button now shows it.
  */
 export async function pickFromListbox(button: HTMLElement, wanted: string, aliases: string[] = []): Promise<Taken> {
+  remember(button);
   const doc = button.ownerDocument;
-  if (buttonValue(button) && rankOption([buttonValue(button)], wanted, aliases, true) >= 0) return "accepted";
-  const before = new Set(Array.from(doc.querySelectorAll(OPTION)));
-  pointerClick(button);
-  const options = await waitFor(() => {
-    const controls = button.getAttribute("aria-controls");
-    const list = controls ? doc.getElementById(controls) : null;
-    return newOptions(doc, before, list);
-  }, LIST_TIMEOUT_MS);
-  const index = rankOption(options.map(optionText), wanted, aliases, true);
-  if (index < 0) {
-    press(button, "Escape");
-    return options.length ? "no_match" : "not_accepted";
+  const shownNow = () => buttonValue(live(button));
+  if (shownNow() && rankOption([shownNow()], wanted, aliases, true) >= 0) return "accepted";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    trace.attempts++;
+    const before = new Set(Array.from(doc.querySelectorAll(OPTION)));
+    await click(live(button));
+    step("opened");
+    const options = await waitFor(() => {
+      const controls = live(button).getAttribute("aria-controls");
+      const list = controls ? doc.getElementById(controls) : null;
+      return newOptions(doc, before, list);
+    }, LIST_TIMEOUT_MS);
+    const index = rankOption(options.map(optionText), wanted, aliases, true);
+    if (index < 0) {
+      step(options.length ? `no match in ${options.length} options` : "no options");
+      await press(live(button), "Escape");
+      if (options.length) return "no_match";
+      continue;
+    }
+    const chosen = optionText(options[index]);
+    await click(options[index]);
+    step("clicked option");
+    const shown = await waitFor(() => (normalize(shownNow()) === normalize(chosen) ? [live(button)] : []), CHOSEN_TIMEOUT_MS);
+    if (shown.length) return "accepted";
   }
-  const chosen = optionText(options[index]);
-  pointerClick(options[index]);
-  const shown = await waitFor(() => (normalize(buttonValue(button)) === normalize(chosen) ? [button] : []), CHOSEN_TIMEOUT_MS);
-  return shown.length ? "accepted" : "not_accepted";
+  return "not_accepted";
 }
 
-/** A plain text box, set and checked: the value stays and the field has no error. */
+/**
+ * A plain text box: click into it, replace what's there with the value, leave
+ * it, and check (on the element as it is now) that the value stayed and the
+ * field shows no error. One retry.
+ */
 export async function setWorkdayText(el: HTMLInputElement | HTMLTextAreaElement, value: string): Promise<Taken> {
+  remember(el);
   for (let attempt = 0; attempt < 2; attempt++) {
-    el.focus();
-    setText(el, value);
-    await settle(attempt ? 200 : 40);
-    if (el.value === value && !fieldError(fieldOf(el))) return "accepted";
+    trace.attempts++;
+    await focusField(live(el));
+    await clearField(live(el));
+    await typeText(live(el), value);
+    trace.focusAfterTyping = hasFocus(live(el));
+    leave(live(el));
+    await settle(attempt ? 300 : 120);
+    const now = live(el);
+    if (now.value === value && !fieldError(fieldOf(now))) return "accepted";
+    step(now.value === value ? "error shown" : now.value ? "different value" : "empty after typing");
   }
   return "not_accepted";
 }

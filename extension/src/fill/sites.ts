@@ -10,7 +10,7 @@ import type { FillReport } from "./engine";
 import { type FieldKey, keyForLabel } from "./keys";
 import { addSuccessFactorsRows } from "./successfactors";
 import { workdayAfter, workdayBefore } from "./workday";
-import { workdayLabel } from "./workdayWidgets";
+import { type Taken, setWorkdayText, workdayLabel } from "./workdayWidgets";
 
 export interface Site {
   name: string;
@@ -24,6 +24,8 @@ export interface Site {
   before?(root: ParentNode, profile: Profile, resume: File | null, report: FillReport, handled: Set<HTMLElement>): Promise<void>;
   /** The part of the page that holds the application, when the page has more forms (a job search box). */
   formRoot?(root: ParentNode): ParentNode | null;
+  /** Type into a plain text field, when the site needs more than setting its value (Workday). */
+  typeText?(el: HTMLInputElement | HTMLTextAreaElement, value: string): Promise<Taken>;
   /** The field's name for the fill report, when the site knows a better one than its label (never its value). */
   reportLabel?(el: HTMLElement): string;
   /** Check the page once the general pass is done, such as for fields the site flags as not accepted. */
@@ -196,6 +198,7 @@ export const workday: Site = {
   before: workdayBefore,
   after: workdayAfter,
   reportLabel: workdayLabel,
+  typeText: setWorkdayText,
 };
 
 /**

@@ -46,7 +46,9 @@ import {
   valueFor,
 } from "./keys";
 import type { Site } from "./sites";
-import { type Taken, aliasesFor, pickFromListbox, pickFromSearch } from "./workdayWidgets";
+import { recordField } from "./debug";
+import { live, remember } from "./live";
+import { type Taken, aliasesFor, beginTrace, pickFromListbox, pickFromSearch } from "./workdayWidgets";
 
 export interface FillReport {
   filled: HTMLElement[];
@@ -208,8 +210,16 @@ export async function fillPage(
   if (site?.before) await site.before(root, profile, resume, report, handled);
   // The n-th field asking for a work or education field gets the n-th entry.
   const seenKeys = new Map<FieldKey, number>();
-  for (const c of candidates(root)) {
-    if (handled.has(c.el) || (c.kind === "group" && c.inputs.some((x) => handled.has(x)))) continue;
+  const handledIds = new Set(Array.from(handled, (el) => el.id).filter(Boolean));
+  const found = candidates(root);
+  // Workday redraws a section after some answers (a dropdown choice, a ticked box) and replaces its
+  // elements; each field is found again just before it's filled.
+  for (const c of found) remember(c.el);
+  for (const seen of found) {
+    const c: Candidate = seen.kind === "control" || seen.kind === "combobox" || seen.kind === "datepicker" ? { ...seen, el: live(seen.el) } as Candidate : seen;
+    // A field the site's own step filled may have been redrawn since: the same id is the same field.
+    const done = (el: HTMLElement) => handled.has(el) || (!!el.id && handledIds.has(el.id));
+    if (done(seen.el) || done(c.el) || (c.kind === "group" && c.inputs.some(done))) continue;
     const target = c.kind === "control" || c.kind === "combobox" || c.kind === "datepicker" ? c.el : c.kind === "group" ? c.inputs[0] : c.buttons[0];
     const label = c.kind === "buttons" ? labelOf(c.el) : labelOf(target);
     // The name the report shows. A site may know a better one than the matching label:
@@ -270,7 +280,11 @@ export async function fillPage(
     } else if (key && c.kind !== "datepicker") {
       const value = valueFor(key, profile, index);
       if (!value && OPTIONAL_KEYS.has(key)) outcome = "skipped";
-      else if (value) outcome = await answer(c, value);
+      else if (value) {
+        beginTrace();
+        outcome = await answer(c, value, site);
+        recordField(c.el, value, outcome);
+      }
       // A current role has no end date, so its end date fields aren't the person's to fill either.
       if (outcome === "left" && /^workEnd/.test(key) && profile.work[index]?.current) outcome = "skipped";
     }
@@ -301,7 +315,7 @@ function fromTaken(taken: Taken): Outcome {
 }
 
 /** Answer one field. "failed" when a text field didn't keep the value even after a retry. */
-async function answer(c: Candidate, value: string): Promise<Outcome> {
+async function answer(c: Candidate, value: string, site: Site | null = null): Promise<Outcome> {
   const done = (ok: boolean): Outcome => (ok ? "filled" : "left");
   switch (c.kind) {
     case "group":
@@ -337,6 +351,8 @@ async function answer(c: Candidate, value: string): Promise<Outcome> {
         const [m, y] = value.split("/");
         return (await setTextChecked(el, `${y}-${m}`)) ? "filled" : "failed";
       }
+      // A site that needs real typing for text (Workday) types it, and checks it on the element as it is now.
+      if (site?.typeText) return fromTaken(await site.typeText(el as HTMLInputElement | HTMLTextAreaElement, value));
       return (await setTextChecked(el as HTMLInputElement | HTMLTextAreaElement, value)) ? "filled" : "failed";
     }
   }

@@ -13,6 +13,9 @@
  */
 import { type EducationEntry, type Language, type Profile, type WorkEntry, monthParts, preferredName } from "../profile";
 import { isVisible, setSearchBox, waitFor } from "./dom";
+import { recordField } from "./debug";
+import { click } from "./input";
+import { live, remember } from "./live";
 import type { FillReport } from "./engine";
 import { bulletLines, withScheme } from "./format";
 import { normalize } from "./keys";
@@ -25,6 +28,9 @@ import {
   fieldError,
   fieldOf,
   pickFromListbox,
+  beginTrace,
+  byName,
+  matchSkill,
   pickFromSearch,
   segmentTaken,
   setWorkdayDate,
@@ -135,9 +141,12 @@ class Filled {
   ) {}
 
   /** Record the outcome of filling ``el``. */
-  record(el: HTMLElement, taken: Taken, again: () => Promise<Taken>): void {
+  record(el: HTMLElement, taken: Taken, again: () => Promise<Taken>, value: string | null = null): void {
     this.handled.add(el);
-    if (taken !== "missing") this.report.labels?.set(el, workdayLabel(el));
+    if (taken !== "missing") {
+      this.report.labels?.set(el, workdayLabel(el));
+      recordField(el, value, taken);
+    }
     if (taken === "accepted") {
       this.report.filled.push(el);
       this.items.push({ el, again });
@@ -156,9 +165,11 @@ class Filled {
    */
   async check(): Promise<void> {
     for (const item of this.items) {
-      if (!this.rejected(item.el)) continue;
+      if (!this.rejected(live(item.el))) continue;
+      beginTrace();
       const taken = await item.again();
-      if (taken === "accepted" && !this.rejected(item.el)) continue;
+      recordField(item.el, null, `retried: ${taken}`);
+      if (taken === "accepted" && !this.rejected(live(item.el))) continue;
       this.report.filled = this.report.filled.filter((x) => x !== item.el);
       if (!this.report.left.includes(item.el)) this.report.left.push(item.el);
       (this.report.notAccepted ??= []).push(item.el);
@@ -187,12 +198,15 @@ async function put(el: Field | null, value: string, done: Filled, aliases: strin
     return;
   }
   const fill = async (): Promise<Taken> => {
-    if (el instanceof HTMLButtonElement) return pickFromListbox(el, value, aliases);
-    if (el instanceof HTMLInputElement && el.getAttribute("data-uxi-widget-type") === "selectinput") return pickFromSearch(el, value, aliases);
-    if (el instanceof HTMLInputElement && el.dataset.automationId === "searchBox") return (await setSearchBox(el, value)) ? "accepted" : "no_match";
-    return setWorkdayText(el, value);
+    const now = live(el);
+    if (now instanceof HTMLButtonElement) return pickFromListbox(now, value, aliases);
+    if (now instanceof HTMLInputElement && now.getAttribute("data-uxi-widget-type") === "selectinput") return pickFromSearch(now, value, byName(aliases));
+    if (now instanceof HTMLInputElement && now.dataset.automationId === "searchBox") return (await setSearchBox(now, value)) ? "accepted" : "no_match";
+    return setWorkdayText(now as HTMLInputElement | HTMLTextAreaElement, value);
   };
-  done.record(el, await fill(), fill);
+  remember(el);
+  beginTrace();
+  done.record(el, await fill(), fill, value);
 }
 
 /** A Workday date: month and year boxes, a year box alone, or one text field. */
@@ -210,8 +224,10 @@ async function putDate(block: ParentNode, name: string, value: string, done: Fil
     const took = (x: HTMLInputElement | null) => !x || (!!x.value && segmentTaken(x, x.value));
     const already = !!seg.year?.value && took(seg.month) && took(seg.year);
     if (!year || already) return;
-    const fill = () => setWorkdayDate(wrapper, month, year);
-    done.record(wrapper, await fill(), fill);
+    const fill = () => setWorkdayDate(live(wrapper), month, year);
+    remember(wrapper);
+    beginTrace();
+    done.record(wrapper, await fill(), fill, [seg.month ? month.padStart(2, "0") : "", year].filter(Boolean).join("/"));
     return;
   }
   const single = box instanceof HTMLInputElement ? box : box.querySelector<HTMLInputElement>("input");
@@ -241,13 +257,21 @@ function pair<T>(blocksOnPage: HTMLElement[], entries: T[], keyOfBlock: (b: HTML
 /** How long Workday gets to draw a new entry after Add. */
 const ENTRY_TIMEOUT_MS = 4000;
 
+/** Finds a section as it is on the page now: Add, and other answers, can redraw a whole section. */
+type FindSection = () => HTMLElement | null;
+
 /** Click Add and wait for the new entry to render. False when none appears. */
-async function addEntry(section: HTMLElement, marker: Marker): Promise<boolean> {
+async function addEntry(find: FindSection, marker: Marker): Promise<boolean> {
+  const section = find();
+  if (!section) return false;
   const before = blocks(section, marker).length;
   const button = addButton(section);
   if (!button) return false;
-  button.click();
-  const grown = await waitFor(() => (blocks(section, marker).length > before ? [section] : []), ENTRY_TIMEOUT_MS);
+  await click(button);
+  const grown = await waitFor(() => {
+    const now = find();
+    return now && blocks(now, marker).length > before ? [now] : [];
+  }, ENTRY_TIMEOUT_MS);
   if (grown.length) await new Promise((resolve) => setTimeout(resolve, 150));
   return grown.length > 0;
 }
@@ -259,7 +283,7 @@ async function addEntry(section: HTMLElement, marker: Marker): Promise<boolean> 
  * re-draws when the next one is added.
  */
 async function fillEntries<T>(
-  section: HTMLElement | null,
+  find: FindSection,
   marker: Marker,
   entries: T[],
   keyOfBlock: (b: HTMLElement) => string,
@@ -267,18 +291,27 @@ async function fillEntries<T>(
   fill: (block: HTMLElement, entry: T) => Promise<void>,
   done: Filled,
 ): Promise<void> {
-  if (!section || !entries.length) return;
-  let missing = pair(blocks(section, marker), entries, keyOfBlock, keyOfEntry).filter(([b]) => !b).length;
-  while (missing > 0 && (await addEntry(section, marker))) missing--;
-  for (const [block, entry] of pair(blocks(section, marker), entries, keyOfBlock, keyOfEntry)) {
+  const first = find();
+  if (!first || !entries.length) return;
+  let missing = pair(blocks(first, marker), entries, keyOfBlock, keyOfEntry).filter(([b]) => !b).length;
+  while (missing > 0 && (await addEntry(find, marker))) missing--;
+  // Which entry on the page each profile item goes in, by position. Each entry is then found
+  // afresh just before it's filled, since filling the one before can redraw the section.
+  const now = find();
+  if (!now) return;
+  const onPage = blocks(now, marker);
+  const plan = pair(onPage, entries, keyOfBlock, keyOfEntry).map(([b, entry]) => [b ? onPage.indexOf(b) : -1, entry] as const);
+  for (const [index, entry] of plan) {
+    const section = find();
+    const block = index >= 0 && section ? blocks(section, marker)[index] : undefined;
     if (block) await fill(block, entry);
   }
   await done.check();
 }
 
-async function fillWork(section: HTMLElement | null, work: WorkEntry[], done: Filled, handled: Set<HTMLElement>, report: FillReport): Promise<void> {
+async function fillWork(find: FindSection, work: WorkEntry[], done: Filled, handled: Set<HTMLElement>, report: FillReport): Promise<void> {
   await fillEntries(
-    section,
+    find,
     WORK,
     work,
     (b) => valueOf(field(b, "companyName")) || valueOf(field(b, "jobTitle")),
@@ -290,8 +323,10 @@ async function fillWork(section: HTMLElement | null, work: WorkEntry[], done: Fi
       const current = block.querySelector<HTMLInputElement>("[id$='--currentlyWorkHere'], [data-automation-id='currentlyWorkHere']");
       if (current) {
         handled.add(current);
-        if (w.current && !current.checked) {
-          current.click();
+        if (w.current && !live(current).checked) {
+          await click(live(current));
+          // Ticking it hides the To date and redraws the entry; let that finish before the next click.
+          await new Promise((resolve) => setTimeout(resolve, 300));
           report.filled.push(current);
           report.labels?.set(current, workdayLabel(current));
         }
@@ -306,9 +341,9 @@ async function fillWork(section: HTMLElement | null, work: WorkEntry[], done: Fi
   );
 }
 
-async function fillEducation(section: HTMLElement | null, education: EducationEntry[], done: Filled): Promise<void> {
+async function fillEducation(find: FindSection, education: EducationEntry[], done: Filled): Promise<void> {
   await fillEntries(
-    section,
+    find,
     EDUCATION,
     education,
     (b) => valueOf(field(b, "school", "schoolName")) || textOf(b.querySelector("[data-automation-id='formField-schoolItem'] [data-automation-id='selectedItem']")),
@@ -325,9 +360,9 @@ async function fillEducation(section: HTMLElement | null, education: EducationEn
   );
 }
 
-async function fillLanguages(section: HTMLElement | null, languages: Language[], done: Filled, handled: Set<HTMLElement>, report: FillReport): Promise<void> {
+async function fillLanguages(find: FindSection, languages: Language[], done: Filled, handled: Set<HTMLElement>, report: FillReport): Promise<void> {
   await fillEntries(
-    section,
+    find,
     LANGUAGE,
     languages,
     (b) => valueOf(field(b, "language")),
@@ -337,8 +372,8 @@ async function fillLanguages(section: HTMLElement | null, languages: Language[],
       const fluent = block.querySelector<HTMLInputElement>("[id$='--native'], [data-automation-id='nativeLanguage'], input[type='checkbox']");
       if (fluent) {
         handled.add(fluent);
-        if (/native|fluent/i.test(l.level) && !fluent.checked) {
-          fluent.click();
+        if (/native|fluent/i.test(l.level) && !live(fluent).checked) {
+          await click(live(fluent));
           report.filled.push(fluent);
           report.labels?.set(fluent, workdayLabel(fluent));
         }
@@ -353,9 +388,9 @@ async function fillLanguages(section: HTMLElement | null, languages: Language[],
   );
 }
 
-async function fillWebsites(section: HTMLElement | null, urls: string[], done: Filled): Promise<void> {
+async function fillWebsites(find: FindSection, urls: string[], done: Filled): Promise<void> {
   await fillEntries(
-    section,
+    find,
     WEBSITE,
     urls,
     (b) => valueOf(field(b, "url")),
@@ -373,8 +408,14 @@ async function fillSkills(root: ParentNode, skills: string[], report: FillReport
   handled.add(input);
   let added = 0;
   for (const skill of skills) {
-    if (chipsIn(box).some((c) => normalize(c) === normalize(skill))) continue;
-    const ok = isSearch(input) && input.getAttribute("data-uxi-widget-type") === "selectinput" ? (await pickFromSearch(input, skill)) === "accepted" : await setSearchBox(input, skill);
+    if (matchSkill(chipsIn(live(box)), skill) >= 0) continue;
+    // Skills match by name only: "C" never picks C# or C++, "Django" never "Django Admin".
+    beginTrace();
+    const ok =
+      isSearch(input) && input.getAttribute("data-uxi-widget-type") === "selectinput"
+        ? (await pickFromSearch(live(input), skill, matchSkill)) === "accepted"
+        : await setSearchBox(input, skill);
+    recordField(input, skill, ok ? "accepted" : "no_match");
     if (ok) added++;
   }
   report.labels?.set(input, workdayLabel(input));
@@ -390,10 +431,10 @@ export function websitesFor(p: Profile): string[] {
 /** Everything on My Experience that comes in entries. Does nothing on Workday's other pages. */
 export async function workdayEntries(root: ParentNode, profile: Profile, _resume: File | null, report: FillReport, handled: Set<HTMLElement>): Promise<void> {
   const done = new Filled(report, handled);
-  await fillWork(sectionFor(root, /^work experience/i, WORK), profile.work, done, handled, report);
-  await fillEducation(sectionFor(root, /^education/i, EDUCATION), profile.education, done);
-  await fillLanguages(sectionFor(root, /^languages?/i, LANGUAGE), profile.languages, done, handled, report);
-  await fillWebsites(sectionFor(root, /^websites?/i, WEBSITE), websitesFor(profile), done);
+  await fillWork(() => sectionFor(root, /^work experience/i, WORK), profile.work, done, handled, report);
+  await fillEducation(() => sectionFor(root, /^education/i, EDUCATION), profile.education, done);
+  await fillLanguages(() => sectionFor(root, /^languages?/i, LANGUAGE), profile.languages, done, handled, report);
+  await fillWebsites(() => sectionFor(root, /^websites?/i, WEBSITE), websitesFor(profile), done);
   await fillSkills(root, profile.skills, report, handled);
 }
 
@@ -410,7 +451,7 @@ export async function fillPreferredName(root: ParentNode, profile: Profile, repo
   if (!box) return;
   handled.add(box);
   if (!preferredName(profile) || box.checked) return;
-  box.click();
+  await click(box);
   report.filled.push(box);
   // Wait for Workday to show the preferred name fields.
   await waitFor(() =>
