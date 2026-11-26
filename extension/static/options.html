@@ -32,6 +32,22 @@
         </div>
       </section>
 
+      <section class="card" aria-labelledby="autofill-title">
+        <h2 id="autofill-title">Autofill</h2>
+        <label class="check"><input type="checkbox" id="setting-realTyping" /> Type with real keystrokes on Workday</label>
+        <p class="muted" style="margin: 2px 0 12px">
+          Workday ignores typing a script fakes, so Autofill types and clicks through Chrome's debugger API. While it fills a page,
+          Chrome shows a bar saying "Tailor Autofill started debugging this browser"; it goes away when the fill ends. Nothing is read or sent.
+        </p>
+        <label class="check"><input type="checkbox" id="setting-debug" /> Debug mode</label>
+        <p class="muted" style="margin: 2px 0 8px">
+          After each Autofill, copies a report of every field it touched: label, kind of field, what was set and what the page shows,
+          errors. Values are left out: only their lengths.
+        </p>
+        <label class="check"><input type="checkbox" id="setting-debugValues" /> Include values in the debug report</label>
+        <p id="settings-saved" class="saved" role="status"></p>
+      </section>
+
       <div class="save-bar">
         <span id="saved" class="saved" role="status"></span>
         <button type="submit" form="profile" class="primary">Save profile</button>

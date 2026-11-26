@@ -1,4 +1,5 @@
 /** The profile page: load the saved profile, show it, save it, and keep the resume PDF. */
+import { type Settings, loadSettings, saveSettings } from "./settings";
 import { loadProfile, loadResume, removeResume, saveProfile, saveResume, type StoredResume } from "./profile";
 import { changes, mergeImport, parseTailorExport } from "./importTailor";
 import { readForm, renderForm } from "./profileForm";
@@ -29,7 +30,24 @@ function readAsDataUrl(file: File): Promise<string> {
   });
 }
 
+/** The Autofill settings: each checkbox saves as soon as it changes. */
+async function showSettings(): Promise<void> {
+  const settings = await loadSettings();
+  const saved = document.getElementById("settings-saved")!;
+  for (const key of Object.keys(settings) as (keyof Settings)[]) {
+    const box = document.getElementById(`setting-${key}`) as HTMLInputElement | null;
+    if (!box) continue;
+    box.checked = settings[key];
+    box.addEventListener("change", async () => {
+      settings[key] = box.checked;
+      await saveSettings(settings);
+      saved.textContent = "Saved";
+    });
+  }
+}
+
 async function start(): Promise<void> {
+  showSettings();
   let profile = await loadProfile();
   renderForm(form, profile);
   showResume(await loadResume());
