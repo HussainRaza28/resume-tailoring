@@ -4,9 +4,12 @@
  * it fills the form once, shows the summary and highlights what's left. It
  * never submits.
  */
+import { type DebugReport, finishDebug, noteInput, pageState, startDebug } from "./fill/debug";
 import { fillPage } from "./fill/engine";
+import { startTrusted, stopTrusted, useSynthetic } from "./fill/input";
 import { siteFor } from "./fill/sites";
 import { loadProfile, loadResume, resumeFile } from "./profile";
+import { loadSettings } from "./settings";
 import { PAGE_STYLE, highlight, logReport, showSummary } from "./summary";
 
 declare global {
@@ -21,15 +24,41 @@ export interface AutofillResult {
   text: string;
 }
 
+/** Put the debug report on the clipboard; true when the browser allowed it. */
+async function copyReport(report: DebugReport): Promise<boolean> {
+  const text = JSON.stringify(report, null, 2);
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function autofill(): Promise<AutofillResult | null> {
-  const [profile, stored] = await Promise.all([loadProfile(), loadResume()]);
+  const [profile, stored, settings] = await Promise.all([loadProfile(), loadResume(), loadSettings()]);
   const site = siteFor(location.href);
-  const report = await fillPage(document, profile, stored ? resumeFile(stored) : null, site);
+  if (settings.debug) startDebug(settings.debugValues);
+  // Real typing for the whole run on the sites that need it; the debugger is detached right after.
+  if (settings.realTyping && site?.name === "Workday") await startTrusted();
+  else useSynthetic(settings.realTyping ? "not needed on this site" : "real typing is off in the options");
+  noteInput();
+  let report;
+  try {
+    report = await fillPage(document, profile, stored ? resumeFile(stored) : null, site);
+  } finally {
+    await stopTrusted();
+  }
+  const debug = finishDebug();
+  if (debug) {
+    await chrome.storage.local.set({ lastDebug: debug });
+    console.log("Tailor Autofill debug report", debug);
+  }
   // A frame with no form at all (an ad, a video) stays quiet.
   if (!report.filled.length && !report.left.length) return null;
   highlight(report.left);
   logReport(report);
-  const banner = showSummary(document, report);
+  const banner = showSummary(document, report, debug ? { copy: () => copyReport(debug), copied: await copyReport(debug) } : undefined);
   return { filled: report.filled.length, left: report.left.length, text: banner.shadowRoot!.querySelector(".text")!.textContent ?? "" };
 }
 
@@ -66,6 +95,12 @@ function addButton(): void {
 if (!window.__tailorAutofill) {
   window.__tailorAutofill = true;
   chrome.runtime.onMessage.addListener((message, _sender, reply) => {
+    // Debug: every field on the page as it is now, nothing filled. The popup copies it.
+    if (message?.type === "pageState") {
+      if (!document.querySelector("input, select, textarea, button[aria-haspopup='listbox']")) return false;
+      reply(pageState(document, !!message.values));
+      return false;
+    }
     if (message?.type !== "autofill") return false;
     autofill().then((result) => {
       if (result) reply(result);

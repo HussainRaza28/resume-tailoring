@@ -79,7 +79,13 @@ export function highlight(elements: HTMLElement[]): void {
 }
 
 /** Show the summary line in the corner of the page until it's closed or 12 seconds pass. */
-export function showSummary(doc: Document, report: Summary): HTMLElement {
+/** Debug mode's part of the banner: whether the report is on the clipboard, and a button to copy it again. */
+export interface DebugCopy {
+  copied: boolean;
+  copy: () => Promise<boolean>;
+}
+
+export function showSummary(doc: Document, report: Summary, debug?: DebugCopy): HTMLElement {
   doc.getElementById(HOST_ID)?.remove();
   const host = doc.createElement("div");
   host.id = HOST_ID;
@@ -105,6 +111,9 @@ export function showSummary(doc: Document, report: Summary): HTMLElement {
       summary { cursor: pointer; color: #f4f4f2; font-weight: 500; }
       h4 { margin: 10px 0 2px; font-size: 12px; color: #f4f4f2; }
       ul { margin: 0; padding-left: 16px; }
+      .debug { display: flex; gap: 10px; align-items: center; padding: 8px 10px 8px 14px; border-radius: 12px; background: #171615;
+               color: #b5b1aa; border: 1px solid rgba(255, 255, 255, 0.08); font: 400 12px/1.3 var(--font); }
+      .debug button { width: auto; height: 26px; padding: 0 10px; border: 1px solid rgba(255, 255, 255, 0.12); font-size: 12px; color: #f4f4f2; }
     </style>
     <div class="wrap">
       <div class="box" role="status"><span class="dot"></span><span class="text"></span><button type="button" aria-label="Close">×</button></div>
@@ -115,7 +124,22 @@ export function showSummary(doc: Document, report: Summary): HTMLElement {
   root.querySelector("button")!.addEventListener("click", () => host.remove());
   // The fields by label, under a Details toggle. Built with text nodes: labels come from the page.
   const groups = reportGroups(report);
-  const timer = setTimeout(() => host.remove(), 12_000);
+  // A debug run keeps the banner up: its report may still need copying.
+  const timer = debug ? undefined : setTimeout(() => host.remove(), 12_000);
+  if (debug) {
+    const row = doc.createElement("div");
+    row.className = "debug";
+    const note = doc.createElement("span");
+    note.textContent = debug.copied ? "Debug report copied." : "Debug report ready.";
+    const again = doc.createElement("button");
+    again.type = "button";
+    again.textContent = "Copy debug report";
+    again.addEventListener("click", async () => {
+      note.textContent = (await debug.copy()) ? "Debug report copied." : "Couldn't copy; it's in the console.";
+    });
+    row.append(note, again);
+    root.querySelector(".wrap")!.prepend(row);
+  }
   if (groups.length) {
     const details = doc.createElement("details");
     const summary = doc.createElement("summary");

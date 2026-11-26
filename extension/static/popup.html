@@ -17,6 +17,12 @@
       <button type="button" id="autofill" class="primary">Autofill this page</button>
       <p id="result" class="result-line muted" role="status"></p>
       <button type="button" id="edit">Edit profile</button>
+      <div id="debug" class="card" hidden>
+        <p class="muted" style="margin: 0 0 8px">Debug mode is on.</p>
+        <button type="button" id="copy-last">Copy last debug report</button>
+        <button type="button" id="copy-state">Copy page state (fills nothing)</button>
+        <p id="debug-result" class="result-line muted" role="status"></p>
+      </div>
     </main>
     <script src="popup.js"></script>
   </body>
