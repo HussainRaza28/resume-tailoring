@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tailor Autofill",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Fills job applications from a profile kept in this browser. It never submits and never sends anything anywhere.",
   "permissions": [
     "storage",

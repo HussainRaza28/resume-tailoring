@@ -2,7 +2,7 @@
 ;     iscc packaging\windows\tailor.iss
 ; It packs dist\Tailor into dist\installer\Tailor-Setup-<version>.exe.
 
-#define AppVersion "0.1.0"
+#define AppVersion "1.0.0"
 
 [Setup]
 AppId={{09238770-C9DD-470B-8A89-7D28C868F104}

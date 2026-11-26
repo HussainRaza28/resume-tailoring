@@ -316,7 +316,7 @@ export async function installMock() {
     };
     switch (cmd) {
       case "app_info":
-        return { name: "Tailor", version: "0.1.0", data_dir: "~/Library/Application Support/Tailor/private", has_base_resume: db.hasBase, tectonic_path: "/Applications/Tailor.app/Contents/MacOS/tectonic" };
+        return { name: "Tailor", version: "1.0.0", data_dir: "~/Library/Application Support/Tailor/private", has_base_resume: db.hasBase, tectonic_path: "/Applications/Tailor.app/Contents/MacOS/tectonic" };
       case "get_settings":
         return ["provider", "model.claude_api", "model.claude_code", "model.codex", "model.gemini", "model.ollama", "model.demo", "effort", "theme", "export_dir", "ollama_host", "path.claude_code", "path.codex"].map((key) => ({ key, value: db.settings[key] ?? null }));
       case "set_setting":
@@ -629,7 +629,7 @@ export async function installMock() {
           pdf_links: cmd === "suggest_facts_from_url" ? [{ url: "https://jordan.example/resume.pdf", label: "Resume (PDF)" }] : [],
         };
       case "change_data_dir":
-        return { name: "Tailor", version: "0.1.0", data_dir: String(a.path), has_base_resume: db.hasBase, tectonic_path: "/Applications/Tailor.app/Contents/MacOS/tectonic" };
+        return { name: "Tailor", version: "1.0.0", data_dir: String(a.path), has_base_resume: db.hasBase, tectonic_path: "/Applications/Tailor.app/Contents/MacOS/tectonic" };
       case "show_data_dir":
         return null;
       case "pick_program":

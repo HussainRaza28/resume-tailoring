@@ -1,4 +1,4 @@
-Tailor tailors your LaTeX resume to a job posting. It scores the resume, rewrites only the bullets a red flag or missing keyword calls for, checks every number, name and skill against your own sources, and exports a one-page PDF. Tailor Autofill, the Chrome extension, fills job applications from a profile kept in your browser.
+Tailor tailors your LaTeX resume to a job posting. It scores the resume, works through the score's advice and your own notes across the whole resume, checks every number, name and skill against your own sources, keeps dates, GPA, titles and other facts unchanged unless you ask, and exports a one-page PDF. Tailor Autofill, the Chrome extension, fills job applications from a profile kept in your browser.
 
 ## Downloads
 

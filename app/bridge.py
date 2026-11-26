@@ -78,7 +78,7 @@ from app.providers.ollama import DEFAULT_HOST, OllamaProvider
 log = logging.getLogger(__name__)
 
 APP_NAME = "Tailor"
-APP_VERSION = "0.1.0"
+APP_VERSION = "1.0.0"
 
 DEFAULT_PROVIDER = "claude_code"
 DEFAULT_MODELS = {

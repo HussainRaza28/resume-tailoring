@@ -14,7 +14,7 @@ from PyInstaller.utils.hooks import collect_data_files
 ROOT = Path(SPECPATH).parent
 MAC = sys.platform == "darwin"
 WINDOWS = sys.platform == "win32"
-VERSION = "0.1.0"
+VERSION = "1.0.0"
 
 tectonic = ROOT / "packaging" / "bin" / ("tectonic.exe" if WINDOWS else "tectonic")
 interface = ROOT / "ui" / "dist" / "index.html"

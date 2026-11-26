@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
-    # A version tag (v0.1.0) runs everything below and then publishes a release.
+    # A version tag (v1.0.0) runs everything below and then publishes a release.
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
@@ -156,7 +156,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           mkdir -p dist/installer
-          hdiutil create -volname Tailor -srcfolder dist/Tailor.app -ov -format UDZO dist/installer/Tailor-0.1.0-arm64.dmg
+          hdiutil create -volname Tailor -srcfolder dist/Tailor.app -ov -format UDZO dist/installer/Tailor-1.0.0-arm64.dmg
 
       - name: Self-test the packaged app and open its window (Windows)
         if: runner.os == 'Windows'
