@@ -8,6 +8,7 @@ resume itself, so nothing personal is built into the app.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from app.core.tex import is_escaped, match_brace, tex_to_plain
 
@@ -38,6 +39,21 @@ def person_name(tex: str) -> str:
 def _file_part(text: str) -> str:
     """Letters, digits and hyphens, with anything else turned into single underscores."""
     return re.sub(r"[^A-Za-z0-9-]+", "_", text.strip()).strip("_")
+
+
+def unused_path(folder: Path, name: str) -> Path:
+    """``folder/name``, or with _v2, _v3 and so on before the extension when that file exists.
+
+    Export never replaces a file: an earlier resume for the same company is kept.
+    """
+    path = folder / name
+    if not path.exists():
+        return path
+    stem, suffix = path.stem, path.suffix
+    n = 2
+    while (folder / f"{stem}_v{n}{suffix}").exists():
+        n += 1
+    return folder / f"{stem}_v{n}{suffix}"
 
 
 def export_file_name(name: str, company: str) -> str:

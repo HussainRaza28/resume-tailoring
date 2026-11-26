@@ -205,16 +205,42 @@ def work(doc: TexDoc) -> list[dict]:
     return out
 
 
-def skills(doc: TexDoc) -> list[str]:
+# Words in parentheses that say how well, not what: "Rust (learning)" is the skill Rust.
+_LEVEL = re.compile(r"^(basic|basics|familiar|learning|beginner|intermediate|advanced|proficient|fluent|some|working knowledge)$", re.I)
+
+
+def skill_names(items: list[str]) -> list[str]:
+    """Skills as names a job site's skills list can match, one skill each.
+
+    A resume packs several into one item ("AWS (CloudWatch, Bedrock)"), which
+    no skills list has. That becomes AWS, CloudWatch and Bedrock. A level in
+    parentheses ("Rust (learning)") is dropped, bold marks and stray
+    punctuation are removed, spaces are tidied, and each skill appears once,
+    whatever its case. The names keep their own spelling: matching them to a
+    site's names (dropping "(Programming Language)" and so on) is the
+    extension's job.
+    """
+    out: list[str] = []
     seen: set[str] = set()
-    out = []
-    for _label, items in doc.skills():
-        for item in items:
-            clean = " ".join(item.split())
-            if clean and clean.lower() not in seen:
-                seen.add(clean.lower())
-                out.append(clean)
+
+    def keep(name: str) -> None:
+        name = " ".join(name.replace("*", "").split()).strip(" ,;:/")
+        if name and name.lower() not in seen and not _LEVEL.match(name):
+            seen.add(name.lower())
+            out.append(name)
+
+    for item in items:
+        inner = re.findall(r"\(([^)]*)\)", item)
+        keep(re.sub(r"\([^)]*\)", " ", item))
+        for group in inner:
+            for part in re.split(r"[,;/]", group):
+                keep(part)
     return out
+
+
+def skills(doc: TexDoc) -> list[str]:
+    """Every skill on the resume's skills lines, as separate names."""
+    return skill_names([item for _label, items in doc.skills() for item in items])
 
 
 def autofill_profile(tex: str, facts: FactsBank) -> dict:
