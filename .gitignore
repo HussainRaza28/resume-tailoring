@@ -31,3 +31,6 @@ Thumbs.db
 .env.*
 .vscode/
 .idea/
+
+# Saved application pages with personal data. Only sanitized copies in test-fixtures/ are committed.
+test-fixtures-private/
